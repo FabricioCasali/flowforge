@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>FlowForge</title>
+  <link rel="stylesheet" href="/style.css" />
+  <script src="/vendor/cytoscape.min.js"></script>
+  <script src="/vendor/dagre.min.js"></script>
+  <script src="/vendor/cytoscape-dagre.js"></script>
+</head>
+<body>
+  <header id="topbar">
+    <div class="brand">Flow<span>Forge</span></div>
+    <div id="title" class="title" contenteditable="true" spellcheck="false" title="Clique pra editar o titulo">—</div>
+    <div class="spacer"></div>
+    <span id="conn" class="pill off">desconectado</span>
+    <div class="toolset">
+      <button id="btn-link" title="Ligar nos: clique o de origem, depois o de destino">↔ ligar</button>
+      <button id="btn-delete" title="Remover selecionado (Del)">🗑</button>
+      <button id="btn-layout" title="Re-organizar automaticamente">⤢ layout</button>
+    </div>
+  </header>
+
+  <div id="errbar" hidden></div>
+
+  <main id="stage">
+    <!-- paleta de componentes -->
+    <aside id="palette">
+      <h3>Componentes</h3>
+      <div class="pal-item" draggable="true" data-kind="start"><span class="pal-glyph gs">▶</span> inicio</div>
+      <div class="pal-item" draggable="true" data-kind="task"><span class="pal-glyph gt">▭</span> tarefa</div>
+      <div class="pal-item" draggable="true" data-kind="decision"><span class="pal-glyph gd">◆</span> decisao</div>
+      <div class="pal-item" draggable="true" data-kind="end"><span class="pal-glyph ge">■</span> fim</div>
+      <div class="pal-item" draggable="true" data-kind="idea"><span class="pal-glyph gi">●</span> ideia</div>
+      <div class="pal-hint">Arraste pro canvas — ou clique 2x num vazio.</div>
+    </aside>
+
+    <!-- canvas -->
+    <div id="cy-wrap">
+      <div id="cy"></div>
+      <div id="conn-handle" hidden></div>
+      <div id="change-toast" hidden>
+        <span id="change-text"></span>
+        <button id="change-see">ver ↷</button>
+        <button id="change-x" title="dispensar">✕</button>
+      </div>
+      <div id="empty-hint" hidden>
+        <div class="eh-title">Canvas vazio</div>
+        <div>Arraste um componente da esquerda, ou peca pro Claude montar na aba <b>Conversa</b>.</div>
+      </div>
+      <div id="legend">
+        <span class="lg"><i class="dot proposed"></i>proposto</span>
+        <span class="lg"><i class="dot approved"></i>aprovado</span>
+        <span class="lg"><i class="dot rejected"></i>reprovado</span>
+        <span class="lg"><i class="dot questioned"></i>questionado</span>
+      </div>
+    </div>
+
+    <!-- painel direito com abas -->
+    <aside id="side">
+      <div id="tabs">
+        <button class="tab" data-tab="no">🗒 No</button>
+        <button class="tab active" data-tab="conversa">💬 Conversa</button>
+      </div>
+
+      <!-- aba No: inspetor + notas do no -->
+      <section id="tab-no" class="tabpane" hidden>
+        <div id="insp-empty" class="muted">Selecione um no (ou clique num da paleta) pra editar, marcar status e anotar.</div>
+        <div id="insp-body" hidden>
+          <label class="lbl">Rotulo</label>
+          <input id="insp-label" type="text" />
+          <label class="lbl">Tipo</label>
+          <select id="insp-kind">
+            <option value="start">inicio</option>
+            <option value="task">tarefa</option>
+            <option value="decision">decisao</option>
+            <option value="end">fim</option>
+            <option value="idea">ideia</option>
+          </select>
+          <label class="lbl">Status</label>
+          <div class="status-btns">
+            <button data-status="approved" class="st st-approved">✔ aprovar</button>
+            <button data-status="rejected" class="st st-rejected">✖ reprovar</button>
+            <button data-status="questioned" class="st st-questioned">? questionar</button>
+            <button data-status="proposed" class="st st-proposed">↺ proposto</button>
+          </div>
+          <label class="lbl">🗒 Notas deste no</label>
+          <div id="insp-comments" class="comments"></div>
+          <div class="comment-add">
+            <input id="insp-comment-input" type="text" placeholder="anotar algo sobre este no…" />
+            <button id="insp-comment-btn">anotar</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- aba Conversa: dialogo geral sobre o diagrama -->
+      <section id="tab-conversa" class="tabpane">
+        <div id="thread-list" class="thread-list"></div>
+        <div class="analyze-box">
+          <textarea id="analyze-note" rows="3" placeholder="Fale comigo sobre o diagrama todo (ex: 'reprovei o no X, e se a fila cair?') e clique Analisar."></textarea>
+          <button id="btn-analyze">▶ Analisar com o Claude</button>
+        </div>
+      </section>
+    </aside>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

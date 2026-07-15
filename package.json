@@ -1,0 +1,23 @@
+{
+  "name": "flowforge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Canvas colaborativo e vivo pra co-desenhar estrategias (fluxograma/BPM/mindmap) com o Claude",
+  "type": "commonjs",
+  "bin": {
+    "flowforge": "server/index.js"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "vendor": "node scripts/vendor.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "cytoscape": "^3.30.2",
+    "cytoscape-dagre": "^2.5.0",
+    "dagre": "^0.8.5",
+    "cytoscape-edgehandles": "^4.0.1"
+  }
+}

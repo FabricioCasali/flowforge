@@ -1,0 +1,174 @@
+:root {
+  --bg: #0f1115;
+  --panel: #171a21;
+  --panel2: #1e222b;
+  --line: #2a2f3a;
+  --text: #e6e9ef;
+  --muted: #8b93a3;
+  --accent: #ffcc33;
+  --proposed: #6b7280;
+  --approved: #2fbf71;
+  --rejected: #e5484d;
+  --questioned: #f5a623;
+}
+
+* { box-sizing: border-box; }
+/* hidden precisa vencer regras com display:flex (senao as abas nao trocam) */
+[hidden] { display: none !important; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.45 -apple-system, "Segoe UI", Roboto, Ubuntu, sans-serif;
+  display: flex; flex-direction: column;
+}
+
+/* topbar */
+#topbar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 14px; background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.brand { font-weight: 800; letter-spacing: .3px; white-space: nowrap; }
+.brand span { color: var(--accent); }
+.title {
+  color: var(--text); font-weight: 600; padding: 3px 8px; border-radius: 6px;
+  border: 1px solid transparent; max-width: 46vw; overflow: hidden; white-space: nowrap;
+  text-overflow: ellipsis; outline: none;
+}
+.title:hover { border-color: var(--line); }
+.title:focus { border-color: var(--accent); background: var(--panel2); overflow: visible; text-overflow: clip; }
+.spacer { flex: 1; }
+.toolset { display: flex; gap: 6px; }
+.toolset button, .analyze-box button, .comment-add button, .status-btns button {
+  background: var(--panel2); color: var(--text); border: 1px solid var(--line);
+  border-radius: 8px; padding: 6px 10px; cursor: pointer; font-size: 13px;
+}
+.toolset button:hover { border-color: var(--accent); }
+.toolset button.active { background: var(--accent); color: #111; border-color: var(--accent); }
+
+.pill { font-size: 12px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line); white-space: nowrap; }
+.pill.on { color: var(--approved); border-color: var(--approved); }
+.pill.off { color: var(--rejected); border-color: var(--rejected); }
+
+#errbar {
+  background: #3a1416; color: #ffb4b4; border-bottom: 1px solid var(--rejected);
+  padding: 6px 14px; font-size: 12px; font-family: ui-monospace, monospace;
+  white-space: pre-wrap; cursor: pointer;
+}
+
+/* stage */
+#stage { flex: 1; display: flex; min-height: 0; }
+
+/* paleta */
+#palette {
+  width: 148px; background: var(--panel); border-right: 1px solid var(--line);
+  padding: 12px 10px; display: flex; flex-direction: column; gap: 8px;
+}
+#palette h3, .tabpane h3 { margin: 0 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
+.pal-item {
+  display: flex; align-items: center; gap: 8px; background: var(--panel2);
+  border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
+  cursor: grab; font-size: 13px; user-select: none;
+}
+.pal-item:hover { border-color: var(--accent); }
+.pal-item:active { cursor: grabbing; }
+.pal-glyph { font-size: 13px; width: 16px; text-align: center; }
+.gs { color: var(--approved); } .gt { color: var(--muted); } .gd { color: var(--questioned); }
+.ge { color: var(--rejected); } .gi { color: #7aa2ff; }
+.pal-hint { margin-top: auto; font-size: 11px; color: var(--muted); line-height: 1.4; }
+
+/* canvas */
+#cy-wrap { flex: 1; min-width: 0; position: relative; }
+#cy { position: absolute; inset: 0; background:
+  radial-gradient(circle at 1px 1px, #20242e 1px, transparent 0) 0 0 / 26px 26px, var(--bg); }
+/* toast "o que o Claude mudou" */
+#change-toast {
+  position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 10px; z-index: 6;
+  background: #2a2410; color: var(--accent); border: 1px solid var(--accent);
+  border-radius: 999px; padding: 6px 8px 6px 14px; font-size: 13px; font-weight: 600;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .4);
+}
+#change-toast button {
+  background: var(--accent); color: #111; border: none; border-radius: 999px;
+  padding: 4px 10px; cursor: pointer; font-weight: 700; font-size: 12px;
+}
+#change-toast #change-x { background: transparent; color: var(--accent); padding: 4px 6px; }
+
+/* nozinho de conexao (aparece ao passar o mouse no no) */
+#conn-handle {
+  position: absolute; width: 16px; height: 16px; margin: -8px 0 0 -8px;
+  border-radius: 50%; background: var(--accent); border: 2px solid #111;
+  cursor: crosshair; z-index: 5; box-shadow: 0 0 0 3px rgba(255, 204, 51, .25);
+}
+#conn-handle::after {
+  content: ""; position: absolute; inset: 3px; border-radius: 50%; background: #111;
+}
+#empty-hint {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  text-align: center; color: var(--muted); max-width: 300px; pointer-events: none;
+}
+#empty-hint .eh-title { font-size: 15px; color: var(--text); margin-bottom: 6px; font-weight: 600; }
+#legend {
+  position: absolute; left: 12px; bottom: 12px; display: flex; gap: 12px; flex-wrap: wrap;
+  background: rgba(23,26,33,.85); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px;
+  font-size: 11px; color: var(--muted); backdrop-filter: blur(2px);
+}
+.lg { display: inline-flex; align-items: center; gap: 5px; }
+.dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.dot.proposed { background: var(--proposed); }
+.dot.approved { background: var(--approved); }
+.dot.rejected { background: var(--rejected); }
+.dot.questioned { background: var(--questioned); }
+
+/* painel direito + abas */
+#side { width: 340px; border-left: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; min-height: 0; }
+#tabs { display: flex; border-bottom: 1px solid var(--line); }
+.tab {
+  flex: 1; background: transparent; color: var(--muted); border: none; border-bottom: 2px solid transparent;
+  padding: 10px; cursor: pointer; font-size: 13px; font-weight: 600;
+}
+.tab:hover { color: var(--text); }
+.tab.active { color: var(--text); border-bottom-color: var(--accent); }
+.tabpane { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 12px 14px; overflow: auto; }
+#tab-conversa { overflow: hidden; }
+.muted { color: var(--muted); font-size: 13px; }
+
+.lbl { display: block; margin: 10px 0 4px; font-size: 12px; color: var(--muted); }
+#insp-label, #insp-kind, #insp-comment-input, #analyze-note {
+  width: 100%; background: var(--panel2); color: var(--text);
+  border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; font: inherit;
+}
+#analyze-note { resize: vertical; }
+
+.status-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.st { text-align: left; }
+.st-approved { border-color: var(--approved) !important; }
+.st-rejected { border-color: var(--rejected) !important; }
+.st-questioned { border-color: var(--questioned) !important; }
+.st.active.st-approved { background: var(--approved); color: #062; }
+.st.active.st-rejected { background: var(--rejected); color: #fff; }
+.st.active.st-questioned { background: var(--questioned); color: #422; }
+.st.active.st-proposed { background: var(--proposed); color: #fff; }
+
+.comments { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 8px; }
+.cmt { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font-size: 13px; }
+.cmt .who { font-size: 11px; color: var(--muted); }
+.cmt.claude { border-color: #3a4a6b; }
+.cmt.claude .who { color: #7aa2ff; }
+.comment-add { display: flex; gap: 6px; }
+.comment-add input { flex: 1; }
+
+.thread-list { flex: 1; overflow: auto; display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+.msg { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font-size: 13px; white-space: pre-wrap; }
+.msg .who { font-size: 11px; color: var(--muted); margin-bottom: 2px; }
+.msg.user { background: var(--panel2); }
+.msg.claude { border-color: #3a4a6b; background: #141a28; }
+.msg.claude .who { color: #7aa2ff; }
+.msg.system { border-style: dashed; color: var(--muted); }
+
+.analyze-box { display: flex; flex-direction: column; gap: 6px; }
+#btn-analyze { background: var(--accent); color: #111; font-weight: 700; border: none; border-radius: 8px; padding: 9px; cursor: pointer; }
+#btn-analyze:disabled { opacity: .5; cursor: default; }
+#btn-analyze.waiting { background: var(--questioned); }
