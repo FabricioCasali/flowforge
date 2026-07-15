@@ -24,6 +24,9 @@ let outstandingPatches = 0;   // patches que enviamos e ainda vao ecoar de volta
 let currentType = 'flowchart';
 let currentTitle = 'FlowForge'; // titulo em variavel (NAO ler do DOM, que pode ter erro)
 let suppressTabSwitch = false;  // nao trocar de aba em selecao programatica (update do Claude)
+let history = [];               // pilha de snapshots pro undo/redo
+let histIndex = -1;
+const HIST_MAX = 20;
 let claudeMsgCount = 0;       // pra saber quando o Claude respondeu
 let waitingClaude = false;
 
@@ -49,7 +52,7 @@ const cy = cytoscape({
     { selector: 'node[status="approved"]', style: { 'border-color': '#2fbf71' } },
     { selector: 'node[status="rejected"]', style: { 'border-color': '#e5484d' } },
     { selector: 'node[status="questioned"]', style: { 'border-color': '#f5a623' } },
-    { selector: 'node:selected', style: { 'border-color': '#ffcc33', 'border-width': 4 } },
+    { selector: 'node:selected', style: { 'outline-color': '#ffcc33', 'outline-width': 3, 'outline-offset': 2 } },
     { selector: 'edge', style: {
       'width': 2, 'line-color': '#3a4150', 'target-arrow-color': '#3a4150',
       'target-arrow-shape': 'triangle', 'curve-style': 'bezier',
@@ -58,6 +61,7 @@ const cy = cytoscape({
     }},
     { selector: 'edge[status="approved"]', style: { 'line-color': '#2fbf71', 'target-arrow-color': '#2fbf71' } },
     { selector: 'edge[status="rejected"]', style: { 'line-color': '#e5484d', 'target-arrow-color': '#e5484d', 'line-style': 'dashed' } },
+    { selector: 'edge[status="questioned"]', style: { 'line-color': '#f5a623', 'target-arrow-color': '#f5a623' } },
     { selector: 'edge:selected', style: { 'line-color': '#ffcc33', 'target-arrow-color': '#ffcc33', 'width': 3 } },
     { selector: 'node.link-src', style: { 'border-color': '#ffcc33', 'border-width': 5, 'border-style': 'dashed' } },
     { selector: 'node.conn-target', style: { 'border-color': '#ffcc33', 'border-width': 5 } },
@@ -79,9 +83,11 @@ function exitLinkMode() {
 // ---- helpers de dados -----------------------------------------------------
 function disp(n) {
   const c = (n.comments && n.comments.length) ? '  💬' + n.comments.length : '';
-  return (n.label || '') + c;
+  const d = n.description ? '  📄' : '';
+  return (n.label || '') + c + d;
 }
 function uid(pfx) { return pfx + Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-3); }
+function fmtTs(ts) { try { return new Date(ts).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); } catch (e) { return ''; } }
 
 function diagramToElements(d) {
   const els = [];
@@ -108,7 +114,8 @@ function cyToDiagram() {
       const p = n.position();
       return {
         id: n.id(), label: n.data('label') || '', kind: n.data('kind') || 'task',
-        status: n.data('status') || 'proposed', comments: n.data('comments') || [],
+        status: n.data('status') || 'proposed', description: n.data('description') || '',
+        comments: n.data('comments') || [],
         x: Number.isFinite(p.x) ? Math.round(p.x) : 0,
         y: Number.isFinite(p.y) ? Math.round(p.y) : 0,
       };
@@ -121,10 +128,33 @@ function cyToDiagram() {
 }
 
 function sendPatch() {
+  const d = cyToDiagram();
+  recordHistory(d);
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   outstandingPatches++;
-  ws.send(JSON.stringify({ type: 'patch', diagram: cyToDiagram() }));
+  ws.send(JSON.stringify({ type: 'patch', diagram: d }));
 }
+
+// ---- undo / redo (ultimas HIST_MAX edicoes) -------------------------------
+function neJSON(d) { return JSON.stringify({ n: d.nodes, e: d.edges }); }
+function recordHistory(d) {
+  const snap = d || cyToDiagram();
+  if (histIndex >= 0 && history[histIndex] && neJSON(history[histIndex]) === neJSON(snap)) return; // nada mudou
+  history = history.slice(0, histIndex + 1);   // descarta o "redo" pendente
+  history.push(snap);
+  while (history.length > HIST_MAX + 1) history.shift();
+  histIndex = history.length - 1;
+}
+function restoreSnapshot(snap) {
+  try { reconcile(snap); } catch (e) {}
+  updateSnapshot(snap);
+  updateEmptyHint();
+  refreshInspector();
+  // envia sem gravar novo historico (o dedup do recordHistory pega, pois == topo atual)
+  if (ws && ws.readyState === WebSocket.OPEN) { outstandingPatches++; ws.send(JSON.stringify({ type: 'patch', diagram: snap })); }
+}
+function undo() { if (histIndex > 0) { histIndex--; restoreSnapshot(history[histIndex]); } }
+function redo() { if (histIndex < history.length - 1) { histIndex++; restoreSnapshot(history[histIndex]); } }
 
 // ---- aplicar estado do servidor ------------------------------------------
 // Reconciliacao incremental: upsert de nos/edges, sem derrubar o grafo.
@@ -142,7 +172,7 @@ function reconcile(d) {
   cy.edges().forEach((e) => { if (!edgeIds.has(e.id())) e.remove(); });
 
   nodes.forEach((n) => {
-    const data = { id: n.id, label: n.label || '', kind: n.kind || 'task', status: n.status || 'proposed', comments: n.comments || [] };
+    const data = { id: n.id, label: n.label || '', kind: n.kind || 'task', status: n.status || 'proposed', description: n.description || '', comments: n.comments || [] };
     data._disp = disp(data);
     const cur = cy.getElementById(n.id);
     if (cur.empty()) {
@@ -183,7 +213,7 @@ let snapEdges = new Map();
 let changedEles = cy.collection();
 let changeTimer = null;
 
-function nodeKey(n) { return (n.status || '') + '|' + (n.label || '') + '|' + ((n.comments || []).length) + '|' + (n.kind || ''); }
+function nodeKey(n) { return (n.status || '') + '|' + (n.label || '') + '|' + ((n.comments || []).length) + '|' + (n.kind || '') + '|' + (n.description || ''); }
 function edgeKey(e) { return e.source + '>' + e.target + '|' + (e.label || '') + '|' + (e.status || ''); }
 
 function updateSnapshot(d) {
@@ -281,6 +311,7 @@ function applyState(state) {
   refreshInspector();
   renderThread(state.thread);
   if (waitingClaude && d.updatedBy === 'claude') setWaiting(false);
+  if (!needsLayout) recordHistory(); // se houve layout, o persistPositions grava depois
   if (ch && (ch.nodes.length || ch.edges.length)) highlightChanges(ch);
 }
 
@@ -328,61 +359,144 @@ function renderThread(thread) {
 }
 
 // ---- inspector ------------------------------------------------------------
-function selectedNode() {
-  const s = cy.$('node:selected');
-  return s.length ? s[0] : null;
-}
+function selectedNode() { const s = cy.$('node:selected'); return s.length ? s[0] : null; }
+function selectedEdge() { const s = cy.$('edge:selected'); return s.length ? s[0] : null; }
 
 function refreshInspector() {
   const n = selectedNode();
-  const empty = el('insp-empty'), body = el('insp-body');
-  if (!n) { empty.hidden = false; body.hidden = true; return; }
-  empty.hidden = true; body.hidden = false;
-  el('insp-label').value = n.data('label') || '';
-  el('insp-kind').value = n.data('kind') || 'task';
-  document.querySelectorAll('.status-btns .st').forEach((b) => {
-    b.classList.toggle('active', b.dataset.status === (n.data('status') || 'proposed'));
-  });
-  const box = el('insp-comments');
-  box.innerHTML = '';
-  (n.data('comments') || []).forEach((c) => {
-    const d = document.createElement('div');
-    d.className = 'cmt ' + (c.author || 'user');
-    d.innerHTML = '<div class="who">' + (c.author === 'claude' ? 'Claude' : 'voce') + '</div>';
-    const t = document.createElement('div'); t.textContent = c.text || '';
-    d.appendChild(t); box.appendChild(d);
-  });
+  const e = n ? null : selectedEdge();
+  el('insp-empty').hidden = !!(n || e);
+  el('insp-body').hidden = !n;
+  el('insp-edge').hidden = !e;
+
+  if (n) {
+    el('insp-label').value = n.data('label') || '';
+    el('insp-kind').value = n.data('kind') || 'task';
+    el('insp-desc').value = n.data('description') || '';
+    document.querySelectorAll('#insp-body .status-btns .st').forEach((b) => {
+      b.classList.toggle('active', b.dataset.status === (n.data('status') || 'proposed'));
+    });
+    const box = el('insp-comments');
+    box.innerHTML = '';
+    const entries = n.data('comments') || [];
+    if (!entries.length) { const e = document.createElement('div'); e.className = 'empty'; e.textContent = '(sem anexos ainda)'; box.appendChild(e); }
+    entries.forEach((c) => {
+      const kind = c.kind || 'note';
+      const d = document.createElement('div');
+      d.className = 'cmt k-' + kind + (c.author === 'claude' ? ' claude' : '');
+      const who = c.author === 'claude' ? 'Claude' : 'voce';
+      const tag = kind === 'reject' ? 'reprovou' : kind === 'question' ? 'questionou' : 'nota';
+      const head = document.createElement('div'); head.className = 'who';
+      head.textContent = who + ' · ' + tag + (c.ts ? ' · ' + fmtTs(c.ts) : '');
+      const t = document.createElement('div'); t.textContent = c.text || '';
+      d.appendChild(head); d.appendChild(t); box.appendChild(d);
+    });
+  }
+  if (e) {
+    el('edge-label').value = e.data('label') || '';
+    const src = cy.getElementById(e.data('source')), tgt = cy.getElementById(e.data('target'));
+    el('edge-ends').textContent = '(' + (src.data('label') || e.data('source')) + ' → ' + (tgt.data('label') || e.data('target')) + ')';
+    document.querySelectorAll('#edge-status .st').forEach((b) => {
+      b.classList.toggle('active', b.dataset.estatus === (e.data('status') || 'proposed'));
+    });
+  }
 }
 
 function updateNode(mutator) {
   const n = selectedNode();
   if (!n) return;
   mutator(n);
-  n.data('_disp', disp({ label: n.data('label'), comments: n.data('comments') }));
+  n.data('_disp', disp({ label: n.data('label'), comments: n.data('comments'), description: n.data('description') }));
   refreshInspector();
   sendPatch();
 }
 
+// recalcula o status das setas do no a partir dos dois extremos:
+// - os dois lados com o MESMO status marcado (aprovado/reprovado/questionado) -> a seta pega esse status
+// - lados divergentes, ou algum neutro -> a seta volta pra neutro (path coerente)
+function propagateFrom(node) {
+  node.connectedEdges().forEach((e) => {
+    if (e.hasClass('ghost-edge')) return;
+    const a = e.source().data('status'), b = e.target().data('status');
+    e.data('status', (a !== 'proposed' && a === b) ? a : 'proposed');
+  });
+}
+
 // wiring inspector
-el('insp-label').addEventListener('input', (e) => { const n = selectedNode(); if (n) { n.data('label', e.target.value); n.data('_disp', disp({ label: e.target.value, comments: n.data('comments') })); } });
+el('insp-label').addEventListener('input', (e) => { const n = selectedNode(); if (n) { n.data('label', e.target.value); n.data('_disp', disp({ label: e.target.value, comments: n.data('comments'), description: n.data('description') })); } });
 el('insp-label').addEventListener('change', () => sendPatch());
 el('insp-kind').addEventListener('change', (e) => updateNode((n) => n.data('kind', e.target.value)));
-document.querySelectorAll('.status-btns .st').forEach((b) => {
-  b.addEventListener('click', () => updateNode((n) => n.data('status', b.dataset.status)));
-});
-el('insp-comment-btn').addEventListener('click', addComment);
-el('insp-comment-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') addComment(); });
-function addComment() {
-  const input = el('insp-comment-input');
-  const text = input.value.trim();
-  if (!text) return;
-  updateNode((n) => {
-    const arr = (n.data('comments') || []).slice();
-    arr.push({ author: 'user', text, ts: Date.now() });
-    n.data('comments', arr);
-  });
-  input.value = '';
+el('insp-desc').addEventListener('input', (e) => { const n = selectedNode(); if (n) { n.data('description', e.target.value); n.data('_disp', disp({ label: n.data('label'), comments: n.data('comments'), description: e.target.value })); } });
+el('insp-desc').addEventListener('change', () => sendPatch());
+// anexa uma entrada ao historico do no (nota | reprovacao | questionamento)
+function pushEntry(n, kind, text) {
+  const arr = (n.data('comments') || []).slice();
+  arr.push({ author: 'user', text, ts: Date.now(), kind });
+  n.data('comments', arr);
 }
+
+// status: aprovar/nao-marcar sao diretos; reprovar/questionar pedem o motivo num modal
+document.querySelectorAll('#insp-body .status-btns .st').forEach((b) => {
+  b.addEventListener('click', () => {
+    const s = b.dataset.status;
+    if (!selectedNode()) return;
+    if (s === 'rejected') {
+      openModal('Motivo da reprovacao', 'Por que voce esta reprovando este no?', (reason) => {
+        updateNode((n) => { n.data('status', 'rejected'); pushEntry(n, 'reject', reason); propagateFrom(n); });
+      });
+    } else if (s === 'questioned') {
+      openModal('O que voce esta questionando?', 'Descreva a duvida/objecao sobre este no', (q) => {
+        updateNode((n) => { n.data('status', 'questioned'); pushEntry(n, 'question', q); propagateFrom(n); });
+      });
+    } else {
+      updateNode((n) => { n.data('status', s); propagateFrom(n); });
+    }
+  });
+});
+
+// nota: anexo livre, NAO mexe no status
+el('note-add-btn').addEventListener('click', () => {
+  if (!selectedNode()) return;
+  openModal('Nova nota', 'Anexe uma nota a este no (nao muda o status)', (text) => {
+    updateNode((n) => pushEntry(n, 'note', text));
+  });
+});
+
+// ---- modal generico -------------------------------------------------------
+let modalConfirm = null;
+function openModal(title, placeholder, onConfirm) {
+  el('modal-title').textContent = title;
+  const ta = el('modal-text'); ta.value = ''; ta.placeholder = placeholder || '';
+  modalConfirm = onConfirm;
+  el('modal').hidden = false;
+  setTimeout(() => ta.focus(), 0);
+}
+function closeModal() { el('modal').hidden = true; modalConfirm = null; }
+el('modal-ok').addEventListener('click', () => {
+  const t = el('modal-text').value.trim();
+  if (!t) { el('modal-text').focus(); return; } // motivo/nota obrigatorio
+  const cb = modalConfirm; closeModal(); if (cb) cb(t);
+});
+el('modal-cancel').addEventListener('click', closeModal);
+el('modal').addEventListener('click', (e) => { if (e.target === el('modal')) closeModal(); });
+el('modal-text').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); el('modal-ok').click(); }
+  else if (e.key === 'Escape') { e.preventDefault(); closeModal(); }
+});
+
+// ---- edicao de seta -------------------------------------------------------
+function updateEdge(mutator) {
+  const e = selectedEdge();
+  if (!e) return;
+  mutator(e);
+  refreshInspector();
+  sendPatch();
+}
+el('edge-label').addEventListener('input', (e) => { const ed = selectedEdge(); if (ed) ed.data('label', e.target.value); });
+el('edge-label').addEventListener('change', () => sendPatch());
+document.querySelectorAll('#edge-status .st').forEach((b) => {
+  b.addEventListener('click', () => updateEdge((ed) => ed.data('status', b.dataset.estatus)));
+});
 
 // ---- toolbar --------------------------------------------------------------
 // cria um no numa posicao (coords de modelo), seleciona e abre pra editar
@@ -538,6 +652,8 @@ el('btn-layout').addEventListener('click', () => runLayout(true, () => persistPo
 // selecao: ao escolher um no, abre a aba "No"
 cy.on('select', 'node', () => { refreshInspector(); if (!suppressTabSwitch) setTab('no'); });
 cy.on('unselect', 'node', refreshInspector);
+cy.on('select', 'edge', () => { refreshInspector(); if (!suppressTabSwitch) setTab('no'); });
+cy.on('unselect', 'edge', refreshInspector);
 cy.on('tap', (e) => { if (e.target === cy) { refreshInspector(); clearChanges(); } });
 cy.on('dragfree', 'node', () => sendPatch());
 cy.on('grab', 'node', clearChanges); // usuario comecou a mexer -> tira o realce
@@ -548,9 +664,62 @@ el('change-see').addEventListener('click', () => {
 });
 el('change-x').addEventListener('click', clearChanges);
 
+// ---- zoom + minimapa ------------------------------------------------------
+function zoomBy(f) { cy.zoom({ level: cy.zoom() * f, renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 } }); }
+el('zoom-in').addEventListener('click', () => zoomBy(1.2));
+el('zoom-out').addEventListener('click', () => zoomBy(1 / 1.2));
+el('zoom-fit').addEventListener('click', () => { if (cy.nodes().nonempty()) cy.animate({ fit: { eles: cy.nodes(), padding: 50 } }, { duration: 250 }); });
+el('zoom-reset').addEventListener('click', () => cy.zoom({ level: 1, renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 } }));
+
+(function minimap() {
+  const mm = el('minimap');
+  if (!mm || !mm.getContext) return;
+  const ctx = mm.getContext('2d');
+  const W = mm.width, H = mm.height, PAD = 12;
+  let tf = null, raf = null;
+  const color = (s) => s === 'approved' ? '#2fbf71' : s === 'rejected' ? '#e5484d' : s === 'questioned' ? '#f5a623' : '#8b93a3';
+
+  function draw() {
+    raf = null;
+    ctx.clearRect(0, 0, W, H);
+    const ns = cy.nodes().filter((n) => !n.hasClass('ghost'));
+    if (ns.empty()) { tf = null; return; }
+    const bb = ns.boundingBox();
+    const s = Math.min((W - 2 * PAD) / Math.max(1, bb.w), (H - 2 * PAD) / Math.max(1, bb.h));
+    const ox = PAD + (W - 2 * PAD - bb.w * s) / 2 - bb.x1 * s;
+    const oy = PAD + (H - 2 * PAD - bb.h * s) / 2 - bb.y1 * s;
+    tf = { s, ox, oy };
+    ns.forEach((n) => {
+      const p = n.position();
+      ctx.fillStyle = color(n.data('status'));
+      ctx.fillRect(p.x * s + ox - 2, p.y * s + oy - 2, 4, 4);
+    });
+    const ext = cy.extent();
+    ctx.strokeStyle = '#ffcc33'; ctx.lineWidth = 1;
+    ctx.strokeRect(ext.x1 * s + ox, ext.y1 * s + oy, (ext.x2 - ext.x1) * s, (ext.y2 - ext.y1) * s);
+  }
+  function schedule() { if (!raf) raf = requestAnimationFrame(draw); }
+  cy.on('pan zoom position add remove', schedule);
+  schedule();
+
+  mm.addEventListener('mousedown', (e) => {
+    if (!tf) return;
+    const rect = mm.getBoundingClientRect();
+    const modelX = (e.clientX - rect.left - tf.ox) / tf.s;
+    const modelY = (e.clientY - rect.top - tf.oy) / tf.s;
+    const z = cy.zoom();
+    cy.pan({ x: cy.width() / 2 - modelX * z, y: cy.height() / 2 - modelY * z });
+  });
+})();
+
 // teclado: Del apaga selecionado, Esc sai do modo ligar
 document.addEventListener('keydown', (e) => {
-  if (e.target.matches('input, textarea, [contenteditable]')) return;
+  const k = (e.key || '').toLowerCase();
+  // undo/redo funcionam mesmo com foco fora do canvas, mas nao dentro de campos de texto
+  const inField = e.target.matches('input, textarea, [contenteditable]');
+  if (!inField && (e.ctrlKey || e.metaKey) && k === 'z' && !e.shiftKey) { e.preventDefault(); undo(); return; }
+  if (!inField && (e.ctrlKey || e.metaKey) && (k === 'y' || (k === 'z' && e.shiftKey))) { e.preventDefault(); redo(); return; }
+  if (inField) return;
   if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteSelected(); }
   if (e.key === 'Escape' && linkMode) exitLinkMode();
 });

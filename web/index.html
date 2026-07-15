@@ -55,6 +55,13 @@
         <span class="lg"><i class="dot rejected"></i>reprovado</span>
         <span class="lg"><i class="dot questioned"></i>questionado</span>
       </div>
+      <div id="zoom-ctrls">
+        <button id="zoom-in" title="Aproximar">+</button>
+        <button id="zoom-out" title="Afastar">−</button>
+        <button id="zoom-fit" title="Enquadrar tudo">⤢</button>
+        <button id="zoom-reset" title="100%">1:1</button>
+      </div>
+      <canvas id="minimap" width="200" height="130" title="Minimapa — clique pra navegar"></canvas>
     </div>
 
     <!-- painel direito com abas -->
@@ -78,18 +85,32 @@
             <option value="end">fim</option>
             <option value="idea">ideia</option>
           </select>
+          <label class="lbl">Descricao tecnica</label>
+          <textarea id="insp-desc" rows="4" placeholder="o que este no faz por dentro (logica, microservico, tabela…) — nao confundir com as notas"></textarea>
           <label class="lbl">Status</label>
           <div class="status-btns">
             <button data-status="approved" class="st st-approved">✔ aprovar</button>
             <button data-status="rejected" class="st st-rejected">✖ reprovar</button>
             <button data-status="questioned" class="st st-questioned">? questionar</button>
-            <button data-status="proposed" class="st st-proposed">↺ proposto</button>
+            <button data-status="proposed" class="st st-proposed">○ nao marcar</button>
           </div>
-          <label class="lbl">🗒 Notas deste no</label>
+          <div class="hist-head">
+            <span class="lbl" style="margin:0">🗒 Historico do no</span>
+            <button id="note-add-btn" class="mini-btn">+ nota</button>
+          </div>
           <div id="insp-comments" class="comments"></div>
-          <div class="comment-add">
-            <input id="insp-comment-input" type="text" placeholder="anotar algo sobre este no…" />
-            <button id="insp-comment-btn">anotar</button>
+        </div>
+
+        <div id="insp-edge" hidden>
+          <div class="edge-head">Seta selecionada <span id="edge-ends" class="muted"></span></div>
+          <label class="lbl">Rotulo da seta</label>
+          <input id="edge-label" type="text" placeholder="ex: sim / nao / se falhar…" />
+          <label class="lbl">Status</label>
+          <div class="status-btns" id="edge-status">
+            <button data-estatus="approved" class="st st-approved">✔ aprovar</button>
+            <button data-estatus="rejected" class="st st-rejected">✖ reprovar</button>
+            <button data-estatus="questioned" class="st st-questioned">? questionar</button>
+            <button data-estatus="proposed" class="st st-proposed">○ nao marcar</button>
           </div>
         </div>
       </section>
@@ -104,6 +125,18 @@
       </section>
     </aside>
   </main>
+
+  <div id="modal" hidden>
+    <div class="modal-card">
+      <div id="modal-title" class="modal-title"></div>
+      <textarea id="modal-text" rows="4"></textarea>
+      <div class="modal-actions">
+        <button id="modal-cancel">Cancelar</button>
+        <button id="modal-ok">Confirmar</button>
+      </div>
+      <div class="modal-hint">Ctrl+Enter confirma · Esc cancela</div>
+    </div>
+  </div>
 
   <script src="/app.js"></script>
 </body>
