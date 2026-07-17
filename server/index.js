@@ -79,13 +79,46 @@ function safeReadState(slug) {
   }
 }
 
+// ---- estado "Claude pensando" (trava de edicao no browser) ----------------
+// Enquanto pensa, os browsers ficam em modo leitura (ver/navegar sim, editar
+// nao) — mata a corrida de sincronia. Liga ao despachar "analyze" pro Claude;
+// desliga quando o Claude posta a resposta no thread (passo final do contrato)
+// ou por timeout de seguranca.
+const BUSY_TIMEOUT_MS = 180000;
+const busyBySession = new Map(); // slug -> { timer, baseClaude }
+
+function claudeCount(st) { return ((st && st.thread && st.thread.messages) || []).filter((m) => m.author === 'claude').length; }
+function broadcastBusy(slug) {
+  const set = browsersBySession.get(slug);
+  if (!set) return;
+  const payload = JSON.stringify({ type: 'busy', session: slug, busy: busyBySession.has(slug) });
+  for (const ws of set) { if (ws.readyState === ws.OPEN) ws.send(payload); }
+}
+function setBusy(slug) {
+  const prev = busyBySession.get(slug);
+  if (prev) clearTimeout(prev.timer);
+  const timer = setTimeout(() => { busyBySession.delete(slug); broadcastBusy(slug); }, BUSY_TIMEOUT_MS);
+  busyBySession.set(slug, { timer, baseClaude: claudeCount(safeReadState(slug)) });
+  broadcastBusy(slug);
+}
+function clearBusy(slug) {
+  const b = busyBySession.get(slug);
+  if (!b) return;
+  clearTimeout(b.timer);
+  busyBySession.delete(slug);
+  broadcastBusy(slug);
+}
+
 // ---- broadcast ------------------------------------------------------------
 function broadcastState(slug) {
   const set = browsersBySession.get(slug);
   if (!set || set.size === 0) return;
   const st = safeReadState(slug);
   if (!st) return;
-  const payload = JSON.stringify({ type: 'state', session: slug, diagram: st.diagram, thread: st.thread });
+  // Claude terminou? nova mensagem dele no thread -> destrava.
+  const b = busyBySession.get(slug);
+  if (b && claudeCount(st) > b.baseClaude) clearBusy(slug);
+  const payload = JSON.stringify({ type: 'state', session: slug, diagram: st.diagram, thread: st.thread, busy: busyBySession.has(slug) });
   for (const ws of set) { if (ws.readyState === ws.OPEN) ws.send(payload); }
 }
 
@@ -166,9 +199,9 @@ wss.on('connection', (ws) => {
   browsersBySession.get(slug).add(ws);
   console.log('[browser] conectado session=', slug);
 
-  // estado inicial
+  // estado inicial (inclui busy, pra quem conecta durante o "pensando")
   const st = safeReadState(slug);
-  if (st) ws.send(JSON.stringify({ type: 'state', session: slug, diagram: st.diagram, thread: st.thread }));
+  if (st) ws.send(JSON.stringify({ type: 'state', session: slug, diagram: st.diagram, thread: st.thread, busy: busyBySession.has(slug) }));
 
   ws.on('message', (raw) => {
     let msg;
@@ -199,8 +232,10 @@ wss.on('connection', (ws) => {
       S.appendInbox(slug, event);
       const n = pushToClaude(event);
       console.log('[analyze] session=', slug, 'note=', JSON.stringify(note.slice(0, 60)), 'claudeClients=', n);
-      // feedback imediato no thread pro usuario ver que foi enviado
-      if (n === 0) {
+      if (n > 0) {
+        setBusy(slug); // trava a edicao no browser ate o Claude responder
+      } else {
+        // feedback imediato no thread pro usuario ver que foi enviado
         S.appendThread(slug, { author: 'system', text: '(Claude offline — pedido salvo no inbox; sera lido quando o Monitor conectar.)', ts: Date.now() });
       }
       return;
