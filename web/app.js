@@ -78,7 +78,7 @@ const cy = cytoscape({
     { selector: 'edge', style: {
       'width': 2, 'line-color': '#3a4150', 'target-arrow-color': '#3a4150',
       'target-arrow-shape': 'triangle', 'curve-style': 'taxi',
-      'taxi-direction': 'auto', 'taxi-turn': '50%', 'taxi-turn-min-distance': 10,
+      'taxi-direction': 'auto', 'taxi-turn': '50%', 'taxi-turn-min-distance': 14,
       'label': 'data(label)', 'color': '#8b93a3', 'font-size': 11,
       'text-background-color': '#0f1115', 'text-background-opacity': 1, 'text-background-padding': 2,
     }},
@@ -87,7 +87,9 @@ const cy = cytoscape({
     { selector: 'edge[status="approved"]', style: { 'line-color': '#2fbf71', 'target-arrow-color': '#2fbf71' } },
     { selector: 'edge[status="rejected"]', style: { 'line-color': '#e5484d', 'target-arrow-color': '#e5484d', 'line-style': 'dashed' } },
     { selector: 'edge[status="questioned"]', style: { 'line-color': '#f5a623', 'target-arrow-color': '#f5a623' } },
-    { selector: 'edge:selected', style: { 'line-color': '#ffcc33', 'target-arrow-color': '#ffcc33', 'width': 3 } },
+    { selector: 'edge:selected', style: { 'line-color': '#ffcc33', 'target-arrow-color': '#ffcc33', 'width': 3, 'z-index': 9999, 'z-index-compare': 'manual' } },
+    // setas conectadas ao NO selecionado: realca o fluxo e traz pro topo (mesma regra da seta selecionada)
+    { selector: 'edge.node-incident', style: { 'line-color': '#ffcc33', 'target-arrow-color': '#ffcc33', 'width': 3, 'z-index': 9999, 'z-index-compare': 'manual' } },
     { selector: 'edge[sourceSide]', style: { 'source-endpoint': 'data(_srcEP)' } },
     { selector: 'edge[targetSide]', style: { 'target-endpoint': 'data(_tgtEP)' } },
     { selector: 'node.link-src', style: { 'border-color': '#ffcc33', 'border-width': 5, 'border-style': 'dashed' } },
@@ -1140,6 +1142,23 @@ el('btn-delete').addEventListener('click', deleteSelected);
   document.addEventListener('click', (e) => { if (!menu.contains(e.target) && e.target.id !== 'btn-layout') menu.style.display = 'none'; });
 })();
 
+// zera o roteamento das setas (quebras/segments) -> volta pro taxi ortogonal.
+// OBRIGATORIO antes de um auto-layout: waypoints sao coords ABSOLUTAS do arranjo
+// ANTIGO; ao reposicionar os nos, computeSegments projeta essas quebras velhas na
+// nova reta origem->destino e vira o espaguete diagonal (bug #3/#4/#5). Preserva
+// 'bezier' (curva deliberada, sem waypoints).
+function clearEdgeRouting() {
+  cy.startBatch();
+  cy.edges().forEach((e) => {
+    if (e.hasClass('ghost-edge')) return;
+    if ((e.data('waypoints') || []).length || e.data('routing') === 'segments') {
+      e.removeData('waypoints'); e.removeData('_segWeight'); e.removeData('_segDist');
+      e.removeData('routing'); e.removeData('autoRouted');
+    }
+  });
+  cy.endBatch();
+}
+
 function runNamedLayout(kind) {
   let opts;
   const base = { fit: true, padding: 50, animate: false };
@@ -1148,8 +1167,11 @@ function runNamedLayout(kind) {
   else if (kind === 'radial') opts = { name: 'concentric', minNodeSpacing: 40, concentric: (n) => n.degree(), levelWidth: () => 1, ...base };
   else if (kind === 'force') opts = { name: 'cose', idealEdgeLength: 120, nodeRepulsion: 8000, ...base };
   else opts = DAGRE_OK ? { name: 'dagre', rankDir: 'TB', nodeSep: 55, rankSep: 70, edgeSep: 15, ...base } : { name: 'breadthfirst', directed: true, spacingFactor: 1.3, ...base };
-  const layout = cy.layout(opts);
-  layout.one('layoutstop', () => { organizeLines(); });  // apos reposicionar, contorna os nos
+  clearEdgeRouting();  // some com as quebras do arranjo antigo; sem waypoints o taxi desenha
+  const layout = cy.layout(opts);                       // linha ortogonal limpa (poucas dobras + stub).
+  // NAO re-rotear com desvio aqui: as quebras forcadas nos auto-layouts atrapalham
+  // mais do que ajudam (staircase/diagonais). Desvio de obstaculo fica no botao "organizar linhas".
+  layout.one('layoutstop', () => { sendPatch(); refreshBends(); });  // persiste posicoes + estado limpo das setas
   layout.run();
 }
 el('btn-routes').addEventListener('click', () => organizeLines());
@@ -1222,13 +1244,21 @@ el('node-search').addEventListener('keydown', (e) => { if (e.key === 'Enter') { 
   });
 })();
 
+// realca as setas que entram/saem do no selecionado (facilita seguir o fluxo).
+// so quando ha exatamente 1 no selecionado; sempre reflete o estado atual.
+function refreshIncident() {
+  cy.edges('.node-incident').removeClass('node-incident');
+  const sel = cy.$('node:selected');
+  if (sel.length === 1) sel.connectedEdges().forEach((e) => { if (!e.hasClass('ghost-edge')) e.addClass('node-incident'); });
+}
+
 // selecao: no -> card do no; seta -> card da seta (ambos flutuantes)
-cy.on('select', 'node', () => { refreshInspector(); openCard(); });
-cy.on('unselect', 'node', () => { closeCard(); refreshInspector(); });
+cy.on('select', 'node', () => { refreshInspector(); openCard(); refreshIncident(); });
+cy.on('unselect', 'node', () => { closeCard(); refreshInspector(); refreshIncident(); });
 cy.on('select', 'edge', () => { refreshInspector(); openEdgeCard(); });
 cy.on('unselect', 'edge', () => { closeEdgeCard(); refreshInspector(); });
 cy.on('tap', (e) => { if (e.target === cy) { refreshInspector(); clearChanges(); } });
-cy.on('dragfree', 'node', () => sendPatch());
+cy.on('dragfree', 'node', () => sendPatch());  // ao soltar, so persiste; o taxi re-flui limpo (desvio fica no botao "organizar linhas")
 cy.on('grab', 'node', clearChanges); // usuario comecou a mexer -> tira o realce
 
 // ---- menu de contexto (clique-direito no no) ------------------------------
@@ -1352,7 +1382,9 @@ el('zoom-reset').addEventListener('click', () => cy.zoom({ level: 1, renderedPos
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
 
-    const edges = cy.edges().filter((e) => !e.hasClass('ghost-edge') && e.data('routing') !== 'bezier');
+    // exclui a seta SELECIONADA e as INCIDENTES ao no selecionado: devem ficar inteiras
+    // e no topo; sem isso o overlay pinta um "vao" de fundo por cima delas nos cruzamentos.
+    const edges = cy.edges().filter((e) => !e.hasClass('ghost-edge') && e.data('routing') !== 'bezier' && !e.selected() && !e.hasClass('node-incident'));
     if (edges.length < 2 || edges.length > 200) return;
 
     const items = [];
