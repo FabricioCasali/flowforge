@@ -22,6 +22,7 @@ let ws = null;
 let localRev = -1;
 let outstandingPatches = 0;   // patches que enviamos e ainda vao ecoar de volta
 let currentType = 'flowchart';
+let currentLanes = [];          // raias (swimlane): [{id,label,order}] — vive no topo do diagram
 let currentTitle = 'FlowForge'; // titulo em variavel (NAO ler do DOM, que pode ter erro)
 let suppressTabSwitch = false;  // nao trocar de aba em selecao programatica (update do Claude)
 let history = [];               // pilha de snapshots pro undo/redo
@@ -71,6 +72,14 @@ const cy = cytoscape({
     { selector: 'node[kind="subprocess"]', style: { 'shape': 'round-rectangle', 'background-image': MARK_SUB, 'background-fit': 'none', 'background-width': 16, 'background-height': 16, 'background-position-x': '50%', 'background-position-y': '94%', 'background-clip': 'none' } },
     { selector: 'node[kind="data-object"]', style: { 'shape': 'cut-rectangle', 'width': 128, 'height': 72 } },
     { selector: 'node[kind="annotation"]', style: { 'shape': 'round-rectangle', 'background-opacity': 0.08, 'border-width': 2, 'border-style': 'dashed', 'border-color': '#6b7280', 'text-valign': 'center' } },
+    // --- entidade (ER): caixa auto-dimensionada pelo rotulo (titulo + campos) ---
+    { selector: 'node[kind="entity"]', style: {
+      'shape': 'round-rectangle', 'background-color': '#181d27', 'border-color': '#4a90d9',
+      'width': 'label', 'height': 'label', 'padding': '12px',
+      'text-valign': 'center', 'text-halign': 'center', 'text-justification': 'left',
+      'text-wrap': 'wrap', 'text-max-width': 260,
+      'font-family': 'ui-monospace, Menlo, Consolas, monospace', 'font-size': 12,
+    }},
     { selector: 'node[status="approved"]', style: { 'border-color': '#2fbf71' } },
     { selector: 'node[status="rejected"]', style: { 'border-color': '#e5484d' } },
     { selector: 'node[status="questioned"]', style: { 'border-color': '#f5a623' } },
@@ -92,6 +101,9 @@ const cy = cytoscape({
     { selector: 'edge.node-incident', style: { 'line-color': '#ffcc33', 'target-arrow-color': '#ffcc33', 'width': 3, 'z-index': 9999, 'z-index-compare': 'manual' } },
     { selector: 'edge[sourceSide]', style: { 'source-endpoint': 'data(_srcEP)' } },
     { selector: 'edge[targetSide]', style: { 'target-endpoint': 'data(_tgtEP)' } },
+    // cardinalidade ER: rotulos "1"/"N" nas pontas da relacao
+    { selector: 'edge[sourceCard]', style: { 'source-label': 'data(sourceCard)', 'source-text-offset': 18, 'font-size': 12, 'color': '#cbd2e0', 'text-background-color': '#0f1115', 'text-background-opacity': 1, 'text-background-padding': 2 } },
+    { selector: 'edge[targetCard]', style: { 'target-label': 'data(targetCard)', 'target-text-offset': 18, 'font-size': 12, 'color': '#cbd2e0', 'text-background-color': '#0f1115', 'text-background-opacity': 1, 'text-background-padding': 2 } },
     { selector: 'node.link-src', style: { 'border-color': '#ffcc33', 'border-width': 5, 'border-style': 'dashed' } },
     { selector: 'node.conn-target', style: { 'border-color': '#ffcc33', 'border-width': 5 } },
     { selector: '.ghost', style: { 'width': 1, 'height': 1, 'opacity': 0, 'events': 'no' } },
@@ -109,11 +121,30 @@ function exitLinkMode() {
 }
 
 // ---- helpers de dados -----------------------------------------------------
+// rotulo visivel do no. Entidades (ER) viram bloco multilinha (titulo + campos);
+// os demais tipos ficam no formato classico (rotulo + badges 💬/📄).
 function disp(n) {
+  if (n && n.kind === 'entity') return entityLabel(n);
   const c = (n.comments && n.comments.length) ? '  💬' + n.comments.length : '';
   const d = n.description ? '  📄' : '';
   return (n.label || '') + c + d;
 }
+// monta o corpo da caixa de entidade: nome + separador + linhas "🔑/🔗 campo: tipo"
+function entityLabel(n) {
+  const fields = Array.isArray(n.fields) ? n.fields : [];
+  const badges = ((n.comments && n.comments.length) ? '  💬' + n.comments.length : '') + (n.description ? '  📄' : '');
+  const head = (n.label || '(entidade)') + badges;
+  if (!fields.length) return head + '\n────────────';
+  const lines = fields.map((f) => {
+    const key = f.key === 'pk' ? '🔑 ' : f.key === 'fk' ? '🔗 ' : '';
+    const type = f.type ? ': ' + f.type : '';
+    return key + (f.name || '') + type;
+  });
+  return head + '\n────────────\n' + lines.join('\n');
+}
+// recomputa o _disp de um no do cytoscape a partir do seu data() completo.
+// Centraliza a regra pra nenhum call-site esquecer kind/fields (bug silencioso).
+function recomputeDisp(n) { n.data('_disp', disp(n.data())); }
 function uid(pfx) { return pfx + Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-3); }
 
 // ancoragem por lado do no: side -> ponto de saida/entrada da aresta (relativo ao centro)
@@ -125,6 +156,8 @@ function edgeData(ed) {
   const data = { id: ed.id || uid('e'), source: ed.source, target: ed.target, label: ed.label || '', status: ed.status || 'proposed' };
   if (ed.sourceSide && SIDE_EP[ed.sourceSide]) { data.sourceSide = ed.sourceSide; data._srcEP = SIDE_EP[ed.sourceSide]; }
   if (ed.targetSide && SIDE_EP[ed.targetSide]) { data.targetSide = ed.targetSide; data._tgtEP = SIDE_EP[ed.targetSide]; }
+  if (ed.sourceCard) data.sourceCard = ed.sourceCard;
+  if (ed.targetCard) data.targetCard = ed.targetCard;
   const hasWp = Array.isArray(ed.waypoints) && ed.waypoints.length;
   let routing = ed.routing;
   if (hasWp && routing !== 'bezier') routing = 'segments';
@@ -318,7 +351,7 @@ function fmtTs(ts) { try { return new Date(ts).toLocaleString('pt-BR', { day: '2
 function diagramToElements(d) {
   const els = [];
   (d.nodes || []).forEach((n) => {
-    const data = { id: n.id, label: n.label || '', kind: n.kind || 'task', status: n.status || 'proposed', comments: n.comments || [] };
+    const data = { id: n.id, label: n.label || '', kind: n.kind || 'task', status: n.status || 'proposed', comments: n.comments || [], description: n.description || '', fields: Array.isArray(n.fields) ? n.fields : [], lane: n.lane || null };
     data._disp = disp(data);
     const e = { group: 'nodes', data };
     if (typeof n.x === 'number' && typeof n.y === 'number') e.position = { x: n.x, y: n.y };
@@ -333,18 +366,23 @@ function diagramToElements(d) {
 function cyToDiagram() {
   return {
     type: currentType,
+    lanes: currentLanes || [],
     title: currentTitle || 'FlowForge',
     rev: localRev,
     updatedBy: 'user',
     nodes: cy.nodes().filter((n) => !n.hasClass('ghost')).map((n) => {
       const p = n.position();
-      return {
+      const out = {
         id: n.id(), label: n.data('label') || '', kind: n.data('kind') || 'task',
         status: n.data('status') || 'proposed', description: n.data('description') || '',
         comments: n.data('comments') || [],
         x: Number.isFinite(p.x) ? Math.round(p.x) : 0,
         y: Number.isFinite(p.y) ? Math.round(p.y) : 0,
       };
+      const fields = n.data('fields');
+      if (Array.isArray(fields) && fields.length) out.fields = fields;
+      if (n.data('lane')) out.lane = n.data('lane');
+      return out;
     }),
     edges: cy.edges().filter((e) => !e.hasClass('ghost-edge')).map((e) => {
       const o = {
@@ -353,6 +391,8 @@ function cyToDiagram() {
       };
       if (e.data('sourceSide')) o.sourceSide = e.data('sourceSide');
       if (e.data('targetSide')) o.targetSide = e.data('targetSide');
+      if (e.data('sourceCard')) o.sourceCard = e.data('sourceCard');
+      if (e.data('targetCard')) o.targetCard = e.data('targetCard');
       const wps = e.data('waypoints');
       if (Array.isArray(wps) && wps.length) { o.routing = 'segments'; o.waypoints = wps.map((p) => ({ x: Math.round(p.x), y: Math.round(p.y) })); }
       else if (e.data('routing') === 'bezier') o.routing = 'bezier';
@@ -372,7 +412,7 @@ function sendPatch() {
 }
 
 // ---- undo / redo (ultimas HIST_MAX edicoes) -------------------------------
-function neJSON(d) { return JSON.stringify({ n: d.nodes, e: d.edges }); }
+function neJSON(d) { return JSON.stringify({ n: d.nodes, e: d.edges, l: d.lanes }); }
 function recordHistory(d) {
   const snap = d || cyToDiagram();
   if (histIndex >= 0 && history[histIndex] && neJSON(history[histIndex]) === neJSON(snap)) return; // nada mudou
@@ -383,8 +423,10 @@ function recordHistory(d) {
 }
 function restoreSnapshot(snap) {
   try { reconcile(snap); } catch (e) {}
+  currentLanes = Array.isArray(snap.lanes) ? snap.lanes : currentLanes;
   updateSnapshot(snap);
   updateEmptyHint();
+  if (typeof repaintLanes === 'function') repaintLanes();
   refreshInspector();
   // envia sem gravar novo historico (o dedup do recordHistory pega, pois == topo atual)
   if (ws && ws.readyState === WebSocket.OPEN) { outstandingPatches++; ws.send(JSON.stringify({ type: 'patch', diagram: snap })); }
@@ -408,7 +450,7 @@ function reconcile(d) {
   cy.edges().forEach((e) => { if (!edgeIds.has(e.id())) e.remove(); });
 
   nodes.forEach((n) => {
-    const data = { id: n.id, label: n.label || '', kind: n.kind || 'task', status: n.status || 'proposed', description: n.description || '', comments: n.comments || [] };
+    const data = { id: n.id, label: n.label || '', kind: n.kind || 'task', status: n.status || 'proposed', description: n.description || '', comments: n.comments || [], fields: Array.isArray(n.fields) ? n.fields : [], lane: n.lane || null };
     data._disp = disp(data);
     const cur = cy.getElementById(n.id);
     if (cur.empty()) {
@@ -439,6 +481,8 @@ function reconcile(d) {
       // lados podem sumir/mudar; reflete e recomputa os endpoints transitorios
       upd.sourceSide = e.sourceSide || undefined; upd._srcEP = e.sourceSide ? SIDE_EP[e.sourceSide] : undefined;
       upd.targetSide = e.targetSide || undefined; upd._tgtEP = e.targetSide ? SIDE_EP[e.targetSide] : undefined;
+      // cardinalidade ER (rotulos nas pontas) — some se o Claude remover
+      upd.sourceCard = e.sourceCard || undefined; upd.targetCard = e.targetCard || undefined;
       const hasWp = Array.isArray(e.waypoints) && e.waypoints.length;
       let routing = e.routing; if (hasWp && routing !== 'bezier') routing = 'segments';
       upd.routing = (routing && routing !== 'taxi') ? routing : undefined;
@@ -459,8 +503,8 @@ let snapEdges = new Map();
 let changedEles = cy.collection();
 let changeTimer = null;
 
-function nodeKey(n) { return (n.status || '') + '|' + (n.label || '') + '|' + ((n.comments || []).length) + '|' + (n.kind || '') + '|' + (n.description || ''); }
-function edgeKey(e) { return e.source + '>' + e.target + '|' + (e.label || '') + '|' + (e.status || '') + '|' + (e.sourceSide || '') + '>' + (e.targetSide || ''); }
+function nodeKey(n) { return (n.status || '') + '|' + (n.label || '') + '|' + ((n.comments || []).length) + '|' + (n.kind || '') + '|' + (n.description || '') + '|' + JSON.stringify(n.fields || []) + '|' + (n.lane || ''); }
+function edgeKey(e) { return e.source + '>' + e.target + '|' + (e.label || '') + '|' + (e.status || '') + '|' + (e.sourceSide || '') + '>' + (e.targetSide || '') + '|' + (e.sourceCard || '') + '>' + (e.targetCard || ''); }
 
 function updateSnapshot(d) {
   snapNodes = new Map((d.nodes || []).map((n) => [n.id, nodeKey(n)]));
@@ -541,8 +585,11 @@ function applyState(state) {
 
   localRev = typeof d.rev === 'number' ? d.rev : localRev;
   currentType = d.type || 'flowchart';
+  currentLanes = Array.isArray(d.lanes) ? d.lanes : [];
   currentTitle = d.title || 'FlowForge';
   if (document.activeElement !== titleEl) titleEl.textContent = currentTitle; // nao atrapalha edicao
+  applyTypeUI(currentType);
+  if (typeof repaintLanes === 'function') repaintLanes();
   updateSnapshot(d); // nova baseline
 
   if (needsLayout && cy.nodes().length) runLayout(firstLoad, persistPositions);
@@ -612,7 +659,7 @@ const KIND_LABEL = {
   start: 'inicio', task: 'tarefa', decision: 'decisao', end: 'fim', idea: 'ideia',
   'event-start': 'evento inicio', 'event-intermediate': 'evento interm.', 'event-end': 'evento fim',
   'gateway-exclusive': 'gateway ou', 'gateway-parallel': 'gateway e', subprocess: 'subprocesso',
-  'data-object': 'dado', annotation: 'anotacao',
+  'data-object': 'dado', annotation: 'anotacao', entity: 'entidade',
 };
 
 function refreshInspector() {
@@ -625,6 +672,16 @@ function refreshInspector() {
     el('insp-label').value = n.data('label') || '';
     el('insp-kind').value = n.data('kind') || 'task';
     el('insp-desc').value = n.data('description') || '';
+    // ER: mostra editor de campos e esconde a descricao tecnica (a entidade sao os campos)
+    const isEntity = n.data('kind') === 'entity';
+    el('insp-fields-wrap').hidden = !isEntity;
+    el('insp-desc').hidden = isEntity;
+    el('insp-desc-lbl').hidden = isEntity;
+    if (isEntity) renderFieldsEditor(n);
+    // Swimlane: seletor de raia (ator) do no
+    const isSwim = currentType === 'swimlane';
+    el('insp-lane-wrap').hidden = !isSwim;
+    if (isSwim) populateLaneSelect(el('insp-lane'), n.data('lane'));
     document.querySelectorAll('#node-card .status-btns .st').forEach((b) => {
       b.classList.toggle('active', b.dataset.status === (n.data('status') || 'proposed'));
     });
@@ -648,11 +705,96 @@ function refreshInspector() {
     el('edge-label').value = e.data('label') || '';
     const src = cy.getElementById(e.data('source')), tgt = cy.getElementById(e.data('target'));
     el('edge-ends').textContent = '(' + (src.data('label') || e.data('source')) + ' → ' + (tgt.data('label') || e.data('target')) + ')';
+    // ER: controles de cardinalidade so aparecem no modo entidades
+    el('edge-card-wrap').hidden = currentType !== 'er';
+    if (currentType === 'er') {
+      el('edge-source-card').value = e.data('sourceCard') || '';
+      el('edge-target-card').value = e.data('targetCard') || '';
+    }
     document.querySelectorAll('#edge-status .st').forEach((b) => {
       b.classList.toggle('active', b.dataset.estatus === (e.data('status') || 'proposed'));
     });
   }
 }
+
+// ---- editor de campos (ER) ------------------------------------------------
+// renderiza as linhas {nome, tipo, chave pk/fk, remover} do no entidade selecionado
+function renderFieldsEditor(n) {
+  const box = el('insp-fields');
+  box.innerHTML = '';
+  const fields = Array.isArray(n.data('fields')) ? n.data('fields').slice() : [];
+  if (!fields.length) { const e = document.createElement('div'); e.className = 'empty'; e.textContent = '(sem campos ainda)'; box.appendChild(e); }
+  fields.forEach((f, i) => {
+    const row = document.createElement('div'); row.className = 'field-row';
+    const ksel = document.createElement('select'); ksel.className = 'field-key'; ksel.title = 'chave';
+    [['', '—'], ['pk', '🔑'], ['fk', '🔗']].forEach(([v, t]) => { const o = document.createElement('option'); o.value = v; o.textContent = t; if ((f.key || '') === v) o.selected = true; ksel.appendChild(o); });
+    const nm = document.createElement('input'); nm.className = 'field-name'; nm.placeholder = 'nome'; nm.value = f.name || '';
+    const tp = document.createElement('input'); tp.className = 'field-type'; tp.placeholder = 'tipo'; tp.value = f.type || '';
+    const rm = document.createElement('button'); rm.className = 'mini-btn field-rm'; rm.textContent = '✕'; rm.title = 'remover campo';
+    const commit = () => mutateFields(n, (arr) => { arr[i] = { name: nm.value, type: tp.value, key: ksel.value || null }; });
+    nm.addEventListener('input', () => mutateFields(n, (arr) => { arr[i] = { name: nm.value, type: tp.value, key: ksel.value || null }; }, true));
+    nm.addEventListener('change', commit);
+    tp.addEventListener('input', () => mutateFields(n, (arr) => { arr[i] = { name: nm.value, type: tp.value, key: ksel.value || null }; }, true));
+    tp.addEventListener('change', commit);
+    ksel.addEventListener('change', commit);
+    rm.addEventListener('click', () => { mutateFields(n, (arr) => { arr.splice(i, 1); }); renderFieldsEditor(n); });
+    row.appendChild(ksel); row.appendChild(nm); row.appendChild(tp); row.appendChild(rm);
+    box.appendChild(row);
+  });
+}
+// aplica uma mutacao no fields[] do no, recomputa o rotulo e (por padrao) manda patch.
+// quietPatch=true atualiza so o desenho enquanto digita; o 'change' final grava.
+function mutateFields(n, fn, quietPatch) {
+  if (readOnly) return;
+  const arr = Array.isArray(n.data('fields')) ? n.data('fields').slice() : [];
+  fn(arr);
+  n.data('fields', arr);
+  recomputeDisp(n);
+  if (!quietPatch) sendPatch();
+}
+el('field-add-btn') && el('field-add-btn').addEventListener('click', () => {
+  const n = selectedNode(); if (!n || readOnly) return;
+  mutateFields(n, (arr) => arr.push({ name: '', type: '', key: null }));
+  renderFieldsEditor(n);
+  const inputs = el('insp-fields').querySelectorAll('.field-name');
+  const last = inputs[inputs.length - 1]; if (last) last.focus();
+});
+// cardinalidade da relacao (ER)
+el('edge-source-card') && el('edge-source-card').addEventListener('change', (ev) => updateEdge((ed) => ed.data('sourceCard', ev.target.value || undefined)));
+el('edge-target-card') && el('edge-target-card').addEventListener('change', (ev) => updateEdge((ed) => ed.data('targetCard', ev.target.value || undefined)));
+
+// ---- seletor de tipo de diagrama ------------------------------------------
+// popula um <select> de raias a partir de currentLanes (usado no card do no)
+function populateLaneSelect(sel, current) {
+  if (!sel) return;
+  sel.innerHTML = '';
+  const none = document.createElement('option'); none.value = ''; none.textContent = '(sem raia)'; sel.appendChild(none);
+  (currentLanes || []).slice().sort((a, b) => (a.order || 0) - (b.order || 0)).forEach((l) => {
+    const o = document.createElement('option'); o.value = l.id; o.textContent = l.label || l.id; if (l.id === current) o.selected = true; sel.appendChild(o);
+  });
+}
+// mostra/esconde secoes da paleta e sincroniza o seletor conforme o tipo atual
+function applyTypeUI(type) {
+  const sel = el('type-sel'); if (sel && sel.value !== type) sel.value = type;
+  document.querySelectorAll('#palette .pal-sec').forEach((sec) => {
+    const types = (sec.getAttribute('data-types') || '').split(/\s+/);
+    sec.hidden = !types.includes(type);
+  });
+}
+el('type-sel') && el('type-sel').addEventListener('change', (e) => {
+  if (readOnly) { e.target.value = currentType; return; }
+  currentType = e.target.value;
+  applyTypeUI(currentType);
+  refreshInspector();
+  if (typeof repaintLanes === 'function') repaintLanes();
+  sendPatch();
+});
+el('insp-lane') && el('insp-lane').addEventListener('change', (e) => {
+  const n = selectedNode(); if (!n || readOnly) return;
+  n.data('lane', e.target.value || null);
+  if (currentType === 'swimlane' && typeof snapNodeToLane === 'function') snapNodeToLane(n);
+  sendPatch();
+});
 
 // ---- card flutuante da seta ----------------------------------------------
 function openEdgeCard() { const c = el('edge-card'); if (c.hidden) { c.hidden = false; if (!edgeCardPinned) { c.style.left = '16px'; c.style.bottom = '16px'; c.style.top = 'auto'; } } }
@@ -678,7 +820,7 @@ function updateNode(mutator) {
   const n = selectedNode();
   if (!n) return;
   mutator(n);
-  n.data('_disp', disp({ label: n.data('label'), comments: n.data('comments'), description: n.data('description') }));
+  recomputeDisp(n);
   refreshInspector();
   sendPatch();
 }
@@ -695,10 +837,10 @@ function propagateFrom(node) {
 }
 
 // wiring inspector
-el('insp-label').addEventListener('input', (e) => { const n = selectedNode(); if (n) { n.data('label', e.target.value); n.data('_disp', disp({ label: e.target.value, comments: n.data('comments'), description: n.data('description') })); } });
+el('insp-label').addEventListener('input', (e) => { const n = selectedNode(); if (n) { n.data('label', e.target.value); recomputeDisp(n); } });
 el('insp-label').addEventListener('change', () => sendPatch());
 el('insp-kind').addEventListener('change', (e) => updateNode((n) => n.data('kind', e.target.value)));
-el('insp-desc').addEventListener('input', (e) => { const n = selectedNode(); if (n) { n.data('description', e.target.value); n.data('_disp', disp({ label: n.data('label'), comments: n.data('comments'), description: e.target.value })); } });
+el('insp-desc').addEventListener('input', (e) => { const n = selectedNode(); if (n) { n.data('description', e.target.value); recomputeDisp(n); } });
 el('insp-desc').addEventListener('change', () => sendPatch());
 // anexa uma entrada ao historico do no (nota | reprovacao | questionamento)
 function pushEntry(n, kind, text) {
@@ -831,10 +973,15 @@ function addNodeAt(pos, kind) {
     start: 'inicio', end: 'fim', decision: 'decisao?', idea: 'ideia', task: 'nova tarefa',
     'event-start': 'inicio', 'event-end': 'fim', 'event-intermediate': 'evento',
     'gateway-exclusive': 'ou?', 'gateway-parallel': 'e', 'subprocess': 'subprocesso',
-    'data-object': 'dado', 'annotation': 'anotacao',
+    'data-object': 'dado', 'annotation': 'anotacao', entity: 'NovaEntidade',
   };
   const label = LABELS[kind] || 'nova tarefa';
-  cy.add({ group: 'nodes', data: { id, label, kind: kind || 'task', status: 'proposed', comments: [], _disp: label }, position: pos });
+  // entidade ja nasce com uma PK; passos de swimlane herdam a raia mais proxima do drop
+  const fields = kind === 'entity' ? [{ name: 'id', type: 'int', key: 'pk' }] : [];
+  const lane = (currentType === 'swimlane') ? laneAtX(pos.x) : null;
+  const data = { id, label, kind: kind || 'task', status: 'proposed', comments: [], description: '', fields, lane };
+  data._disp = disp(data);
+  cy.add({ group: 'nodes', data, position: pos });
   cy.$(':selected').unselect();
   cy.getElementById(id).select();
   updateEmptyHint();
@@ -857,6 +1004,7 @@ document.querySelectorAll('.pal-item').forEach((it) => {
   wrap.addEventListener('drop', (e) => {
     e.preventDefault();
     const kind = e.dataTransfer.getData('text/kind') || 'task';
+    if (kind === 'lane') { addLane(); return; }   // raia = metadado, nao um no
     const rect = el('cy').getBoundingClientRect();
     const pan = cy.pan(), zoom = cy.zoom();
     const pos = { x: (e.clientX - rect.left - pan.x) / zoom, y: (e.clientY - rect.top - pan.y) / zoom };
@@ -865,7 +1013,15 @@ document.querySelectorAll('.pal-item').forEach((it) => {
 })();
 
 // duplo-clique no vazio cria uma tarefa ali
-cy.on('dbltap', (e) => { if (e.target === cy) addNodeAt(e.position, 'task'); });
+cy.on('dbltap', (e) => {
+  if (e.target !== cy) return;
+  // swimlane: duplo-clique na FAIXA DO CABECALHO (topo, y do modelo em [0,HEADER_H]) renomeia a raia
+  if (currentType === 'swimlane' && e.position.y >= 0 && e.position.y <= LANE_HEADER_H) {
+    const lid = laneAtX(e.position.x);
+    if (lid) { renameLane(lid); return; }
+  }
+  addNodeAt(e.position, 'task');
+});
 
 // ---- nozinhos de conexao (4 lados) ----------------------------------------
 // Passe o mouse num no -> aparecem 4 bolinhas (topo/dir/baixo/esq). Arraste de
@@ -1120,6 +1276,7 @@ el('btn-delete').addEventListener('click', deleteSelected);
     { label: 'Árvore', kind: 'tree' },
     { label: 'Radial', kind: 'radial' },
     { label: 'Força', kind: 'force' },
+    { label: 'Raias ⇉', kind: 'swimlane' },
   ];
   items.forEach((item) => {
     const div = document.createElement('div');
@@ -1160,6 +1317,7 @@ function clearEdgeRouting() {
 }
 
 function runNamedLayout(kind) {
+  if (kind === 'swimlane') { runSwimlaneLayout(); return; }   // arranjo por raias (colunas travadas)
   let opts;
   const base = { fit: true, padding: 50, animate: false };
   if (kind === 'horizontal') opts = DAGRE_OK ? { name: 'dagre', rankDir: 'LR', nodeSep: 55, rankSep: 70, edgeSep: 15, ...base } : { name: 'breadthfirst', directed: true, spacingFactor: 1.3, ...base };
@@ -1258,7 +1416,14 @@ cy.on('unselect', 'node', () => { closeCard(); refreshInspector(); refreshIncide
 cy.on('select', 'edge', () => { refreshInspector(); openEdgeCard(); });
 cy.on('unselect', 'edge', () => { closeEdgeCard(); refreshInspector(); });
 cy.on('tap', (e) => { if (e.target === cy) { refreshInspector(); clearChanges(); } });
-cy.on('dragfree', 'node', () => sendPatch());  // ao soltar, so persiste; o taxi re-flui limpo (desvio fica no botao "organizar linhas")
+cy.on('dragfree', 'node', (e) => {
+  // swimlane: ao soltar, o no gruda na coluna da raia sob o cursor e atualiza seu ator
+  if (currentType === 'swimlane' && e.target && e.target.isNode && e.target.isNode()) {
+    const lid = laneAtX(e.target.position().x);
+    if (lid) { e.target.data('lane', lid); snapNodeToLane(e.target); refreshInspector(); }
+  }
+  sendPatch();  // ao soltar, so persiste; o taxi re-flui limpo (desvio fica no botao "organizar linhas")
+});
 cy.on('grab', 'node', clearChanges); // usuario comecou a mexer -> tira o realce
 
 // ---- menu de contexto (clique-direito no no) ------------------------------
@@ -1435,6 +1600,106 @@ el('zoom-reset').addEventListener('click', () => cy.zoom({ level: 1, renderedPos
   schedule();
 })();
 
+// ---- raias / swimlane -----------------------------------------------------
+// As raias sao METADADO no topo do diagrama (currentLanes), nao nos do grafo.
+// Colunas de largura fixa em coords de MODELO; o canvas de fundo (#lanelayer)
+// pinta faixas + cabecalhos, atras dos nos. Molde: hopLayer (coords renderizadas).
+const LANE_W = 260;            // largura de uma raia (coords de modelo)
+const LANE_HEADER_H = 46;      // altura da faixa de cabecalho no topo (coords de modelo)
+const LANE_COLORS = ['rgba(74,144,217,0.06)', 'rgba(148,163,184,0.05)'];
+
+function sortedLanes() { return (currentLanes || []).slice().sort((a, b) => (a.order || 0) - (b.order || 0)); }
+function laneIndex(id) { return sortedLanes().findIndex((l) => l.id === id); }
+function laneCenterX(id) { const i = laneIndex(id); return i < 0 ? null : i * LANE_W + LANE_W / 2; }
+// qual raia cobre o x (coords de modelo)? fora do range -> extrema mais proxima; sem raias -> null
+function laneAtX(x) {
+  const ls = sortedLanes(); if (!ls.length) return null;
+  let i = Math.floor(x / LANE_W);
+  i = Math.max(0, Math.min(ls.length - 1, i));
+  return ls[i].id;
+}
+// gruda o no no centro da sua raia, preservando o y
+function snapNodeToLane(n) {
+  const cx = laneCenterX(n.data('lane'));
+  if (cx == null) return;
+  n.position({ x: cx, y: n.position().y });
+}
+function addLane() {
+  if (readOnly) return;
+  const ls = sortedLanes();
+  currentLanes = ls.concat([{ id: uid('l'), label: 'Ator ' + (ls.length + 1), order: ls.length }]);
+  if (currentType !== 'swimlane') { currentType = 'swimlane'; applyTypeUI('swimlane'); }
+  repaintLanes(); refreshInspector(); sendPatch();
+}
+function renameLane(id) {
+  if (readOnly) return;
+  openModal('Renomear raia', 'Nome do ator/setor desta raia', (name) => {
+    currentLanes = sortedLanes().map((l) => l.id === id ? Object.assign({}, l, { label: name }) : l);
+    repaintLanes(); refreshInspector(); sendPatch();
+  });
+}
+// layout swimlane: dagre TB ordena no eixo Y, depois trava o X na coluna da raia
+function runSwimlaneLayout() {
+  clearEdgeRouting();
+  const opts = DAGRE_OK
+    ? { name: 'dagre', rankDir: 'TB', nodeSep: 45, rankSep: 70, fit: false, animate: false }
+    : { name: 'breadthfirst', directed: true, spacingFactor: 1.2, fit: false, animate: false };
+  const layout = cy.layout(opts);
+  layout.one('layoutstop', () => {
+    cy.nodes().forEach((n) => {
+      if (n.hasClass('ghost')) return;
+      const cx = laneCenterX(n.data('lane'));
+      const p = n.position();
+      n.position({ x: cx == null ? p.x : cx, y: Math.max(p.y, LANE_HEADER_H + 60) });
+    });
+    cy.fit(cy.elements(), 50);
+    repaintLanes(); sendPatch(); refreshBends();
+  });
+  layout.run();
+}
+// canvas de fundo das raias -> exporta repaintLanes() (agenda um redraw)
+const repaintLanes = (function laneLayer() {
+  const cv = el('lanelayer');
+  if (!cv || !cv.getContext) return function () {};
+  const ctx = cv.getContext('2d');
+  let scheduled = false;
+  function schedule() { if (!scheduled) { scheduled = true; requestAnimationFrame(draw); } }
+  function draw() {
+    scheduled = false;
+    const container = el('cy');
+    const w = container.clientWidth, h = container.clientHeight, dpr = window.devicePixelRatio || 1;
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+      cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+      cv.style.width = w + 'px'; cv.style.height = h + 'px';
+    }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    if (currentType !== 'swimlane') return;
+    const ls = sortedLanes(); if (!ls.length) return;
+    const pan = cy.pan(), z = cy.zoom();
+    const toX = (mx) => mx * z + pan.x, toY = (my) => my * z + pan.y;
+    const headTop = toY(0), headBottom = toY(LANE_HEADER_H);
+    ls.forEach((l, i) => {
+      const x1 = toX(i * LANE_W), x2 = toX((i + 1) * LANE_W);
+      ctx.fillStyle = LANE_COLORS[i % LANE_COLORS.length];
+      ctx.fillRect(x1, 0, x2 - x1, h);
+      ctx.strokeStyle = 'rgba(148,163,184,0.25)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x1 + 0.5, 0); ctx.lineTo(x1 + 0.5, h); ctx.stroke();
+      ctx.fillStyle = 'rgba(74,144,217,0.14)';
+      ctx.fillRect(x1, headTop, x2 - x1, headBottom - headTop);
+      ctx.fillStyle = '#e6e9ef';
+      ctx.font = '600 13px system-ui, sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(l.label || l.id, (x1 + x2) / 2, (headTop + headBottom) / 2);
+      ctx.strokeStyle = 'rgba(148,163,184,0.35)';
+      ctx.beginPath(); ctx.moveTo(x1, headBottom); ctx.lineTo(x2, headBottom); ctx.stroke();
+      if (i === ls.length - 1) { ctx.strokeStyle = 'rgba(148,163,184,0.25)'; ctx.beginPath(); ctx.moveTo(x2 + 0.5, 0); ctx.lineTo(x2 + 0.5, h); ctx.stroke(); }
+    });
+  }
+  cy.on('render pan zoom position add remove', schedule);
+  return schedule;
+})();
+
 // teclado: Del apaga selecionado, Esc sai do modo ligar
 document.addEventListener('keydown', (e) => {
   const k = (e.key || '').toLowerCase();
@@ -1475,9 +1740,9 @@ function setReadOnly(on) {
   readOnly = on;
   cy.autolock(on);                                  // trava arrastar nos (deixa selecionar/pan)
   document.body.classList.toggle('ro', on);
-  ['insp-label', 'insp-kind', 'insp-desc', 'edge-label'].forEach((id) => { const x = el(id); if (x) x.disabled = on; });
-  document.querySelectorAll('#node-card .status-btns .st, #edge-status .st').forEach((b) => { b.disabled = on; });
-  ['note-add-btn', 'btn-delete', 'btn-layout'].forEach((id) => { const x = el(id); if (x) x.disabled = on; });
+  ['insp-label', 'insp-kind', 'insp-desc', 'edge-label', 'insp-lane', 'edge-source-card', 'edge-target-card'].forEach((id) => { const x = el(id); if (x) x.disabled = on; });
+  document.querySelectorAll('#node-card .status-btns .st, #edge-status .st, #insp-fields input, #insp-fields select, #insp-fields button').forEach((b) => { b.disabled = on; });
+  ['note-add-btn', 'btn-delete', 'btn-layout', 'type-sel', 'field-add-btn'].forEach((id) => { const x = el(id); if (x) x.disabled = on; });
   titleEl.contentEditable = on ? 'false' : 'true';
   if (on) { if (linkMode) exitLinkMode(); hideConnNubs(); }
   refreshBends();                                   // some com os pontos de quebra

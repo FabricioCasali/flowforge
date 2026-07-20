@@ -32,6 +32,7 @@ function emptyDiagram(title) {
     title: title || 'Novo diagrama',
     rev: 0,
     updatedBy: 'claude',
+    lanes: [],
     nodes: [],
     edges: [],
   };
