@@ -91,9 +91,12 @@ body {
 .pal-hint { font-size: 10px; color: var(--muted); text-align: center; margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--line); line-height: 1.4; }
 
 /* canvas */
-#cy-wrap { flex: 1; min-width: 0; position: relative; }
-#cy { position: absolute; inset: 0; background:
+/* a grade pontilhada vai no wrap pra o #cy poder ser transparente e deixar as raias aparecerem */
+#cy-wrap { flex: 1; min-width: 0; position: relative; background:
   radial-gradient(circle at 1px 1px, #20242e 1px, transparent 0) 0 0 / 26px 26px, var(--bg); }
+#cy { position: absolute; inset: 0; z-index: 2; background: transparent; }
+/* camada das raias (swimlane) — ATRAS dos nos/setas do cytoscape */
+#lanelayer { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
 /* camada do efeito de pulo (por cima das setas do cytoscape) */
 #hoplayer { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
 /* toast "o que o Claude mudou" */
@@ -236,11 +239,31 @@ button:disabled, input:disabled, select:disabled, textarea:disabled { opacity: .
 .muted { color: var(--muted); font-size: 13px; }
 
 .lbl { display: block; margin: 10px 0 4px; font-size: 12px; color: var(--muted); }
-#insp-label, #insp-kind, #insp-desc, #edge-label, #insp-comment-input, #analyze-note {
+#insp-label, #insp-kind, #insp-desc, #edge-label, #insp-comment-input, #analyze-note, #insp-lane {
   width: 100%; background: var(--panel2); color: var(--text);
   border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; font: inherit;
 }
 #analyze-note, #insp-desc { resize: vertical; }
+
+/* seletor de tipo de diagrama (topbar) */
+.type-sel { background: var(--panel2); color: var(--text); border: 1px solid var(--line);
+  border-radius: 8px; padding: 6px 8px; font: inherit; cursor: pointer; }
+.type-sel:hover { border-color: var(--accent); }
+
+/* editor de campos da entidade (ER) */
+.fields-editor { display: flex; flex-direction: column; gap: 5px; margin: 2px 0 6px; max-height: 300px; overflow: auto; }
+.fields-editor .empty { color: var(--muted); font-size: 12px; font-style: italic; }
+.field-row { display: grid; grid-template-columns: 44px 1fr 1fr 26px; gap: 5px; align-items: center; }
+.field-row select, .field-row input { background: var(--panel2); color: var(--text);
+  border: 1px solid var(--line); border-radius: 6px; padding: 5px 6px; font: inherit; min-width: 0; }
+.field-row .field-rm { padding: 4px 0; }
+.field-row input:focus, .field-row select:focus { border-color: var(--accent); outline: none; }
+
+/* linha de cardinalidade (ER) no card da seta */
+.card-row { display: flex; align-items: center; gap: 8px; }
+.card-row select { background: var(--panel2); color: var(--text); border: 1px solid var(--line);
+  border-radius: 6px; padding: 5px 8px; font: inherit; }
+.card-row .muted { color: var(--muted); }
 
 .status-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .st { text-align: left; }
