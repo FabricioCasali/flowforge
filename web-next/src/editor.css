@@ -1,0 +1,670 @@
+/* ============================================================================
+   PELE DO EDITOR — cópia local do bloco de editor do `canvas.css` do NEON
+   (`app/packages/canvas/src/canvas.css`, faixa do editor). Porte MECÂNICO:
+   nada foi redesenhado. Depende dos tokens de `skin.css` (carregar skin ANTES).
+
+   Cobre as classes usadas pelos componentes portados:
+     · FlowNode      → .fnode, .shape-rect/.shape-pill/.shape-diamond, .fnode-di,
+                       .nn-head, .nn-label, .nn-body, .nn-center, .dot, .badge
+     · VerdictPanel  → .fpanel* (caret/head/kind/badge/desc/thread/cmt/verdict/reason)
+     · EntityNode    → .ent, .ent-head, .ent-row, .ent-key(.pk/.fk), .ent-name, .ent-type
+     · ErEdge        → .er-card, .orth-label
+     · MindNode/Edge → .mind, .mind.root, .mind-dot, .mind-label, .mind-h
+     · LaneNode      → .lane-band, .lane-label
+     · SequenceView  → .seqview, .seq-lifeline, .seq-actor(-t), .seq-line,
+                       .seq-arrow, .seq-msg.return/.async, .seq-label
+     · handles/React Flow → .react-flow__handle.fh, controls, minimap
+
+   OBS de porte: `.neon-editor` e `.seqview` usam `inset: 52px/58px 0 0 0` — o
+   offset da barra superior do NEON. Quem monta o shell do FlowForge decide se
+   mantém esse recuo ou zera. Aqui ficou como estava (porte mecânico).
+   ============================================================================ */
+
+/* ---------- editor (React Flow + elk) ---------- */
+.neon-editor {
+  position: absolute;
+  inset: 52px 0 0 0;
+}
+.neon-editor .react-flow {
+  background:
+    radial-gradient(1100px 700px at 30% 10%, oklch(0.2 0.04 240 / 0.4), transparent 60%),
+    radial-gradient(900px 800px at 85% 90%, oklch(0.18 0.035 265 / 0.4), transparent 60%), var(--bg);
+}
+.react-flow__attribution {
+  display: none;
+}
+.react-flow__handle.fh {
+  width: 10px;
+  height: 10px;
+  background: var(--accent);
+  border: 2px solid var(--bg);
+  box-shadow: 0 0 10px color-mix(in oklch, var(--accent) 70%, transparent);
+}
+.react-flow__controls button {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  color: var(--fg);
+  fill: var(--fg);
+}
+.react-flow__minimap {
+  background: var(--surface);
+  border-radius: var(--r-md);
+}
+.orth-label {
+  fill: var(--muted);
+  font-family: var(--mono);
+  font-size: 10px;
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 3px;
+}
+
+/* ---------- nó de co-decisão: FACE = template do hello-react-flow ---------- */
+.fnode {
+  --sc: var(--s-proposed);
+  width: 100%;
+  height: 100%;
+  position: relative;
+  box-sizing: border-box;
+  font-family: var(--display);
+}
+
+/* RETÂNGULO (task/subprocess): cabeçalho (dot+título+badge) + corpo mono */
+.fnode.shape-rect {
+  background: var(--surface);
+  border: 1px solid color-mix(in oklch, var(--sc) 34%, var(--border));
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-1);
+  overflow: hidden;
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+.fnode.shape-rect.live {
+  border-color: color-mix(in oklch, var(--sc) 50%, transparent);
+  box-shadow: var(--shadow-1), var(--glow-sc-soft);
+}
+.fnode.shape-rect.sel {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-1), 0 0 0 1px var(--accent), 0 0 22px -6px var(--accent);
+}
+.nn-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  font-weight: 600;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border);
+}
+.nn-label {
+  line-height: 1.2;
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--sc);
+  box-shadow: 0 0 8px var(--sc);
+  flex: none;
+}
+.badge {
+  margin-left: auto;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--sc);
+  border: 1px solid color-mix(in oklch, var(--sc) 45%, transparent);
+  border-radius: var(--r-sm);
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+.nn-body {
+  padding: 9px 12px;
+  font-size: 10.5px;
+  color: var(--muted);
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* label centralizado (pílula e losango) */
+.nn-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 100%;
+  font-weight: 600;
+  font-size: 12.5px;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+/* PÍLULA (início/fim/eventos) */
+.fnode.shape-pill {
+  background: var(--surface);
+  border: 1px solid color-mix(in oklch, var(--sc) 40%, var(--border));
+  border-radius: 999px;
+  box-shadow: var(--shadow-1);
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+.fnode.shape-pill.live {
+  box-shadow: var(--shadow-1), var(--glow-sc-soft);
+}
+.fnode.shape-pill.sel {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-1), 0 0 0 1px var(--accent), 0 0 22px -6px var(--accent);
+}
+.fnode.shape-pill .nn-center {
+  padding: 0 18px;
+}
+
+/* LOSANGO (decisão / gateway) */
+.fnode.shape-diamond .nn-center {
+  position: relative;
+  z-index: 1;
+  padding: 0 22px;
+  font-size: 12px;
+}
+.fnode-di {
+  position: absolute;
+  inset: 0;
+  background: color-mix(in oklch, var(--sc) 42%, var(--border));
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+}
+.fnode-di::after {
+  content: '';
+  position: absolute;
+  inset: 1.6px;
+  background: var(--surface);
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+}
+.fnode.shape-diamond.live .fnode-di {
+  background: color-mix(in oklch, var(--sc) 60%, transparent);
+  filter: drop-shadow(0 0 10px color-mix(in oklch, var(--sc) 40%, transparent));
+}
+.fnode.shape-diamond.sel .fnode-di {
+  background: var(--accent);
+}
+
+/* ---------- painel de ações EFÊMERO (nasce ao selecionar o nó) ---------- */
+.fpanel {
+  position: absolute;
+  top: -6px;
+  left: calc(100% + 16px);
+  width: 250px;
+  background: color-mix(in oklch, var(--surface) 96%, transparent);
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-2);
+  padding: 12px;
+  z-index: 30;
+  backdrop-filter: blur(8px);
+  cursor: default;
+}
+.fpanel-caret {
+  position: absolute;
+  top: 15px;
+  left: -6px;
+  width: 10px;
+  height: 10px;
+  background: var(--surface);
+  border-left: 1px solid var(--border-2);
+  border-bottom: 1px solid var(--border-2);
+  transform: rotate(45deg);
+}
+.fpanel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.fpanel-kind {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--faint);
+}
+.fpanel-badge {
+  margin-left: auto;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--sc);
+  border: 1px solid color-mix(in oklch, var(--sc) 50%, transparent);
+  border-radius: var(--r-sm);
+  padding: 1px 7px;
+}
+.fpanel-desc {
+  font-family: var(--body);
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.4;
+  margin-bottom: 10px;
+}
+.fpanel-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+  max-height: 150px;
+  overflow: auto;
+}
+.fpanel-cmt {
+  font-size: 11px;
+  color: var(--fg);
+  line-height: 1.4;
+  padding: 6px 8px;
+  border-left: 2px solid var(--border-2);
+  background: var(--bg);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+}
+.fpanel-cmt .who {
+  display: block;
+  font-size: 8.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--faint);
+  margin-bottom: 2px;
+}
+.fpanel-cmt.claude {
+  border-left-color: var(--accent);
+}
+.fpanel-cmt.reject {
+  border-left-color: var(--s-rejected);
+}
+.fpanel-cmt.question {
+  border-left-color: var(--s-questioned);
+}
+.fpanel-verdict {
+  display: flex;
+  gap: 6px;
+}
+.fpanel-verdict .v {
+  flex: 1;
+  font-size: 14px;
+  padding: 7px 0;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  border: 1px solid var(--border-2);
+  background: transparent;
+  color: var(--muted);
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.fpanel-verdict .v.rs {
+  flex: 0 0 38px;
+}
+.fpanel-verdict .v.ok:hover {
+  color: var(--s-approved);
+  border-color: var(--s-approved);
+  background: color-mix(in oklch, var(--s-approved) 12%, transparent);
+}
+.fpanel-verdict .v.qu:hover {
+  color: var(--s-questioned);
+  border-color: var(--s-questioned);
+  background: color-mix(in oklch, var(--s-questioned) 12%, transparent);
+}
+.fpanel-verdict .v.no:hover {
+  color: var(--s-rejected);
+  border-color: var(--s-rejected);
+  background: color-mix(in oklch, var(--s-rejected) 12%, transparent);
+}
+.fpanel-verdict .v.rs:hover {
+  color: var(--fg);
+  border-color: var(--border-2);
+}
+.fpanel-reason {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.fpanel-reason input {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--body);
+  font-size: 11px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-sm);
+  padding: 6px 8px;
+}
+.fpanel-reason button {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--bg);
+  background: var(--accent);
+  border: none;
+  border-radius: var(--r-sm);
+  padding: 0 12px;
+  cursor: pointer;
+}
+
+/* HUD do editor */
+.neon-editor-hud {
+  position: absolute;
+  left: 16px;
+  bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 14px;
+  background: color-mix(in oklch, var(--surface) 90%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  font-size: 10.5px;
+  backdrop-filter: blur(8px);
+}
+.neon-editor-hud .t {
+  color: var(--fg);
+  font-weight: 600;
+}
+.neon-editor-hud .c {
+  color: var(--muted);
+}
+.neon-editor-hud .c.ap {
+  color: var(--s-approved);
+}
+.neon-editor-hud .c.qu {
+  color: var(--s-questioned);
+}
+.neon-editor-hud .c.no {
+  color: var(--s-rejected);
+}
+
+/* botão voltar do editor (dive numa tarefa-proposta) — acima da barra de lentes */
+.editor-back {
+  position: absolute;
+  top: 12px;
+  left: 16px;
+  z-index: 11;
+}
+.neon-editor .lensbar {
+  top: 48px;
+}
+
+/* ---------- barra de lentes ---------- */
+.lensbar {
+  position: absolute;
+  top: 12px;
+  left: 16px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  background: color-mix(in oklch, var(--surface) 92%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  backdrop-filter: blur(8px);
+}
+.lensbar-lbl {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--faint);
+  padding: 0 8px;
+}
+.lensbar button {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--r-sm);
+  padding: 5px 10px;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+.lensbar button:hover {
+  color: var(--fg);
+}
+.lensbar button.on {
+  color: var(--bg);
+  background: var(--accent);
+}
+
+/* ---------- barra de ações (aprovar tudo + cravar) ---------- */
+.neon-editor-actions {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.neon-approveall {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--s-approved);
+  background: color-mix(in oklch, var(--s-approved) 12%, var(--surface));
+  border: 1px solid color-mix(in oklch, var(--s-approved) 45%, transparent);
+  border-radius: var(--r-md);
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: filter 0.15s, background 0.15s;
+}
+.neon-approveall:hover {
+  filter: brightness(1.1);
+  background: color-mix(in oklch, var(--s-approved) 20%, var(--surface));
+}
+
+/* ---------- botão Cravar (gate design → runtime) ---------- */
+.neon-editor-actions .neon-crave {
+  position: static;
+  top: auto;
+  right: auto;
+}
+.neon-crave {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  z-index: 10;
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--bg);
+  background: var(--s-approved);
+  border: none;
+  border-radius: var(--r-md);
+  padding: 9px 16px;
+  cursor: pointer;
+  box-shadow: 0 0 22px -4px color-mix(in oklch, var(--s-approved) 60%, transparent);
+  transition: filter 0.15s, box-shadow 0.15s;
+}
+.neon-crave:hover:not(:disabled) {
+  filter: brightness(1.08);
+  box-shadow: 0 0 30px -2px color-mix(in oklch, var(--s-approved) 70%, transparent);
+}
+.neon-crave:disabled {
+  opacity: 0.45;
+  cursor: default;
+  background: var(--surface-2);
+  color: var(--muted);
+  box-shadow: none;
+}
+
+/* ---------- nó ER (entidade) ---------- */
+.ent {
+  --sc: var(--s-proposed);
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  background: var(--surface);
+  border: 1px solid color-mix(in oklch, var(--sc) 34%, var(--border));
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-1);
+  overflow: hidden;
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+.ent.live {
+  border-color: color-mix(in oklch, var(--sc) 50%, transparent);
+  box-shadow: var(--shadow-1), var(--glow-sc-soft);
+}
+.ent.sel {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-1), 0 0 0 1px var(--accent), 0 0 22px -6px var(--accent);
+}
+.ent-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--fg);
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in oklch, var(--sc) 10%, var(--surface));
+}
+.ent-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  font-size: 10.5px;
+  border-bottom: 1px solid color-mix(in oklch, var(--border) 40%, transparent);
+}
+.ent-row:last-child {
+  border-bottom: none;
+}
+.ent-key {
+  width: 20px;
+  font-size: 8px;
+  letter-spacing: 0.04em;
+  color: var(--faint);
+}
+.ent-key.pk {
+  color: var(--s-questioned);
+}
+.ent-key.fk {
+  color: var(--accent);
+}
+.ent-name {
+  flex: 1;
+  color: var(--fg);
+}
+.ent-type {
+  color: var(--faint);
+}
+.er-card {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 3px;
+}
+
+/* ---------- nó Mind map ---------- */
+.mind {
+  --bc: var(--accent);
+  --sc: var(--s-proposed);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 0 13px;
+  background: var(--surface);
+  border: 1.5px solid color-mix(in oklch, var(--bc) 55%, var(--border));
+  border-radius: 999px;
+  box-shadow: var(--shadow-1);
+  font-family: var(--display);
+  font-size: 12px;
+  font-weight: 600;
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+.mind.root {
+  border-color: var(--accent);
+  background: color-mix(in oklch, var(--accent) 14%, var(--surface));
+  font-size: 13px;
+}
+.mind.sel {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.mind-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--bc);
+  box-shadow: 0 0 7px var(--bc);
+  flex: none;
+}
+.mind-label {
+  white-space: nowrap;
+}
+.react-flow__handle.mind-h {
+  opacity: 0;
+}
+
+/* ---------- banda de raia (swimlane) ---------- */
+.lane-band {
+  box-sizing: border-box;
+  background: color-mix(in oklch, var(--surface) 22%, transparent);
+  border-top: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
+  border-bottom: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
+  pointer-events: none;
+  position: relative;
+}
+.lane-label {
+  position: absolute;
+  left: 12px;
+  top: 8px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--faint);
+}
+
+/* ---------- Sequência ---------- */
+.seqview {
+  position: absolute;
+  inset: 58px 0 0 0;
+  overflow: auto;
+  padding: 10px 20px 30px;
+}
+.seq-lifeline {
+  stroke: color-mix(in oklch, var(--border) 75%, transparent);
+  stroke-dasharray: 4 5;
+  stroke-width: 1;
+}
+.seq-actor {
+  fill: var(--surface);
+  stroke: var(--border-2);
+}
+.seq-actor-t {
+  fill: var(--fg);
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 12px;
+}
+.seq-line {
+  stroke: var(--accent);
+  stroke-width: 1.6;
+}
+.seq-arrow {
+  fill: var(--accent);
+}
+.seq-msg.return .seq-line {
+  stroke: var(--muted);
+  stroke-dasharray: 5 4;
+}
+.seq-msg.return .seq-arrow {
+  fill: var(--muted);
+}
+.seq-msg.async .seq-line {
+  stroke: var(--s-act);
+}
+.seq-msg.async .seq-arrow {
+  fill: var(--s-act);
+}
+.seq-label {
+  fill: var(--muted);
+  font-size: 10px;
+}

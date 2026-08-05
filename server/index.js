@@ -1,13 +1,21 @@
 #!/usr/bin/env node
 'use strict';
 // FlowForge bridge server.
-//   - serve o editor (web/) via HTTP
+//   - serve o editor antigo (web/, Cytoscape) em /          -> lei 1: nao pode parar
+//   - serve o editor novo   (web-next/dist, React Flow) em /v2
 //   - WS /ws?session=<slug>  -> browsers (editam e recebem updates ao vivo)
 //   - WS /claude             -> Monitor do Claude (recebe eventos de "Analisar")
 //   - fs.watch nas sessoes   -> quando um arquivo muda (browser OU Claude), empurra o estado pros browsers
 //
-// Arquivos sao a fonte da verdade. O Claude edita sessions/<slug>/diagram.json
-// diretamente; o fs.watch propaga a mudanca pro canvas sem refresh manual.
+// Arquivos sao a fonte da verdade. O Claude edita sessions/<slug>/workspace.json
+// (ou o diagram.json antigo) diretamente; o fs.watch propaga a mudanca pro canvas
+// sem refresh manual.
+//
+// Durante o porte os DOIS editores rodam ao mesmo tempo, cada um no seu arquivo:
+//   /    -> web/       -> diagram.json    -> patch SEM lens  -> writeDiagram
+//   /v2  -> web-next/  -> workspace.json  -> patch COM lens  -> writeWorkspaceLens
+// Por isso o broadcast de 'state' leva os dois: 'diagram' (pro antigo) e
+// 'workspace' (pro novo). Quando o antigo morrer, 'diagram' sai daqui.
 
 const http = require('http');
 const fs = require('fs');
@@ -27,7 +35,8 @@ const INITIAL_SESSION = argVal('session', null);
 const DATA_DIR = argVal('data-dir', process.env.FLOWFORGE_DATA || null);
 if (DATA_DIR) S.setDataDir(DATA_DIR);
 
-const WEB_DIR = path.join(__dirname, '..', 'web');
+const WEB_DIR = path.join(__dirname, '..', 'web');            // editor antigo (/)
+const WEB_NEXT_DIR = path.join(__dirname, '..', 'web-next', 'dist'); // editor novo (/v2)
 
 // ---- estado em memoria ----------------------------------------------------
 const browsersBySession = new Map(); // slug -> Set<ws>
@@ -62,21 +71,83 @@ function serveStatic(req, res, pathname) {
   });
 }
 
+// /v2 -> web-next/dist (o editor novo). Rota separada de proposito: o / continua
+// servindo o web/ antigo exatamente como sempre (lei 1). Como e uma SPA, uma rota
+// que nao existe em disco cai no index.html — mas SO se parecer rota (sem extensao
+// ou .html); asset faltando devolve 404 de verdade, senao um bundle quebrado viria
+// disfarcado de HTML e o erro apareceria longe da causa.
+// Tipos que so o build do Vite produz. Tabela separada de proposito: mexer no
+// MIME compartilhado mudaria o Content-Type de arquivos servidos em / tambem.
+const MIME_V2 = Object.assign({}, MIME, {
+  '.map': 'application/json; charset=utf-8',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.txt': 'text/plain; charset=utf-8',
+});
+
+function serveV2(req, res, pathname) {
+  let rel = decodeURIComponent(pathname.slice('/v2'.length));
+  if (rel === '' || rel === '/') rel = '/index.html';
+  const filePath = path.normalize(path.join(WEB_NEXT_DIR, rel));
+  if (!filePath.startsWith(WEB_NEXT_DIR)) { res.writeHead(403); return res.end('forbidden'); }
+
+  fs.readFile(filePath, (err, buf) => {
+    if (!err) {
+      const headers = { 'Content-Type': MIME_V2[path.extname(filePath)] || 'application/octet-stream' };
+      // o Vite versiona o nome dos assets (hash) -> pode cachear; o resto, nunca.
+      headers['Cache-Control'] = rel.startsWith('/assets/') ? 'public, max-age=86400' : 'no-store';
+      res.writeHead(200, headers);
+      return res.end(buf);
+    }
+    const ext = path.extname(rel);
+    if (ext && ext !== '.html') { res.writeHead(404); return res.end('not found'); }
+
+    fs.readFile(path.join(WEB_NEXT_DIR, 'index.html'), (e2, html) => {
+      if (e2) {
+        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+        return res.end('O editor novo ainda nao foi buildado.\n'
+          + 'Rode: cd web-next && npm run build\n'
+          + 'Esperado em: ' + WEB_NEXT_DIR + '\n'
+          + 'O editor antigo continua em / (intocado).');
+      }
+      res.writeHead(200, { 'Content-Type': MIME['.html'], 'Cache-Control': 'no-store' });
+      res.end(html);
+    });
+  });
+}
+
 function sendJson(res, code, obj) {
   res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(obj));
 }
 
 // ---- leitura segura (ignora escrita parcial) ------------------------------
+// Le os DOIS arquivos-verdade. Se um deles existe mas nao le (rename em curso),
+// devolve null: o proximo evento do fs.watch tenta de novo. Devolver um estado
+// meio-lido seria pior que nao devolver nada — o canvas apagaria a lente.
 function safeReadState(slug) {
+  let diagram;
   try {
-    const diagram = JSON.parse(fs.readFileSync(S.diagramPath(slug), 'utf8'));
-    let thread = { messages: [] };
-    try { thread = JSON.parse(fs.readFileSync(S.threadPath(slug), 'utf8')); } catch (e) {}
-    return { diagram, thread };
+    diagram = JSON.parse(fs.readFileSync(S.diagramPath(slug), 'utf8'));
   } catch (e) {
     return null; // arquivo no meio de um rename/escrita — outro evento vira
   }
+
+  let workspace = null;
+  try {
+    workspace = JSON.parse(fs.readFileSync(S.workspacePath(slug), 'utf8'));
+  } catch (e) {
+    if (fs.existsSync(S.workspacePath(slug))) return null; // existe mas nao leu -> transitorio
+  }
+
+  let thread = { messages: [] };
+  try { thread = JSON.parse(fs.readFileSync(S.threadPath(slug), 'utf8')); } catch (e) {}
+
+  return { diagram, workspace: S.normalizeWorkspace(workspace), thread };
 }
 
 // ---- estado "Claude pensando" (trava de edicao no browser) ----------------
@@ -118,8 +189,20 @@ function broadcastState(slug) {
   // Claude terminou? nova mensagem dele no thread -> destrava.
   const b = busyBySession.get(slug);
   if (b && claudeCount(st) > b.baseClaude) clearBusy(slug);
-  const payload = JSON.stringify({ type: 'state', session: slug, diagram: st.diagram, thread: st.thread, busy: busyBySession.has(slug) });
-  for (const ws of set) { if (ws.readyState === ws.OPEN) ws.send(payload); }
+  for (const ws of set) { if (ws.readyState === ws.OPEN) ws.send(statePayload(slug, st)); }
+}
+
+// O payload de 'state' leva 'workspace' (editor novo) E 'diagram' (editor antigo).
+// Os dois convivem ate o corte final; nenhum dos dois pode ficar cego.
+function statePayload(slug, st) {
+  return JSON.stringify({
+    type: 'state',
+    session: slug,
+    workspace: st.workspace,
+    diagram: st.diagram,
+    thread: st.thread,
+    busy: busyBySession.has(slug),
+  });
 }
 
 function pushToClaude(event) {
@@ -136,7 +219,9 @@ function ensureWatcher(slug) {
     const w = fs.watch(dir, (evt, filename) => {
       if (!filename) return;
       const f = String(filename);
-      if (f !== 'diagram.json' && f !== 'thread.json') return;
+      // workspace.json entrou aqui: sem isso a edicao do Claude no arquivo novo
+      // nao chega no canvas — que e o loop vivo inteiro.
+      if (f !== 'workspace.json' && f !== 'diagram.json' && f !== 'thread.json') return;
       clearTimeout(debounceTimers.get(slug));
       debounceTimers.set(slug, setTimeout(() => broadcastState(slug), 80));
     });
@@ -161,6 +246,15 @@ const server = http.createServer((req, res) => {
 
   if (pathname === '/api/health') return sendJson(res, 200, { ok: true, port: PORT, dataDir: S.getRoot() });
 
+  // editor novo. O redirect /v2 -> /v2/ existe pra base de assets fechar
+  // (index.html referencia /v2/assets/...); sem a barra o browser resolveria na raiz.
+  if (pathname === '/v2') {
+    res.writeHead(302, { Location: '/v2/' + (parsed.search || '') });
+    return res.end();
+  }
+  if (pathname.startsWith('/v2/')) return serveV2(req, res, pathname);
+
+  // editor antigo: exatamente como sempre (lei 1)
   return serveStatic(req, res, pathname);
 });
 
@@ -201,7 +295,7 @@ wss.on('connection', (ws) => {
 
   // estado inicial (inclui busy, pra quem conecta durante o "pensando")
   const st = safeReadState(slug);
-  if (st) ws.send(JSON.stringify({ type: 'state', session: slug, diagram: st.diagram, thread: st.thread, busy: busyBySession.has(slug) }));
+  if (st) ws.send(statePayload(slug, st));
 
   ws.on('message', (raw) => {
     let msg;
@@ -209,15 +303,29 @@ wss.on('connection', (ws) => {
 
     if (msg.type === 'patch' && msg.diagram) {
       // browser editou -> grava (rev++). fs.watch propaga pros demais.
-      S.writeDiagram(slug, msg.diagram, 'user');
+      // Quem manda 'lens' e o editor novo: grava SO aquele modelo dentro do
+      // workspace. Quem nao manda e o editor antigo: continua gravando o
+      // diagram.json inteiro, como sempre (lei 1).
+      if (msg.lens) {
+        if (!S.isModelKey(msg.lens)) { console.error('[patch] lens desconhecida:', msg.lens); return; }
+        // atencao: na lens 'seq' o payload e um SeqModel { participants, messages },
+        // nao um Diagram — o campo se chama 'diagram' so por causa do protocolo.
+        S.writeWorkspaceLens(slug, msg.lens, msg.diagram, 'user');
+      } else {
+        S.writeDiagram(slug, msg.diagram, 'user');
+      }
       return;
     }
 
     if (msg.type === 'analyze') {
       const note = String(msg.note || '').slice(0, 4000);
       const diagram = S.readDiagram(slug);
+      const workspace = S.readWorkspace(slug);
       const at = new Date().toISOString();
       if (note) S.appendThread(slug, { author: 'user', text: note, ts: Date.now() });
+      // 'rev'/'title'/'diagramPath' continuam falando do diagram.json enquanto o
+      // editor antigo existir. 'workspaceRev' e o rev que o Claude precisa somar
+      // quando escrever no arquivo novo — os dois revs andam separados.
       const event = {
         kind: 'analyze',
         session: slug,
@@ -225,9 +333,14 @@ wss.on('connection', (ws) => {
         rev: diagram.rev,
         title: diagram.title,
         at,
+        workspacePath: S.workspacePath(slug),
+        workspaceRev: workspace.rev,
+        workspaceTitle: S.workspaceTitle(workspace),
         diagramPath: S.diagramPath(slug),
         threadPath: S.threadPath(slug),
-        hint: 'Leia diagramPath + threadPath, rebata, e edite o diagram (rev+1, updatedBy:"claude").',
+        hint: 'Leia workspacePath + threadPath, rebata, e edite o workspace: um dos 5 modelos '
+          + '(process|state|er|mind|seq) com rev = workspaceRev+1 e updatedBy:"claude". '
+          + 'diagramPath e o arquivo do editor antigo (/), ainda vivo — so mexa nele se o pedido for de la.',
       };
       S.appendInbox(slug, event);
       const n = pushToClaude(event);
@@ -263,8 +376,10 @@ server.listen(PORT, () => {
   console.log('FlowForge server em http://localhost:' + PORT);
   console.log('  dados: ' + S.getRoot());
   if (INITIAL_SESSION) {
-    console.log('  sessao inicial: ' + S.slugify(INITIAL_SESSION));
-    console.log('  editor: http://localhost:' + PORT + '/?session=' + S.slugify(INITIAL_SESSION));
+    const s = S.slugify(INITIAL_SESSION);
+    console.log('  sessao inicial: ' + s);
+    console.log('  editor antigo: http://localhost:' + PORT + '/?session=' + s);
+    console.log('  editor novo:   http://localhost:' + PORT + '/v2/?session=' + s);
   }
   console.log('  claude WS: ws://localhost:' + PORT + '/claude');
 });
