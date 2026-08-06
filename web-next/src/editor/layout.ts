@@ -221,10 +221,7 @@ export function orthRoute(sp: Pt, ss: Size, tp: Pt, ts: Size, sourceSide?: Side,
     const ta = anchorOn(tp, ts, tSide)
     const s1 = pushOut(sa, sSide, STUB)
     const t1 = pushOut(ta, tSide, STUB)
-    const meio = vertical(sSide)
-      ? [{ x: s1.x, y: (s1.y + t1.y) / 2 }, { x: t1.x, y: (s1.y + t1.y) / 2 }]
-      : [{ x: (s1.x + t1.x) / 2, y: s1.y }, { x: (s1.x + t1.x) / 2, y: t1.y }]
-    return dedup([sa, s1, ...meio, t1, ta])
+    return dedup([sa, ...miolo(s1, t1, sSide, tSide, sp, ss, tp, ts), ta])
   }
 
   if (Math.abs(dy) >= Math.abs(dx)) {
@@ -436,6 +433,119 @@ export function routeAvoiding(sa: Pt, ta: Pt, s: Rect, t: Rect, obs: Rect[]): Pt
 
 /** Quanto a aresta anda reto ao sair da borda antes de dobrar. */
 const STUB = 18
+/** Folga do contorno quando a linha precisa dar a volta por fora dos dois nós. */
+const VOLTA = 26
+
+/**
+ * O miolo do traço entre os dois "stubs", quando as pontas estão ANCORADAS num
+ * lado. Devolve de `s1` a `t1`, inclusive.
+ *
+ * A regra que faltava aqui — e que produzia a linha voltando em cima de si
+ * mesma, que o Fabricio viu — é que a dobra tem de estar ao mesmo tempo:
+ *   · À FRENTE da saída (na direção pra onde o stub aponta), e
+ *   · ATRÁS da entrada (a linha precisa chegar em `t1` pelo lado certo).
+ *
+ * Com a média simples entre os dois stubs, essas duas condições eram ignoradas.
+ * No `arquitetura-flowforge` isso dava dois traços absurdos: um saía 18px pra
+ * esquerda e voltava atravessando o próprio nó de origem; o outro atravessava o
+ * nó de destino inteiro, passava 18px além e voltava pra entrar pela direita.
+ *
+ * Quando as duas condições não podem valer juntas, não existe dobra possível: aí
+ * o caminho é dar a VOLTA por fora dos dois nós, que é o que uma pessoa
+ * desenharia.
+ */
+function miolo(s1: Pt, t1: Pt, sSide: Side, tSide: Side, sp: Pt, ss: Size, tp: Pt, ts: Size): Pt[] {
+  const sa = pushOut(s1, sSide, -STUB)
+  const ta = pushOut(t1, tSide, -STUB)
+  // Tenta os traçados em ordem de preferência e fica com o primeiro que não se
+  // dobra sobre si. Enumerar caso a caso não deu conta: nós SOBREPOSTOS na mesma
+  // altura fazem a dobra degenerar num ponto, e aí o traço "de ida" e o "de
+  // volta" viram a mesma linha. Verificar o resultado cobre o que a enumeração
+  // não previu — inclusive o que eu ainda não imaginei.
+  for (const cand of candidatos(s1, t1, sSide, tSide, sp, ss, tp, ts)) {
+    if (!voltaSobreSi(dedup([sa, ...cand, ta]))) return cand
+  }
+  return [s1, t1]
+}
+
+/** Dois trechos seguidos na mesma orientação e em sentidos opostos: a linha anda e desanda. */
+function voltaSobreSi(pts: Pt[]): boolean {
+  for (let i = 2; i < pts.length; i++) {
+    const a = pts[i - 2]!
+    const b = pts[i - 1]!
+    const c = pts[i]!
+    if (Math.abs(a.y - b.y) < 0.5 && Math.abs(b.y - c.y) < 0.5 && Math.sign(b.x - a.x) * Math.sign(c.x - b.x) < 0) return true
+    if (Math.abs(a.x - b.x) < 0.5 && Math.abs(b.x - c.x) < 0.5 && Math.sign(b.y - a.y) * Math.sign(c.y - b.y) < 0) return true
+  }
+  return false
+}
+
+/** Traçados possíveis entre os dois stubs, do mais direto ao mais rodeado. */
+function candidatos(s1: Pt, t1: Pt, sSide: Side, tSide: Side, sp: Pt, ss: Size, tp: Pt, ts: Size): Pt[][] {
+  const sv = vertical(sSide)
+  const tv = vertical(tSide)
+  // caixa que engloba os dois nós, com folga — por onde a volta passa
+  const fx1 = Math.min(sp.x, tp.x) - VOLTA
+  const fx2 = Math.max(sp.x + ss.width, tp.x + ts.width) + VOLTA
+  const fy1 = Math.min(sp.y, tp.y) - VOLTA
+  const fy2 = Math.max(sp.y + ss.height, tp.y + ts.height) + VOLTA
+
+  const out: Pt[][] = []
+  // dois contornos possíveis por eixo, o mais perto primeiro
+  const porFora = (horizontal: boolean): void => {
+    const eixos = horizontal
+      ? (Math.abs(s1.y - fy1) <= Math.abs(fy2 - s1.y) ? [fy1, fy2] : [fy2, fy1])
+      : (Math.abs(s1.x - fx1) <= Math.abs(fx2 - s1.x) ? [fx1, fx2] : [fx2, fx1])
+    for (const m of eixos) {
+      out.push(horizontal
+        ? [s1, { x: s1.x, y: m }, { x: t1.x, y: m }, t1]
+        : [s1, { x: m, y: s1.y }, { x: m, y: t1.y }, t1])
+    }
+  }
+
+  if (!sv && !tv) {
+    // as duas pontas na horizontal (left/right): a dobra é uma coluna `mx` que
+    // precisa estar à frente da saída E do lado por onde a entrada aceita
+    const dS = sSide === 'right' ? 1 : -1
+    const dT = tSide === 'right' ? 1 : -1
+    const lo = Math.max(dS > 0 ? s1.x : -Infinity, dT > 0 ? t1.x : -Infinity)
+    const hi = Math.min(dS > 0 ? Infinity : s1.x, dT > 0 ? Infinity : t1.x)
+    if (lo <= hi) {
+      const mx = Number.isFinite(lo) && Number.isFinite(hi) ? (lo + hi) / 2 : Number.isFinite(lo) ? lo : hi
+      out.push([s1, { x: mx, y: s1.y }, { x: mx, y: t1.y }, t1])
+    }
+    porFora(true)
+    return out
+  }
+
+  if (sv && tv) {
+    // as duas na vertical (top/bottom) — espelho do caso acima
+    const dS = sSide === 'bottom' ? 1 : -1
+    const dT = tSide === 'bottom' ? 1 : -1
+    const lo = Math.max(dS > 0 ? s1.y : -Infinity, dT > 0 ? t1.y : -Infinity)
+    const hi = Math.min(dS > 0 ? Infinity : s1.y, dT > 0 ? Infinity : t1.y)
+    if (lo <= hi) {
+      const my = Number.isFinite(lo) && Number.isFinite(hi) ? (lo + hi) / 2 : Number.isFinite(lo) ? lo : hi
+      out.push([s1, { x: s1.x, y: my }, { x: t1.x, y: my }, t1])
+    }
+    porFora(false)
+    return out
+  }
+
+  // uma ponta vertical e a outra horizontal: um cotovelo resolve, se ele cair à
+  // frente da saída e atrás da entrada
+  const cotovelo = sv ? { x: t1.x, y: s1.y } : { x: s1.x, y: t1.y }
+  const frenteDaSaida = sv
+    ? sSide === 'bottom' ? cotovelo.y >= s1.y : cotovelo.y <= s1.y
+    : sSide === 'right' ? cotovelo.x >= s1.x : cotovelo.x <= s1.x
+  const atrasDaEntrada = tv
+    ? tSide === 'bottom' ? cotovelo.y >= t1.y : cotovelo.y <= t1.y
+    : tSide === 'right' ? cotovelo.x >= t1.x : cotovelo.x <= t1.x
+  if (frenteDaSaida && atrasDaEntrada) out.push([s1, cotovelo, t1])
+  porFora(sv)
+  porFora(!sv)
+  return out
+}
 
 function vertical(s: Side): boolean {
   return s === 'top' || s === 'bottom'

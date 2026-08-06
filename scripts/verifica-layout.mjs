@@ -305,6 +305,25 @@ function trajetoCruza(pts, r) {
   return false;
 }
 
+/**
+ * A LINHA VOLTA EM CIMA DE SI MESMA?
+ *
+ * Dois trechos consecutivos na mesma orientacao e em sentidos OPOSTOS: a linha
+ * anda e desanda pelo mesmo eixo. Foi o que o Fabricio viu depois do FF-011, e
+ * acontecia quando a dobra do meio ignorava a direcao dos lados ancorados.
+ * Fica como teste permanente: e o tipo de feiura que so aparece na tela.
+ */
+export function voltaSobreSi(pts) {
+  for (let i = 2; i < pts.length; i++) {
+    const a = pts[i - 2], b = pts[i - 1], c = pts[i];
+    const mesmoY = Math.abs(a.y - b.y) < 0.5 && Math.abs(b.y - c.y) < 0.5;
+    const mesmoX = Math.abs(a.x - b.x) < 0.5 && Math.abs(b.x - c.x) < 0.5;
+    if (mesmoY && Math.sign(b.x - a.x) * Math.sign(c.x - b.x) < 0) return true;
+    if (mesmoX && Math.sign(b.y - a.y) * Math.sign(c.y - b.y) < 0) return true;
+  }
+  return false;
+}
+
 async function testaRoteamento(L) {
   const casos = [];
   // A em cima, B embaixo e C EXATAMENTE no meio: o L/Z reto passa por dentro de C
@@ -337,6 +356,38 @@ async function testaRoteamento(L) {
   const passou = r3.edgePoints.e1.some((p) => Math.abs(p.x - 900) < 0.5 && Math.abs(p.y - 300) < 0.5);
   casos.push(['quebra manual entra no traco', passou]);
   casos.push(['quebra manual vence o roteador automatico', JSON.stringify(r3.edgePoints.e1) !== JSON.stringify(r.edgePoints.e1)]);
+
+  // A DOBRA respeita a direcao dos lados ancorados, em TODAS as combinacoes.
+  // Sem isso a linha sai pra um lado e volta por cima de si — 12 combinacoes,
+  // porque foram justamente as esquisitas (mesmo lado, alvo atras) que quebraram.
+  {
+    const lados = ['top', 'right', 'bottom', 'left'];
+    const posicoes = [
+      { nome: 'alvo a direita e abaixo', x: 900, y: 700 },
+      { nome: 'alvo a esquerda e acima', x: 80, y: 90 },
+      { nome: 'alvo logo atras', x: 250, y: 400 },
+    ];
+    let ruins = [];
+    for (const sSide of lados) for (const tSide of lados) for (const pos of posicoes) {
+      const d = {
+        type: 'flowchart', title: 'T', rev: 0, updatedBy: 'user', lanes: [],
+        nodes: [
+          { id: 'a', label: 'A', kind: 'task', status: 'proposed', comments: [], x: 400, y: 400 },
+          { id: 'b', label: 'B', kind: 'task', status: 'proposed', comments: [], x: pos.x, y: pos.y },
+        ],
+        edges: [{ id: 'e1', source: 'a', target: 'b', label: '', status: 'proposed', sourceSide: sSide, targetSide: tSide }],
+      };
+      const r = await L.layoutDiagram(d, 'DOWN', 70);
+      if (voltaSobreSi(r.edgePoints.e1)) ruins.push(`${sSide}->${tSide} (${pos.nome})`);
+    }
+    casos.push([`nenhuma das 48 combinacoes de lado volta sobre si${ruins.length ? ' — falhou: ' + ruins.slice(0, 3).join(', ') : ''}`, ruins.length === 0]);
+  }
+
+  // e o detector sabe ACUSAR? um traco que anda e desanda tem de ser pego
+  casos.push(['a checagem ACUSA uma linha que volta em cima de si',
+    voltaSobreSi([{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 40, y: 0 }, { x: 40, y: 90 }])]);
+  casos.push(['a checagem NAO acusa um traco normal em Z',
+    !voltaSobreSi([{ x: 0, y: 0 }, { x: 50, y: 0 }, { x: 50, y: 90 }, { x: 120, y: 90 }])]);
 
   // duas quebras, na ordem em que foram postas
   const d4 = JSON.parse(JSON.stringify(d));
@@ -614,6 +665,7 @@ async function main() {
         const fim = pts[pts.length - 1];
         const temDirecao = pts.some((p) => Math.abs(p.x - fim.x) + Math.abs(p.y - fim.y) > 0.5);
         if (!temDirecao) problemas.push(`aresta '${eid}': traco sem direcao — a ponta da seta nao teria pra onde apontar`);
+        if (voltaSobreSi(pts)) problemas.push(`aresta '${eid}': a linha volta em cima do proprio eixo`);
       }
 
       // FF-007: o export tem de aguentar dado REAL (acento, aspas, rotulo longo).
