@@ -34,6 +34,7 @@ import type { DEdge, Diagram, DNode, Lane, ModelKey, NodeStatus, SeqModel, Works
 import { FlowNode, sideOfHandle } from './FlowNode.js'
 import { Palette } from './Palette.js'
 import { LanesPanel } from './LanesPanel.js'
+import { Toolbar } from './Toolbar.js'
 import { EntityNode } from './EntityNode.js'
 import { MindNode } from './MindNode.js'
 import { LaneNode } from './LaneNode.js'
@@ -43,14 +44,17 @@ import { MindEdge } from './MindEdge.js'
 import { SequenceView } from './SequenceView.js'
 import {
   layoutDiagram,
+  namedLayout,
   nodeSize,
   orthRoute,
   radialLayout,
   swimlaneLayout,
   toSavedPoint,
+  type LayoutNome,
   type LayoutResult
 } from './layout.js'
-import { applyVerdict, novaEdge, novoNode, propagateFrom } from './model.js'
+import { baixarPng, baixarTexto, nomeSeguro, toMermaid, toSvg } from './export.js'
+import { applyVerdict, diffNodes, novaEdge, novoNode, propagateFrom } from './model.js'
 import { LENSES, LENS_BY_KEY, type LensDef, type LensKey } from './lenses.js'
 
 const STATUS_COLOR: Record<NodeStatus, string> = {
@@ -82,14 +86,35 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
   const [posOverride, setPosOverride] = useState<Record<string, Pt>>({})
   const movedRef = useRef<Set<string>>(new Set())
 
+  // O QUE O CLAUDE MUDOU (FF-007). Num diagrama de 22 nós, "o Claude respondeu"
+  // não serve de nada se você tem que caçar o que mudou. Guarda a assinatura de
+  // cada nó e, quando chega escrita com `updatedBy:'claude'`, marca o que é novo
+  // ou diferente e oferece o salto.
+  const [mudados, setMudados] = useState<Record<string, Set<string>>>({})
+  const anteriorRef = useRef<Workspace | null>(null)
+
   // O arquivo-verdade é a fonte da verdade (lei 2): o que chega do servidor
   // SUBSTITUI o estado local — inclusive o eco do nosso próprio patch.
   useEffect(() => {
+    const anterior = anteriorRef.current
+    anteriorRef.current = workspace
     setData(workspace)
+    if (!anterior || workspace.updatedBy !== 'claude' || workspace.rev === anterior.rev) return
+    const porModelo: Record<string, Set<string>> = {}
+    for (const m of ['process', 'state', 'er', 'mind'] as const) {
+      const ids = diffNodes(anterior[m], workspace[m])
+      if (ids.size) porModelo[m] = ids
+    }
+    setMudados(porModelo)
   }, [workspace])
+
+  // trocar de lente limpa o realce da lente anterior
+  const limparMudados = useCallback(() => setMudados({}), [])
 
   const lensDef = LENS_BY_KEY[lens]
   const activeDiagram: Diagram | null = lensDef.model === 'seq' ? null : (data[lensDef.model] as Diagram)
+  /** O que o Claude mexeu NA LENTE ATUAL (o realce e o toast leem daqui). */
+  const mudadosAqui = mudados[lensDef.model] ?? null
 
   /**
    * Escreve um modelo: otimista na tela + patch no servidor (que reecoa o
@@ -97,15 +122,73 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
    * propósito — updater tem que ser puro, e o StrictMode o chama duas vezes;
    * mandar o patch de dentro dele mandaria dois patches por clique.
    */
-  const writeModel = useCallback(
-    (model: Exclude<ModelKey, 'seq'>, mutate: (d: Diagram) => Diagram) => {
-      if (busy) return // lei 7
-      const next = mutate(data[model])
+  // ---- histórico (FF-007): 20 níveis, como no editor antigo ----
+  // Guarda o modelo ANTES de cada escrita, junto com a lente — desfazer numa
+  // lente não pode escrever noutra. Não guarda o eco do servidor: histórico é
+  // do que EU fiz, e o que o Claude escreve não é meu pra desfazer.
+  const undoRef = useRef<{ model: Exclude<ModelKey, 'seq'>; antes: Diagram }[]>([])
+  const redoRef = useRef<{ model: Exclude<ModelKey, 'seq'>; antes: Diagram }[]>([])
+  // as pilhas moram em ref (não precisam re-renderizar), mas os BOTÕES precisam
+  // saber se estão vivos — daí este par de contadores em state
+  const [hist, setHist] = useState({ undo: 0, redo: 0 })
+  const marcaHist = useCallback(() => setHist({ undo: undoRef.current.length, redo: redoRef.current.length }), [])
+  const MAX_HIST = 20
+
+  const aplica = useCallback(
+    (model: Exclude<ModelKey, 'seq'>, next: Diagram) => {
       setData((d) => ({ ...d, [model]: next }))
       onPatch(model, next)
     },
-    [busy, data, onPatch]
+    [onPatch]
   )
+
+  const writeModel = useCallback(
+    (model: Exclude<ModelKey, 'seq'>, mutate: (d: Diagram) => Diagram) => {
+      if (busy) return // lei 7
+      const antes = data[model]
+      const next = mutate(antes)
+      if (next === antes) return // mutate desistiu (ex: aresta duplicada)
+      undoRef.current.push({ model, antes })
+      if (undoRef.current.length > MAX_HIST) undoRef.current.shift()
+      redoRef.current = [] // ramo novo: o que estava pra frente morreu
+      marcaHist()
+      aplica(model, next)
+    },
+    [busy, data, aplica, marcaHist]
+  )
+
+  const desfazer = useCallback(() => {
+    if (busy) return
+    const passo = undoRef.current.pop()
+    if (!passo) return
+    redoRef.current.push({ model: passo.model, antes: data[passo.model] })
+    marcaHist()
+    aplica(passo.model, passo.antes)
+  }, [busy, data, aplica, marcaHist])
+
+  const refazer = useCallback(() => {
+    if (busy) return
+    const passo = redoRef.current.pop()
+    if (!passo) return
+    undoRef.current.push({ model: passo.model, antes: data[passo.model] })
+    marcaHist()
+    aplica(passo.model, passo.antes)
+  }, [busy, data, aplica, marcaHist])
+
+  useEffect(() => {
+    const tecla = (e: globalThis.KeyboardEvent): void => {
+      if (!(e.ctrlKey || e.metaKey)) return
+      const alvo = e.target as HTMLElement | null
+      // dentro de campo de texto, Ctrl+Z é do campo, não do diagrama
+      if (alvo && /^(INPUT|TEXTAREA|SELECT)$/.test(alvo.tagName)) return
+      if (e.key.toLowerCase() !== 'z') return
+      e.preventDefault()
+      if (e.shiftKey) refazer()
+      else desfazer()
+    }
+    window.addEventListener('keydown', tecla)
+    return () => window.removeEventListener('keydown', tecla)
+  }, [desfazer, refazer])
 
   // APROVAR TUDO: promove todas as etapas `proposed` da lente atual a `approved`
   // num clique (com patch persistido) — sem clicar nó a nó.
@@ -435,6 +518,7 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
         id: n.id,
         type: lensDef.nodeType,
         position: posOf(n.id),
+        className: mudadosAqui?.has(n.id) ? 'ff-changed' : undefined,
         width: s?.width,
         height: s?.height,
         style: s ? { width: s.width, height: s.height } : undefined,
@@ -447,7 +531,7 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
       })
     }
     return out
-  }, [layout, activeDiagram, lens, lensDef.nodeType, onVerdict, branch, posOf, busy])
+  }, [layout, activeDiagram, lens, lensDef.nodeType, onVerdict, onEditNode, branch, posOf, busy, mudadosAqui])
 
   const rfEdges: Edge[] = useMemo(() => {
     if (!layout || !activeDiagram) return []
@@ -485,6 +569,59 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
     })
   }, [layout, activeDiagram, lensDef.edgeType, branch, posOf, posOverride, busy, onEdgeEdit, onEdgeDeleteOne])
 
+  // ------------------------------------------------------------------------
+  // FERRAMENTAS (FF-007)
+  // ------------------------------------------------------------------------
+
+  /** Centraliza um nó — usado pela busca e pelo salto do toast do Claude. */
+  const saltarPara = useCallback(
+    (id: string) => {
+      const rf = rfRef.current
+      if (!rf) return
+      const p = posOf(id)
+      const s = layout ? sizeOf(layout, id) : { width: 180, height: 60 }
+      rf.setCenter(p.x + s.width / 2, p.y + s.height / 2, { zoom: Math.max(rf.getZoom(), 0.85), duration: 420 })
+    },
+    [posOf, layout]
+  )
+
+  /**
+   * Arranjo nomeado: recalcula ignorando o desenho salvo e GRAVA o resultado.
+   * Gravar é o ponto — sem isso o arranjo duraria até o próximo reload, já que
+   * o FF-001 faz o arquivo mandar na geometria.
+   */
+  const aplicarArranjo = useCallback(
+    async (nome: LayoutNome) => {
+      const model = lensDef.model
+      if (busy || model === 'seq' || !activeDiagram || !lensDef.savesPos) return
+      const res = await namedLayout(activeDiagram, nome)
+      writeModel(model, (dia) => ({
+        ...dia,
+        nodes: dia.nodes.map((n) => {
+          const p = res.positions[n.id]
+          const s = res.sizes[n.id]
+          if (!p || !s) return n
+          const c = toSavedPoint(p, s)
+          return { ...n, x: c.x, y: c.y }
+        })
+      }))
+    },
+    [busy, lensDef, activeDiagram, writeModel]
+  )
+
+  const exportar = useCallback(
+    async (formato: 'png' | 'svg' | 'mmd') => {
+      if (!activeDiagram || !layout) return
+      const nome = nomeSeguro(activeDiagram.title)
+      if (formato === 'mmd') return baixarTexto(nome + '.mmd', toMermaid(activeDiagram))
+      const svg = toSvg(activeDiagram, layout)
+      if (formato === 'svg') return baixarTexto(nome + '.svg', svg, 'image/svg+xml;charset=utf-8')
+      await baixarPng(nome + '.png', svg)
+    },
+    [activeDiagram, layout]
+  )
+
+
   const shell = 'neon-editor' + (busy ? ' ro' : '')
 
   if (lensDef.layout === 'seq') {
@@ -504,6 +641,31 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
       <Palette busy={busy} onPick={criarNoCentro} />
       {lens === 'swimlane' && activeDiagram && (
         <LanesPanel lanes={activeDiagram.lanes ?? []} busy={busy} onChange={onLanesChange} />
+      )}
+      {activeDiagram && (
+        <Toolbar
+          nodes={activeDiagram.nodes}
+          busy={busy}
+          podeDesfazer={hist.undo > 0}
+          podeRefazer={hist.redo > 0}
+          onDesfazer={desfazer}
+          onRefazer={refazer}
+          onArranjo={aplicarArranjo}
+          onSaltar={saltarPara}
+          onExport={exportar}
+        />
+      )}
+      {mudadosAqui && mudadosAqui.size > 0 && (
+        <div className="change-toast neon-mono" role="status">
+          <span className="ct-dot" />o Claude mexeu em {mudadosAqui.size}{' '}
+          {mudadosAqui.size === 1 ? 'etapa' : 'etapas'}
+          <button className="ct-ir" onClick={() => saltarPara([...mudadosAqui][0]!)}>
+            ver ↷
+          </button>
+          <button className="ct-x" title="dispensar" onClick={limparMudados}>
+            ✕
+          </button>
+        </div>
       )}
       {actions}
       {layout?.noLanes && (

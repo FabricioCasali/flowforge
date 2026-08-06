@@ -421,8 +421,47 @@ export async function swimlaneLayout(diagram: Diagram): Promise<LayoutResult> {
   return { positions, sizes, edgePoints, lanes }
 }
 
+/**
+ * Layouts NOMEADOS (o menu "arranjo" do editor antigo, `app.js:1319`).
+ *
+ * Estes ignoram o `x`/`y` salvo de propósito: são o gesto de "reorganiza isso
+ * pra mim". O resultado é gravado no arquivo pelo chamador — senão o desenho
+ * voltaria ao antigo no próximo reload, que é justamente o que o FF-001 garante.
+ */
+export type LayoutNome = 'vertical' | 'horizontal' | 'arvore' | 'radial' | 'forca'
+
+export const LAYOUTS: { nome: LayoutNome; label: string }[] = [
+  { nome: 'vertical', label: 'Vertical' },
+  { nome: 'horizontal', label: 'Horizontal' },
+  { nome: 'arvore', label: 'Árvore' },
+  { nome: 'radial', label: 'Radial' },
+  { nome: 'forca', label: 'Força' }
+]
+
+export async function namedLayout(diagram: Diagram, nome: LayoutNome): Promise<LayoutResult> {
+  if (nome === 'radial') return radialLayout(diagram, false)
+  if (nome === 'vertical') return layoutDiagram(diagram, 'DOWN', 70, false)
+  if (nome === 'horizontal') return layoutDiagram(diagram, 'RIGHT', 90, false)
+
+  const sizes = sizesOf(diagram)
+  const algoritmo = nome === 'arvore' ? 'mrtree' : 'force'
+  const opts: Record<string, string> =
+    nome === 'arvore'
+      ? { 'elk.algorithm': 'mrtree', 'elk.spacing.nodeNode': '54', 'elk.mrtree.searchOrder': 'DFS' }
+      : { 'elk.algorithm': 'force', 'elk.spacing.nodeNode': '96', 'elk.force.iterations': '300' }
+  const res = await elk.layout({
+    id: 'root',
+    layoutOptions: { ...opts, 'elk.algorithm': algoritmo },
+    children: diagram.nodes.map((n) => ({ id: n.id, width: sizes[n.id]!.width, height: sizes[n.id]!.height })),
+    edges: diagram.edges.map((e) => ({ id: e.id, sources: [e.source], targets: [e.target] }))
+  })
+  const positions: Record<string, Pt> = {}
+  for (const c of res.children ?? []) positions[c.id] = { x: c.x ?? 0, y: c.y ?? 0 }
+  return { positions, sizes, edgePoints: routeAll(diagram, positions, sizes) }
+}
+
 /** Mind map: árvore radial a partir da raiz (nó sem arestas de entrada). */
-export function radialLayout(diagram: Diagram): LayoutResult {
+export function radialLayout(diagram: Diagram, honorSaved = true): LayoutResult {
   const sizes = sizesOf(diagram)
   const targets = new Set(diagram.edges.map((e) => e.target))
   const root = diagram.nodes.find((n) => !targets.has(n.id)) ?? diagram.nodes[0]
@@ -456,7 +495,7 @@ export function radialLayout(diagram: Diagram): LayoutResult {
   if (root) place(root.id, 0, -Math.PI, Math.PI)
 
   // o arquivo manda também aqui (o Fabricio arruma o mapa na mão)
-  const saved = savedPositions(diagram, sizes)
+  const saved = honorSaved ? savedPositions(diagram, sizes) : {}
   const positions = Object.keys(saved).length ? anchorToSaved(diagram, saved, computed, sizes) : computed
 
   // arestas mind = bezier entre centros (a aresta custom desenha a curva)

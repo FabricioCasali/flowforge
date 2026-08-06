@@ -41,6 +41,8 @@
   text-transform: uppercase;
   color: var(--accent);
 }
+/* o título é um BOTÃO: clicou, vira campo (FF-007). Continua parecendo texto —
+   quem só está lendo não pode achar que é mais um botão da barra. */
 .ff-title {
   font-family: var(--display);
   font-size: 14px;
@@ -50,6 +52,34 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  padding: 3px 6px;
+  cursor: text;
+  text-align: left;
+}
+.ff-title:hover:not(:disabled) {
+  border-color: var(--border-2);
+  background: color-mix(in oklch, var(--surface) 70%, transparent);
+}
+.ff-title:disabled {
+  cursor: default;
+}
+.ff-title-edit {
+  font-family: var(--display);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+  width: 34vw;
+  max-width: 44vw;
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-sm);
+  padding: 3px 6px;
+}
+.ff-title-edit:focus {
+  outline: none;
 }
 .ff-spacer {
   flex: 1;

@@ -1,6 +1,6 @@
 // Helpers do editor: propagação de status (consenso das 2 pontas), veredito e as
 // fábricas de nó/aresta (criar, ligar).
-import type { Comment, DEdge, DNode, NodeStatus, Side } from '../types.js'
+import type { Comment, DEdge, Diagram, DNode, NodeStatus, Side } from '../types.js'
 import { KIND_NEW_LABEL } from './shapes.js'
 
 /**
@@ -28,6 +28,35 @@ export function novoNode(kind: string, center: { x: number; y: number }, lane?: 
   if (kind === 'entity') n.fields = [{ name: 'id', type: 'int', key: 'pk' }]
   if (lane) n.lane = lane
   return n
+}
+
+/**
+ * Assinatura do CONTEÚDO de um nó — o `nodeKey` do editor antigo (`app.js:506`).
+ * A posição fica de fora de propósito: mover um nó não é mudança de conteúdo e
+ * não merece o realce de "o Claude mexeu aqui".
+ */
+export function nodeKey(n: DNode): string {
+  return [
+    n.status,
+    n.label,
+    n.comments?.length ?? 0,
+    n.kind,
+    n.description ?? '',
+    JSON.stringify(n.fields ?? []),
+    n.lane ?? ''
+  ].join('|')
+}
+
+/** Ids que nasceram ou mudaram de conteúdo entre dois estados do mesmo modelo. */
+export function diffNodes(antes: Diagram | undefined, depois: Diagram | undefined): Set<string> {
+  const out = new Set<string>()
+  if (!depois) return out
+  const mapa = new Map((antes?.nodes ?? []).map((n) => [n.id, nodeKey(n)]))
+  for (const n of depois.nodes) {
+    const chave = mapa.get(n.id)
+    if (chave === undefined || chave !== nodeKey(n)) out.add(n.id)
+  }
+  return out
 }
 
 /** Aresta nova entre dois nós, com os lados de ancoragem que o gesto escolheu. */

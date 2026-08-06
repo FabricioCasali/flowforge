@@ -273,7 +273,97 @@ async function testaPropagacao(M) {
   return casos;
 }
 
-async function autoteste(L, M) {
+/**
+ * FF-007 — export, arranjos nomeados e o diff "o que o Claude mudou".
+ * O que da pra provar sem browser: o texto do Mermaid, a boa formacao do SVG, o
+ * fato de os arranjos posicionarem todo mundo IGNORANDO o desenho salvo, e a
+ * regra do diff (conteudo conta, posicao nao).
+ */
+async function testaFerramentas(L, M, X, base) {
+  const casos = [];
+
+  // ---- Mermaid ----
+  {
+    const d = base();
+    d.nodes[0].kind = 'decision';
+    d.nodes[1].kind = 'start';
+    d.edges[0].label = 'sim';
+    const mmd = X.toMermaid(d);
+    casos.push(['mermaid abre com flowchart TD', mmd.startsWith('flowchart TD')]);
+    casos.push(['mermaid usa losango pra decision', /N0\{"A"\}/.test(mmd)]);
+    casos.push(['mermaid usa pilula pra start', /N1\(\["B"\]\)/.test(mmd)]);
+    casos.push(['mermaid leva o rotulo da aresta', /-->\|"sim"\|/.test(mmd)]);
+  }
+  // aspas no rotulo nao podem quebrar o arquivo
+  {
+    const d = base();
+    d.nodes[0].label = 'diz "oi"';
+    const mmd = X.toMermaid(d);
+    casos.push(['mermaid escapa aspas do rotulo', mmd.includes("diz 'oi'") && !mmd.includes('"diz "oi""')]);
+  }
+
+  // ---- SVG ----
+  {
+    const d = base();
+    const lay = await L.layoutDiagram(d, 'DOWN', 70);
+    const svg = X.toSvg(d, lay);
+    casos.push(['svg e um documento fechado', svg.startsWith('<svg') && svg.trim().endsWith('</svg>')]);
+    casos.push(['svg declara o namespace (abre fora da pagina)', svg.includes('xmlns="http://www.w3.org/2000/svg"')]);
+    casos.push(['svg tem largura e altura reais', /width="\d+"/.test(svg) && !/width="0"/.test(svg)]);
+    casos.push(['svg leva o rotulo dos nos', svg.includes('>A<') || svg.includes('>B<')]);
+    casos.push(['svg nao vaza var(--...) do CSS', !svg.includes('var(--')]);
+  }
+  // rotulo com < & " nao pode quebrar o XML
+  {
+    const d = base();
+    d.nodes[0].label = 'a < b & c "d"';
+    const lay = await L.layoutDiagram(d, 'DOWN', 70);
+    const svg = X.toSvg(d, lay);
+    casos.push(['svg escapa <, & e aspas do rotulo', svg.includes('&lt;') && svg.includes('&amp;') && !svg.includes('a < b')]);
+  }
+
+  // ---- arranjos nomeados ----
+  for (const nome of ['vertical', 'horizontal', 'arvore', 'forca', 'radial']) {
+    const d = base();
+    const r = await L.namedLayout(d, nome);
+    const todos = d.nodes.every((n) => r.positions[n.id] && Number.isFinite(r.positions[n.id].x));
+    // o arranjo IGNORA o x/y salvo — senao nao arranjaria nada
+    const ignorou = d.nodes.some((n) => {
+      const volta = L.toSavedPoint(r.positions[n.id], r.sizes[n.id]);
+      return volta.x !== n.x || volta.y !== n.y;
+    });
+    casos.push([`arranjo '${nome}' posiciona todos os nos`, todos]);
+    casos.push([`arranjo '${nome}' ignora o desenho salvo`, ignorou]);
+  }
+
+  // ---- diff: o que o Claude mudou ----
+  {
+    const antes = base();
+    const depois = base();
+    depois.nodes[0].label = 'A editado';
+    const d1 = M.diffNodes(antes, depois);
+    casos.push(['diff pega o no que mudou de rotulo', d1.size === 1 && d1.has('a')]);
+
+    const soMoveu = base();
+    soMoveu.nodes[0].x = 9999;
+    casos.push(['diff IGNORA quem so mudou de posicao', M.diffNodes(antes, soMoveu).size === 0]);
+
+    const comNovo = base();
+    comNovo.nodes.push({ id: 'c', label: 'C', kind: 'task', status: 'proposed', comments: [] });
+    const d2 = M.diffNodes(antes, comNovo);
+    casos.push(['diff pega o no que nasceu', d2.size === 1 && d2.has('c')]);
+
+    const statusOutro = base();
+    statusOutro.nodes[1].status = 'approved';
+    casos.push(['diff pega mudanca de status', M.diffNodes(antes, statusOutro).has('b')]);
+
+    casos.push(['diff de dois iguais e vazio', M.diffNodes(antes, base()).size === 0]);
+  }
+
+  return casos;
+}
+
+async function autoteste(L, M, X) {
   const casos = [];
   const base = () => ({
     type: 'flowchart', title: 'T', rev: 0, updatedBy: 'user', lanes: [],
@@ -386,6 +476,8 @@ async function autoteste(L, M) {
 
   // FF-006: a regra do RAIO da propagacao (a seta tem status proprio)
   casos.push(...(await testaPropagacao(M)));
+  // FF-007: ferramentas
+  casos.push(...(await testaFerramentas(L, M, X, base)));
 
   let falhas = 0;
   for (const [nome, ok] of casos) {
@@ -407,8 +499,9 @@ async function main() {
   const L = await transpilar(tmp, 'layout.ts');
   const SH = await transpilar(tmp, 'shapes.ts');
   const M = await transpilar(tmp, 'model.ts');
+  const X = await transpilar(tmp, 'export.ts');
 
-  if (process.argv.includes('--autoteste')) return autoteste(L, M);
+  if (process.argv.includes("--autoteste")) return autoteste(L, M, X);
 
   // ---- lei 8: as formas por kind ----
   const probFormas = verificaFormas(SH, L);
@@ -440,6 +533,21 @@ async function main() {
       const salvos = (d.nodes || []).filter((n) => Number.isFinite(n.x) && Number.isFinite(n.y)).length;
       const res = await rodarLayout(L, d, lente);
       const problemas = confere(d, lente, res);
+
+      // FF-007: o export tem de aguentar dado REAL (acento, aspas, rotulo longo).
+      // So na lente dona do modelo, pra nao exportar o mesmo diagrama 2x.
+      if (lente.honra) {
+        try {
+          const svg = X.toSvg(d, res);
+          if (!svg.startsWith('<svg') || !svg.trim().endsWith('</svg>')) problemas.push('SVG exportado veio malformado');
+          if (/ (width|height)="0"/.test(svg)) problemas.push('SVG exportado veio com dimensao zero');
+          const mmd = X.toMermaid(d);
+          const linhas = mmd.split('\n').length;
+          if (linhas < d.nodes.length + 1) problemas.push(`mermaid perdeu no: ${linhas} linhas pra ${d.nodes.length} nos`);
+        } catch (e) {
+          problemas.push('export explodiu: ' + (e && e.message));
+        }
+      }
       linhas.push([
         alvo.sessao, lente.key, String(d.nodes.length),
         `${salvos}/${d.nodes.length}`,

@@ -43,10 +43,6 @@ Classe: **importante** · **melhoria**
   `.seqview` virou `calc()` sobre `--lensbar-top`/`--lensbar-h`. · `[porte/fase-1]` · P ·
   melhoria
 
-## 📋 A fazer
-
-_(fase 1 fechada — a fase 2 começa no FF-004)_
-
 - **FF-004** **Edição: inspector de nó** — o `VerdictPanel` virou `NodeCard`, com abas
   descrição/notas: rótulo, `kind` (13 opções agrupadas Fluxo/BPM), descrição técnica e notas
   livres. Escreve no `change` (blur/Enter), nunca por tecla — senão cada caractere viraria um
@@ -67,20 +63,28 @@ _(fase 1 fechada — a fase 2 começa no FF-004)_
   decidida em 06/08/2026 depois de medir que 24% das arestas reais divergem das pontas. ·
   `[porte/fase-2]` · M · importante
 
-## 🗂️ Backlog
+- **FF-007** **Ferramentas** — undo/redo (20 níveis, por lente, com Ctrl+Z/Ctrl+Shift+Z),
+  busca com salto (Enter circula pelos achados), menu de arranjos (Vertical/Horizontal/
+  Árvore/Radial/Força — recalculam **e gravam**), export **SVG, PNG e Mermaid** sem
+  dependência nova (o SVG é desenhado do modelo; o PNG sai dele por canvas), título editável
+  na topbar, e o destaque do que o Claude mudou com toast "ver ↷". · `[porte/fase-2]` · M ·
+  importante
 
-- **FF-007** **Ferramentas** — export PNG e Mermaid, busca com salto, undo/redo (20 níveis),
-  menu de layouts nomeados, título editável, e o destaque do que o Claude mudou (o diff com
-  toast "ver ↷", que é o que faz achar a edição num diagrama grande). · `[porte/fase-2]` · M
-  · importante
+## 📋 A fazer
+
+_(fases 1 e 2 fechadas. O `/v2` edita tudo o que o `web/` antigo edita — falta a validação
+do Fabricio na tela antes de encostar no FF-008, que é irreversível.)_
+
+## 🗂️ Backlog
 
 - **FF-008** **Corte do antigo** — `/v2` vira `/`, o `web/` e o Cytoscape saem, e o campo
   `diagram` sai do payload do WS. Só depois que FF-004..007 fecharem. · `[porte/fase-3]` · P
   · importante
 
 - **FF-009** **`title` no nível do workspace** — hoje cada um dos 5 modelos tem `title`
-  próprio; renomear estando numa lente faz as lentes divergirem. Decisão de contrato em
-  aberto. · `[porte]` · P · melhoria
+  próprio. Decisão de contrato ainda em aberto; enquanto isso, o FF-007 **mitigou**: renomear
+  na topbar grava em todos os modelos com conteúdo, ao custo de um patch (e um `rev`) por
+  modelo. É esse custo que justifica fechar o card. · `[porte]` · P · melhoria
 
 - **FF-010** **Bundle de 1,8 MB** — o elkjs vai inteiro no chunk principal. Candidato a
   import dinâmico quando incomodar. · `[porte]` · P · melhoria

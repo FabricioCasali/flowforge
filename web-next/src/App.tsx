@@ -54,13 +54,29 @@ export function App(): JSX.Element {
     document.title = title + ' · FlowForge'
   }, [title])
 
+  /**
+   * Renomear a sessão. O título NÃO mora no workspace — mora dentro de cada um
+   * dos 5 modelos (é o FF-009, decisão de contrato ainda em aberto). Enquanto
+   * ela não é tomada, renomear grava em TODOS os modelos com conteúdo, senão as
+   * lentes passariam a mostrar nomes diferentes do mesmo assunto. Custa um
+   * patch por modelo — feio, e é exatamente o argumento pra fechar o FF-009.
+   */
+  const renomear = useCallback(
+    (novo: string) => {
+      const limpo = novo.trim()
+      if (!limpo || limpo === title || busy) return
+      const modelos = (['process', 'state', 'er', 'mind'] as const).filter((m) => workspace[m].nodes.length > 0)
+      const alvos = modelos.length ? modelos : (['process'] as const)
+      for (const m of alvos) patch(m, { ...workspace[m], title: limpo })
+    },
+    [title, busy, workspace, patch]
+  )
+
   return (
     <div className="ff-shell neon-plane">
       <header className="ff-topbar">
         <span className="ff-brand neon-mono">FlowForge</span>
-        <span className="ff-title" title={title}>
-          {title}
-        </span>
+        <TituloEditavel title={title} busy={busy} onRename={renomear} />
         <span className="ff-spacer" />
         {busy && <span className="ff-pill busy neon-mono">modo leitura · Claude analisando…</span>}
         <select
@@ -83,6 +99,56 @@ export function App(): JSX.Element {
 
       <ChatPanel thread={thread} busy={busy} online={conn === 'conectado'} onAnalyze={analyze} />
     </div>
+  )
+}
+
+/** Título da sessão: clicou, virou campo. Enter grava, Esc desiste. */
+function TituloEditavel({
+  title,
+  busy,
+  onRename
+}: {
+  title: string
+  busy: boolean
+  onRename: (novo: string) => void
+}): JSX.Element {
+  const [editando, setEditando] = useState(false)
+  const [txt, setTxt] = useState(title)
+
+  useEffect(() => {
+    if (!editando) setTxt(title)
+  }, [title, editando])
+
+  if (!editando) {
+    return (
+      <button
+        className="ff-title"
+        title={busy ? title : `${title} — clique pra renomear`}
+        disabled={busy}
+        onClick={() => setEditando(true)}
+      >
+        {title}
+      </button>
+    )
+  }
+  return (
+    <input
+      className="ff-title-edit"
+      autoFocus
+      value={txt}
+      onChange={(e) => setTxt(e.target.value)}
+      onBlur={() => {
+        onRename(txt)
+        setEditando(false)
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') e.currentTarget.blur()
+        if (e.key === 'Escape') {
+          setTxt(title)
+          setEditando(false)
+        }
+      }}
+    />
   )
 }
 

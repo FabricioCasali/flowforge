@@ -1071,10 +1071,187 @@
   background: var(--accent);
 }
 
-/* ---------- barra de ações (aprovar tudo + cravar) ---------- */
-.neon-editor-actions {
+/* ==========================================================================
+   TOOLBAR (FF-007) — desfazer/refazer, busca, arranjo e export.
+   Fica no topo, à esquerda do "Aprovar tudo".
+   ========================================================================== */
+.toolbar {
   position: absolute;
   top: 12px;
+  right: 16px;
+  z-index: 11;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  background: color-mix(in oklch, var(--surface) 92%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  backdrop-filter: blur(8px);
+}
+.tb-btn {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--r-sm);
+  padding: 5px 8px;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+.tb-btn:hover:not(:disabled) {
+  color: var(--fg);
+  background: color-mix(in oklch, var(--accent) 12%, transparent);
+}
+.tb-btn.on {
+  color: var(--bg);
+  background: var(--accent);
+}
+.tb-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.tb-sep {
+  width: 1px;
+  height: 16px;
+  background: var(--border);
+  margin: 0 2px;
+}
+.tb-busca {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.tb-busca input {
+  width: 118px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 5px 8px;
+}
+.tb-busca input:focus {
+  outline: none;
+  border-color: var(--accent);
+  width: 150px;
+}
+.tb-cont {
+  position: absolute;
+  right: 6px;
+  font-size: 9px;
+  color: var(--faint);
+  pointer-events: none;
+}
+.tb-menu-wrap {
+  position: relative;
+}
+.tb-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 132px;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-2);
+  z-index: 12;
+}
+.tb-menu button {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--r-sm);
+  padding: 6px 8px;
+  text-align: left;
+  cursor: pointer;
+}
+.tb-menu button:hover {
+  color: var(--fg);
+  background: color-mix(in oklch, var(--accent) 14%, transparent);
+}
+
+/* ---------- o que o Claude mudou: realce + toast ---------- */
+.react-flow__node.ff-changed::before {
+  content: '';
+  position: absolute;
+  inset: -7px;
+  border-radius: 14px;
+  background: color-mix(in oklch, var(--accent) 20%, transparent);
+  pointer-events: none;
+  z-index: -1;
+  animation: ff-pulso 1.6s ease-out 2;
+}
+@keyframes ff-pulso {
+  0% {
+    opacity: 0.15;
+  }
+  50% {
+    opacity: 0.55;
+  }
+  100% {
+    opacity: 0.2;
+  }
+}
+.change-toast {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 11px;
+  color: var(--fg);
+  background: color-mix(in oklch, var(--surface) 96%, transparent);
+  border: 1px solid color-mix(in oklch, var(--accent) 45%, transparent);
+  border-radius: 999px;
+  padding: 7px 8px 7px 14px;
+  box-shadow: var(--shadow-2);
+  backdrop-filter: blur(8px);
+}
+.ct-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+}
+.ct-ir {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--bg);
+  background: var(--accent);
+  border: none;
+  border-radius: 999px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.ct-x {
+  color: var(--faint);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+.ct-x:hover {
+  color: var(--fg);
+}
+
+/* ---------- barra de ações (aprovar tudo + cravar) ---------- */
+/* logo ABAIXO da toolbar — os dois vivem no canto direito e a toolbar vem
+   primeiro, porque ela existe sempre e o "Aprovar tudo" só quando há proposta */
+.neon-editor-actions {
+  position: absolute;
+  top: 56px;
   right: 16px;
   z-index: 10;
   display: flex;
