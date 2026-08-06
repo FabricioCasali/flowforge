@@ -94,8 +94,12 @@ Trocar desenho bonito por perda de edição é regressão, não progresso.
 ## 3. Protocolo (WS) — não mude sem atualizar os dois lados
 
 Browser ↔ servidor em `/ws?session=<slug>`:
-- recebe `{type:'state', session, workspace, thread, busy}`
+- recebe `{type:'state', session, workspace, thread, busy, claudeOnline}`
 - recebe `{type:'busy', session, busy}`
+- recebe `{type:'claude', online}` — **duas conexões, duas luzes**. O pill de
+  conexão é do browser com o servidor; este diz se existe Monitor no `/claude`.
+  Sem essa distinção o "Analisar" sai com a tela verde e volta "Claude offline"
+  (aconteceu na validação de 06/08/2026)
 - envia `{type:'patch', session, lens, diagram}` — **lens-aware**: `lens` ∈
   `process|state|er|mind|seq` diz qual modelo do workspace o patch altera
 - envia `{type:'analyze', session, note}`

@@ -202,7 +202,19 @@ function statePayload(slug, st) {
     diagram: st.diagram,
     thread: st.thread,
     busy: busyBySession.has(slug),
+    claudeOnline: claudeClients.size > 0,
   });
+}
+
+// O browser precisa distinguir DUAS conexoes: a dele com o servidor e a do
+// Claude (o Monitor no /claude). Mostrar so a primeira fez o Fabricio clicar
+// "Analisar" vendo "conectado" e receber "Claude offline" — o pill mentia por
+// omissao. Isto avisa todos os browsers quando um Monitor entra ou sai.
+function broadcastClaudeOnline() {
+  const payload = JSON.stringify({ type: 'claude', online: claudeClients.size > 0 });
+  for (const set of browsersBySession.values()) {
+    for (const ws of set) { if (ws.readyState === ws.OPEN) ws.send(payload); }
+  }
 }
 
 function pushToClaude(event) {
@@ -279,8 +291,10 @@ wss.on('connection', (ws) => {
   if (ws._kind === 'claude') {
     claudeClients.add(ws);
     console.log('[claude] Monitor conectado. total=', claudeClients.size);
-    ws.on('close', () => claudeClients.delete(ws));
-    ws.on('error', () => claudeClients.delete(ws));
+    broadcastClaudeOnline();
+    const sai = () => { claudeClients.delete(ws); broadcastClaudeOnline(); };
+    ws.on('close', sai);
+    ws.on('error', sai);
     ws.send(JSON.stringify({ kind: 'hello', msg: 'FlowForge conectado. Voce recebera eventos "analyze" aqui.' }));
     return;
   }

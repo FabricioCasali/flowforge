@@ -39,13 +39,19 @@ export interface StateMsg {
   diagram?: unknown // editor antigo — ignorado por nós
   thread?: unknown
   busy?: boolean
+  /** Tem Monitor do Claude ligado no `/claude`? Sem isso, "Analisar" vai pro inbox. */
+  claudeOnline?: boolean
 }
 export interface BusyMsg {
   type: 'busy'
   session: string
   busy: boolean
 }
-export type ServerMsg = StateMsg | BusyMsg | { type: 'pong' }
+export interface ClaudeMsg {
+  type: 'claude'
+  online: boolean
+}
+export type ServerMsg = StateMsg | BusyMsg | ClaudeMsg | { type: 'pong' }
 
 export type ClientMsg =
   | { type: 'patch'; session: string; lens: ModelKey; diagram: Diagram | SeqModel }
@@ -60,6 +66,7 @@ export interface Handlers {
   onThread: (t: Thread) => void
   onBusy: (busy: boolean) => void
   onConn: (c: ConnStatus) => void
+  onClaude: (online: boolean) => void
 }
 
 const RETRY_BASE = 800
@@ -140,10 +147,15 @@ export class FlowForgeSocket {
       this.h.onWorkspace(normalizeWorkspace(msg.workspace))
       this.h.onThread(normalizeThread(msg.thread))
       if (typeof msg.busy === 'boolean') this.setBusy(msg.busy)
+      if (typeof msg.claudeOnline === 'boolean') this.h.onClaude(msg.claudeOnline)
       return
     }
     if (msg.type === 'busy') {
       this.setBusy(!!msg.busy)
+      return
+    }
+    if (msg.type === 'claude') {
+      this.h.onClaude(!!msg.online)
       return
     }
   }
@@ -199,6 +211,8 @@ export interface Live {
   thread: Thread
   busy: boolean
   conn: ConnStatus
+  /** Monitor do Claude ligado? Se não, "Analisar" cai no inbox e espera. */
+  claudeOnline: boolean
   /** grava uma lente (não sai quando busy — lei 7) */
   patch: (lens: ModelKey, model: Diagram | SeqModel) => void
   analyze: (note?: string) => void
@@ -213,17 +227,20 @@ export function useFlowForge(session: string): Live {
   const [thread, setThread] = useState<Thread>({ messages: [] })
   const [busy, setBusy] = useState(false)
   const [conn, setConn] = useState<ConnStatus>('conectando')
+  const [claudeOnline, setClaudeOnline] = useState(false)
   const sockRef = useRef<FlowForgeSocket | null>(null)
 
   useEffect(() => {
     setWorkspace(emptyWorkspace())
     setThread({ messages: [] })
     setBusy(false)
+    setClaudeOnline(false)
     const sock = new FlowForgeSocket(session, {
       onWorkspace: setWorkspace,
       onThread: setThread,
       onBusy: setBusy,
-      onConn: setConn
+      onConn: setConn,
+      onClaude: setClaudeOnline
     })
     sockRef.current = sock
     return () => {
@@ -239,5 +256,5 @@ export function useFlowForge(session: string): Live {
     sockRef.current?.analyze(note)
   }, [])
 
-  return { workspace, thread, busy, conn, patch, analyze }
+  return { workspace, thread, busy, conn, claudeOnline, patch, analyze }
 }

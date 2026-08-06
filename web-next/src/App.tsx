@@ -25,7 +25,7 @@ export function App(): JSX.Element {
   const [session, setSession] = useState<string>(sessionFromUrl)
   const [sessions, setSessions] = useState<string[]>([])
   const [lens, setLens] = useState<LensKey>('flow')
-  const { workspace, thread, busy, conn, patch, analyze } = useFlowForge(session)
+  const { workspace, thread, busy, conn, claudeOnline, patch, analyze } = useFlowForge(session)
 
   // lista de sessões pro seletor. Recarrega quando a sessão muda porque abrir
   // uma sessão nova a CRIA no servidor (ensureSession) — ela precisa aparecer.
@@ -93,11 +93,18 @@ export function App(): JSX.Element {
           ))}
         </select>
         <ConnPill conn={conn} />
+        <ClaudePill online={claudeOnline} />
       </header>
 
       <EditorView workspace={workspace} lens={lens} onLens={setLens} busy={busy} onPatch={patch} />
 
-      <ChatPanel thread={thread} busy={busy} online={conn === 'conectado'} onAnalyze={analyze} />
+      <ChatPanel
+        thread={thread}
+        busy={busy}
+        online={conn === 'conectado'}
+        claudeOnline={claudeOnline}
+        onAnalyze={analyze}
+      />
     </div>
   )
 }
@@ -153,7 +160,32 @@ function TituloEditavel({
 }
 
 function ConnPill({ conn }: { conn: ConnStatus }): JSX.Element {
-  return <span className={'ff-pill ' + (conn === 'conectado' ? 'on' : 'off') + ' neon-mono'}>{conn}</span>
+  return (
+    <span className={'ff-pill ' + (conn === 'conectado' ? 'on' : 'off') + ' neon-mono'} title="a sua conexão com o servidor">
+      {conn}
+    </span>
+  )
+}
+
+/**
+ * O SEGUNDO indicador, e ele existe por um motivo concreto: o pill de conexão
+ * fala do browser com o servidor, e o Fabricio clicou "Analisar" vendo verde
+ * para receber "Claude offline". Duas conexões, uma luz só — a tela mentia por
+ * omissão. Agora o Monitor tem a luz dele.
+ */
+function ClaudePill({ online }: { online: boolean }): JSX.Element {
+  return (
+    <span
+      className={'ff-pill claude ' + (online ? 'on' : 'off') + ' neon-mono'}
+      title={
+        online
+          ? 'Monitor do Claude ligado — o Analisar chega nele na hora'
+          : 'nenhum Monitor ligado no /claude: o Analisar fica guardado no inbox até um conectar'
+      }
+    >
+      claude {online ? 'ouvindo' : 'offline'}
+    </span>
+  )
 }
 
 /**
@@ -165,11 +197,13 @@ function ChatPanel({
   thread,
   busy,
   online,
+  claudeOnline,
   onAnalyze
 }: {
   thread: Thread
   busy: boolean
   online: boolean
+  claudeOnline: boolean
   onAnalyze: (note?: string) => void
 }): JSX.Element {
   const [note, setNote] = useState('')
@@ -188,9 +222,19 @@ function ChatPanel({
     setNote('')
   }, [podeEnviar, note, onAnalyze])
 
+  // O botão diz a verdade ANTES do clique. Mandar sem Monitor não é erro (o
+  // pedido fica no inbox e é lido quando um conectar), mas quem clica precisa
+  // saber que a resposta não vem agora.
   const rotulo = useMemo(
-    () => (busy ? '⏳ Claude analisando…' : online ? '▶ Analisar com o Claude' : '⚠ desconectado'),
-    [busy, online]
+    () =>
+      busy
+        ? '⏳ Claude analisando…'
+        : !online
+          ? '⚠ desconectado'
+          : claudeOnline
+            ? '▶ Analisar com o Claude'
+            : '▶ Analisar · guarda no inbox (Claude offline)',
+    [busy, online, claudeOnline]
   )
 
   return (

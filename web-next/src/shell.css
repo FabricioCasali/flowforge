@@ -105,6 +105,13 @@
   border-color: color-mix(in oklch, var(--s-rejected) 40%, transparent);
   background: color-mix(in oklch, var(--s-rejected) 10%, var(--surface));
 }
+/* Claude sem Monitor não é ERRO — o pedido fica guardado no inbox e é lido
+   depois. Vermelho seria alarme falso; âmbar diz "não conta com resposta agora". */
+.ff-pill.claude.off {
+  color: var(--s-questioned);
+  border-color: color-mix(in oklch, var(--s-questioned) 40%, transparent);
+  background: color-mix(in oklch, var(--s-questioned) 10%, var(--surface));
+}
 .ff-pill.busy {
   color: var(--s-questioned);
   border-color: color-mix(in oklch, var(--s-questioned) 45%, transparent);
