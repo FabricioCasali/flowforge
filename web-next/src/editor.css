@@ -1536,6 +1536,17 @@
   background: var(--accent);
   box-shadow: 0 0 8px var(--accent);
 }
+/* o aviso de "afastei nós" é OUTRA coisa que o "o Claude mudou": é o editor
+   avisando que mexeu no desenho por conta própria, e some sozinho */
+.change-toast.afasta {
+  bottom: 62px;
+  color: var(--muted);
+  border-color: color-mix(in oklch, var(--s-questioned) 40%, transparent);
+}
+.change-toast.afasta .ct-dot {
+  background: var(--s-questioned);
+  box-shadow: 0 0 8px var(--s-questioned);
+}
 .ct-ir {
   font-family: var(--mono);
   font-size: 10.5px;

@@ -260,6 +260,41 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [structureKey])
 
+  /**
+   * SOBREPOSIÇÃO: o layout afastou nós, e isso vai pro arquivo (exceção da lei 4).
+   *
+   * Grava uma vez e converge: o eco volta com as posições já separadas, o layout
+   * recalcula, `ajustados` vem vazio e ninguém escreve de novo. Não roda em lente
+   * derivada (Swimlane não é dona da posição) nem com `busy` (o writeModel barra).
+   */
+  const [afastados, setAfastados] = useState(0)
+  useEffect(() => {
+    const ids = layout?.ajustados
+    if (!ids?.length || !lensDef.savesPos || lensDef.model === 'seq' || busy) return
+    const alvo = new Set(ids)
+    const model = lensDef.model
+    writeModel(model, (dia) => ({
+      ...dia,
+      nodes: dia.nodes.map((n) => {
+        if (!alvo.has(n.id)) return n
+        const p = layout!.positions[n.id]
+        const s = layout!.sizes[n.id]
+        if (!p || !s) return n
+        const c = toSavedPoint(p, s)
+        return { ...n, x: c.x, y: c.y }
+      })
+    }))
+    setAfastados(ids.length)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layout])
+
+  // o aviso some sozinho: é informação, não decisão
+  useEffect(() => {
+    if (!afastados) return
+    const t = setTimeout(() => setAfastados(0), 6000)
+    return () => clearTimeout(t)
+  }, [afastados])
+
   const onVerdict = useCallback(
     (id: string, status: NodeStatus, reason?: string) => {
       const model = lensDef.model
@@ -764,6 +799,16 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
           onSaltar={saltarPara}
           onExport={exportar}
         />
+      )}
+      {afastados > 0 && (
+        <div className="change-toast afasta neon-mono" role="status">
+          <span className="ct-dot" />
+          {afastados === 1 ? '1 nó foi afastado' : `${afastados} nós foram afastados`} para não
+          ficarem um sobre o outro
+          <button className="ct-x" title="ok" onClick={() => setAfastados(0)}>
+            ✕
+          </button>
+        </div>
       )}
       {mudadosAqui && mudadosAqui.size > 0 && (
         <div className="change-toast neon-mono" role="status">

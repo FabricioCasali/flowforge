@@ -50,6 +50,16 @@ no `README.md` nem em nada que um estranho leia primeiro.
    `{ process, state, er, mind, seq, rev, updatedBy }`. As 6 lentes leem esses 5 modelos —
    `process` serve Fluxograma **e** Swimlane (mesmo grafo, layout diferente).
 
+   **EXCEÇÃO À REGRA DA POSIÇÃO — sobreposição.** O editor afasta nós que se sobrepõem
+   ao abrir, e **grava**. É a única coisa que move um nó sem o Fabricio pedir, e existe
+   porque o porte causou o problema: o editor antigo desenhava caixa fixa de 162×54 e o
+   novo calcula pelo conteúdo, chegando a 330×92 — as coordenadas foram preservadas
+   fielmente e as caixas engordaram em cima delas, deixando 25 pares sobrepostos nos
+   diagramas reais. Decidido pelo Fabricio em 06/08/2026, ciente de que perde o caso de
+   dois nós colados de propósito. Regras: empurra **o mínimo** e só quem colide, é
+   determinístico (mesma entrada → mesma saída), e **não roda na Swimlane** (lente
+   derivada não grava posição).
+
    **A posição é do arquivo, e a Swimlane é lente derivada.** Quem tem `x`/`y` no
    `workspace.json` é desenhado ali; o elk só calcula quem não tem, e o que ele calcular é
    transladado para o referencial do desenho salvo. Arrastar grava a posição de **todos** os

@@ -173,7 +173,12 @@ function confere(diagrama, lente, res) {
   //    posiciona pelo canto — entao o esperado e o centro menos meio tamanho.
   //    Comparar sem converter foi o bug que este teste passou a pegar.
   if (lente.honra) {
+    // Nó em `ajustados` foi movido de PROPOSITO, pra desfazer sobreposicao — e
+    // essa posicao nova vai pro arquivo (excecao da lei 4). Cobrar fidelidade
+    // dele seria cobrar que o editor ignorasse o que o Fabricio pediu.
+    const movidos = new Set(res.ajustados || []);
     for (const [id, p] of salvos) {
+      if (movidos.has(id)) continue;
       const got = res.positions[id];
       const s = res.sizes[id];
       if (!got || !s) continue;
@@ -392,6 +397,63 @@ async function testaRoteamento(L) {
     voltaSobreSi([{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 40, y: 0 }, { x: 40, y: 90 }])]);
   casos.push(['a checagem NAO acusa um traco normal em Z',
     !voltaSobreSi([{ x: 0, y: 0 }, { x: 50, y: 0 }, { x: 50, y: 90 }, { x: 120, y: 90 }])]);
+
+  // SOBREPOSICAO (excecao da lei 4). Isto REESCREVE o desenho do Fabricio, entao
+  // as tres garantias do comentario precisam valer de fato — senao o arquivo dele
+  // muda sozinho a cada abertura, que seria bem pior que dois nos colados.
+  {
+    const colados = () => ({
+      type: 'flowchart', title: 'T', rev: 0, updatedBy: 'user', lanes: [],
+      nodes: [
+        { id: 'a', label: 'A', kind: 'task', status: 'proposed', comments: [], description: 'd', x: 400, y: 400 },
+        { id: 'b', label: 'B', kind: 'task', status: 'proposed', comments: [], description: 'd', x: 410, y: 410 },
+        { id: 'c', label: 'C', kind: 'task', status: 'proposed', comments: [], description: 'd', x: 420, y: 420 },
+      ],
+      edges: [],
+    });
+    const sobrepoem = (r, d) => {
+      const ids = d.nodes.map((n) => n.id);
+      for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) {
+        const A = r.positions[ids[i]], B = r.positions[ids[j]], sa = r.sizes[ids[i]], sb = r.sizes[ids[j]];
+        if (A.x < B.x + sb.width && A.x + sa.width > B.x && A.y < B.y + sb.height && A.y + sa.height > B.y) return true;
+      }
+      return false;
+    };
+    const d = colados();
+    const r1 = await L.layoutDiagram(d, 'DOWN', 70);
+    casos.push(['tres nos colados sao afastados', !sobrepoem(r1, d)]);
+    casos.push(['o afastamento e reportado em `ajustados`', (r1.ajustados || []).length > 0]);
+
+    // DETERMINISTICO: mesma entrada, mesma saida (senao o arquivo muda toda vez)
+    const r2 = await L.layoutDiagram(colados(), 'DOWN', 70);
+    casos.push(['afastar e deterministico', JSON.stringify(r1.positions) === JSON.stringify(r2.positions)]);
+
+    // CONVERGE: aplicando o resultado, a proxima abertura nao move mais nada
+    const d2 = colados();
+    d2.nodes = d2.nodes.map((n) => {
+      const v = L.toSavedPoint(r1.positions[n.id], r1.sizes[n.id]);
+      return { ...n, x: v.x, y: v.y };
+    });
+    const r3 = await L.layoutDiagram(d2, 'DOWN', 70);
+    casos.push(['na segunda abertura nada mais e movido', (r3.ajustados || []).length === 0]);
+
+    // MINIMO: quem nao colide com ninguem fica exatamente onde estava
+    const d3 = colados();
+    d3.nodes.push({ id: 'longe', label: 'longe', kind: 'task', status: 'proposed', comments: [], x: 2000, y: 2000 });
+    const r4 = await L.layoutDiagram(d3, 'DOWN', 70);
+    casos.push(['quem nao colide NAO e movido', !(r4.ajustados || []).includes('longe')]);
+
+    // e um diagrama que ja esta limpo nao pode ser tocado
+    const limpo = {
+      type: 'flowchart', title: 'T', rev: 0, updatedBy: 'user', lanes: [],
+      nodes: [
+        { id: 'x', label: 'X', kind: 'task', status: 'proposed', comments: [], x: 300, y: 100 },
+        { id: 'y', label: 'Y', kind: 'task', status: 'proposed', comments: [], x: 300, y: 400 },
+      ], edges: [],
+    };
+    const r5 = await L.layoutDiagram(limpo, 'DOWN', 70);
+    casos.push(['diagrama sem sobreposicao nao e reescrito', (r5.ajustados || []).length === 0]);
+  }
 
   // duas quebras, na ordem em que foram postas
   const d4 = JSON.parse(JSON.stringify(d));
@@ -714,6 +776,21 @@ async function main() {
         if (!temDirecao) problemas.push(`aresta '${eid}': traco sem direcao — a ponta da seta nao teria pra onde apontar`);
         if (voltaSobreSi(pts)) problemas.push(`aresta '${eid}': a linha volta em cima do proprio eixo`);
       }
+
+      // SOBREPOSICAO (excecao da lei 4): depois do layout, no nenhum pode ficar
+      // em cima de outro. O porte engordou as caixas em cima das coordenadas
+      // antigas e isso deixou 25 pares sobrepostos nos diagramas reais.
+      const idsN = (d.nodes || []).map((n) => n.id);
+      let colisoes = 0;
+      for (let i = 0; i < idsN.length; i++) {
+        for (let j = i + 1; j < idsN.length; j++) {
+          const A = res.positions[idsN[i]], B = res.positions[idsN[j]];
+          const sa = res.sizes[idsN[i]], sb = res.sizes[idsN[j]];
+          if (!A || !B || !sa || !sb) continue;
+          if (A.x < B.x + sb.width && A.x + sa.width > B.x && A.y < B.y + sb.height && A.y + sa.height > B.y) colisoes++;
+        }
+      }
+      if (colisoes) problemas.push(`${colisoes} par(es) de nos sobrepostos depois do layout`);
 
       // FF-007: o export tem de aguentar dado REAL (acento, aspas, rotulo longo).
       // So na lente dona do modelo, pra nao exportar o mesmo diagrama 2x.

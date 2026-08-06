@@ -34,6 +34,12 @@ export interface LayoutResult {
   lanes?: LaneBand[]
   /** Swimlane pedida num diagrama sem `lanes` — a UI avisa em vez de fingir uma raia. */
   noLanes?: boolean
+  /**
+   * Ids que o layout MOVEU para desfazer sobreposição. Quem chama grava essas
+   * posições no arquivo — é a exceção da lei 4, e a única vez que um nó anda sem
+   * o Fabricio pedir. Vazio na esmagadora maioria das aberturas.
+   */
+  ajustados?: string[]
 }
 
 export type { Pt }
@@ -140,6 +146,67 @@ function overlaps(a: Pt, as: Size, b: Pt, bs: Size, gap: number): boolean {
     a.y < b.y + bs.height + gap &&
     a.y + as.height + gap > b.y
   )
+}
+
+/**
+ * Afasta nós que se sobrepõem — a EXCEÇÃO da lei 4, e a única vez que o editor
+ * move um nó sem ninguém pedir.
+ *
+ * Existe porque o porte causou o problema: o editor antigo desenhava caixa fixa
+ * de 162×54 e o novo calcula pelo conteúdo (até 330×92). As coordenadas foram
+ * preservadas fielmente, e as caixas engordaram em cima delas — 25 pares
+ * sobrepostos nos diagramas reais, 6 envolvendo anotação.
+ *
+ * Três garantias, porque isto reescreve o desenho do Fabricio:
+ *   · DETERMINÍSTICO — varre em ordem de posição, então a mesma entrada dá
+ *     sempre a mesma saída (senão o arquivo mudaria a cada abertura);
+ *   · MÍNIMO — empurra só pra baixo, e só o quanto falta pra descolar;
+ *   · CONVERGE — quem foi empurrado só compara com quem já está colocado, e o
+ *     próximo da fila resolve o que sobrou. Uma segunda abertura não move nada.
+ */
+function desempilhar(
+  ordem: string[],
+  positions: Record<string, Pt>,
+  sizes: Record<string, Size>,
+  folga = 14,
+  /**
+   * Por qual eixo empurrar. Na Swimlane tem de ser `x`: o `y` ali é a banda da
+   * raia, e empurrar pra baixo tiraria o nó do ator dele — o desenho ficaria sem
+   * sobreposição e MENTINDO, que é pior.
+   */
+  eixo: 'y' | 'x' = 'y'
+): { positions: Record<string, Pt>; ajustados: string[] } {
+  const out: Record<string, Pt> = { ...positions }
+  const ajustados: string[] = []
+  const postos: { id: string; p: Pt; s: Size }[] = []
+
+  for (const id of ordem) {
+    const p0 = out[id]
+    const s = sizes[id]
+    if (!p0 || !s) continue
+    const p = { ...p0 }
+    for (let guarda = 0; guarda < 400; guarda++) {
+      const bate = postos.find((q) => overlaps(p, s, q.p, q.s, folga))
+      if (!bate) break
+      if (eixo === 'y') p.y = bate.p.y + bate.s.height + folga
+      else p.x = bate.p.x + bate.s.width + folga
+    }
+    if (p.y !== p0.y || p.x !== p0.x) {
+      out[id] = { x: Math.round(p.x), y: Math.round(p.y) }
+      ajustados.push(id)
+    }
+    postos.push({ id, p: out[id]!, s })
+  }
+  return { positions: out, ajustados }
+}
+
+/** Ordem estável de varredura: de cima pra baixo, esquerda pra direita. */
+function ordemPorPosicao(positions: Record<string, Pt>): string[] {
+  return Object.keys(positions).sort((a, b) => {
+    const pa = positions[a]!
+    const pb = positions[b]!
+    return pa.y - pb.y || pa.x - pb.x || a.localeCompare(b)
+  })
 }
 
 /**
@@ -685,9 +752,11 @@ export async function layoutDiagram(
   const saved = honorSaved ? savedPositions(diagram, sizes) : {}
   const savedCount = Object.keys(saved).length
 
-  // Desenho inteiro salvo: o arquivo manda sozinho e o elk nem roda.
+  // Desenho inteiro salvo: o arquivo manda sozinho e o elk nem roda. Só passa
+  // pelo desempilhamento — que na maioria das aberturas não move nada.
   if (savedCount > 0 && savedCount === diagram.nodes.length) {
-    return { positions: saved, sizes, edgePoints: routeAll(diagram, saved, sizes) }
+    const { positions, ajustados } = desempilhar(ordemPorPosicao(saved), saved, sizes)
+    return { positions, sizes, edgePoints: routeAll(diagram, positions, sizes), ajustados }
   }
 
   const graph = {
@@ -722,8 +791,9 @@ export async function layoutDiagram(
   }
 
   // Misto: as arestas do elk não valem mais (os nós saíram do lugar) → re-rota.
-  const positions = anchorToSaved(diagram, saved, computed, sizes)
-  return { positions, sizes, edgePoints: routeAll(diagram, positions, sizes) }
+  const ancorado = anchorToSaved(diagram, saved, computed, sizes)
+  const { positions, ajustados } = desempilhar(ordemPorPosicao(ancorado), ancorado, sizes)
+  return { positions, sizes, edgePoints: routeAll(diagram, positions, sizes), ajustados }
 }
 
 /**
@@ -790,7 +860,12 @@ export async function swimlaneLayout(diagram: Diagram): Promise<LayoutResult> {
       edgePoints[e.id] = [sb, { x: sb.x, y: below }, { x: tb.x, y: below }, tb]
     }
   }
-  return { positions, sizes, edgePoints, lanes }
+  // Sobreposição também incomoda aqui, mas a Swimlane não grava posição (lente
+  // derivada): empurra no eixo X, que é o livre, e não devolve `ajustados`.
+  const semColisao = desempilhar(ordemPorPosicao(positions), positions, sizes, 14, 'x').positions
+  const rotas: LayoutResult['edgePoints'] = {}
+  for (const [id, pts] of Object.entries(edgePoints)) rotas[id] = pts
+  return { positions: semColisao, sizes, edgePoints: rotas, lanes }
 }
 
 /**
@@ -868,7 +943,9 @@ export function radialLayout(diagram: Diagram, honorSaved = true): LayoutResult 
 
   // o arquivo manda também aqui (o Fabricio arruma o mapa na mão)
   const saved = honorSaved ? savedPositions(diagram, sizes) : {}
-  const positions = Object.keys(saved).length ? anchorToSaved(diagram, saved, computed, sizes) : computed
+  const base = Object.keys(saved).length ? anchorToSaved(diagram, saved, computed, sizes) : computed
+  const solto = desempilhar(ordemPorPosicao(base), base, sizes)
+  const positions = solto.positions
 
   // arestas mind = bezier entre centros (a aresta custom desenha a curva)
   const edgePoints: LayoutResult['edgePoints'] = {}
@@ -883,5 +960,5 @@ export function radialLayout(diagram: Diagram, honorSaved = true): LayoutResult 
       { x: t.x + ts.width / 2, y: t.y + ts.height / 2 }
     ]
   }
-  return { positions, sizes, edgePoints }
+  return { positions, sizes, edgePoints, ajustados: solto.ajustados }
 }
