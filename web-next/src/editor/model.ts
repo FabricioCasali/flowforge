@@ -39,12 +39,25 @@ export function novaEdge(source: string, target: string, sourceSide?: Side, targ
 }
 
 /**
- * Propaga status nó→aresta: a aresta herda o status SÓ se as duas pontas têm o
- * MESMO status não-neutro; senão volta pra 'proposed'. (Portado do FlowForge.)
+ * Propaga status nó→aresta NAS ARESTAS DOS NÓS QUE MUDARAM.
+ *
+ * A regra do consenso é a de sempre: a aresta herda o status só se as duas
+ * pontas têm o MESMO status não-neutro; senão volta pra 'proposed'.
+ *
+ * O RAIO é que importa, e é decisão do Fabricio (06/08/2026): a seta tem status
+ * PRÓPRIO e editável (o editor antigo sempre teve — `#edge-status`), então a
+ * propagação só pode tocar nas arestas do nó que acabou de receber veredito,
+ * como o `propagateFrom` do antigo (`app.js:831`). Recalcular o diagrama inteiro
+ * a cada clique apagaria marcação de seta do outro lado do desenho — e não é
+ * hipótese: 34 das 143 arestas dos diagramas reais têm status que a regra NÃO
+ * derivaria das pontas. Elas mudariam de cor todas juntas no primeiro veredito.
  */
-export function propagateEdges(nodes: DNode[], edges: DEdge[]): DEdge[] {
+export function propagateFrom(nodes: DNode[], edges: DEdge[], changed: Iterable<string>): DEdge[] {
+  const alvo = new Set(changed)
+  if (!alvo.size) return edges
   const byId = new Map(nodes.map((n) => [n.id, n.status]))
   return edges.map((e) => {
+    if (!alvo.has(e.source) && !alvo.has(e.target)) return e
     const a = byId.get(e.source)
     const b = byId.get(e.target)
     const status: NodeStatus = a && a !== 'proposed' && a === b ? a : 'proposed'

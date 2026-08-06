@@ -244,7 +244,36 @@ function workspaceDe(alvo, raizCopia) {
 // autoteste: um teste que so sabe dizer OK nao prova nada
 // ---------------------------------------------------------------------------
 
-async function autoteste(L) {
+/**
+ * A REGRA DA PROPAGACAO (decisao de 06/08/2026): o veredito num no so pode
+ * recalcular as arestas DAQUELE no. A seta tem status proprio, e recalcular o
+ * diagrama inteiro apagaria a marcacao do outro lado do desenho.
+ */
+async function testaPropagacao(M) {
+  const casos = [];
+  const nodes = [
+    { id: 'a', status: 'approved' }, { id: 'b', status: 'approved' },
+    { id: 'x', status: 'proposed' }, { id: 'y', status: 'proposed' },
+  ];
+  const edges = [
+    { id: 'e1', source: 'a', target: 'b', status: 'proposed' },   // pontas concordam
+    { id: 'e9', source: 'x', target: 'y', status: 'rejected' },   // marcada a mao, longe
+  ];
+
+  const r = M.propagateFrom(nodes, edges, ['a']);
+  casos.push(['veredito em `a` puxa o consenso pra aresta de `a`', r.find((e) => e.id === 'e1').status === 'approved']);
+  casos.push(['veredito em `a` NAO toca na seta marcada do outro lado', r.find((e) => e.id === 'e9').status === 'rejected']);
+
+  const r2 = M.propagateFrom(nodes, edges, []);
+  casos.push(['sem no mudado, nenhuma aresta e recalculada', r2 === edges]);
+
+  const r3 = M.propagateFrom(nodes, edges, ['x']);
+  casos.push(['pontas neutras devolvem a aresta pra proposed', r3.find((e) => e.id === 'e9').status === 'proposed']);
+
+  return casos;
+}
+
+async function autoteste(L, M) {
   const casos = [];
   const base = () => ({
     type: 'flowchart', title: 'T', rev: 0, updatedBy: 'user', lanes: [],
@@ -355,6 +384,9 @@ async function autoteste(L) {
     casos.push(['swimlane NAO herda o desenho do fluxograma', !herdou]);
   }
 
+  // FF-006: a regra do RAIO da propagacao (a seta tem status proprio)
+  casos.push(...(await testaPropagacao(M)));
+
   let falhas = 0;
   for (const [nome, ok] of casos) {
     console.log(`   ${ok ? 'ok   ' : 'FALHA'} ${nome}`);
@@ -374,8 +406,9 @@ async function main() {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-verifica-layout-'));
   const L = await transpilar(tmp, 'layout.ts');
   const SH = await transpilar(tmp, 'shapes.ts');
+  const M = await transpilar(tmp, 'model.ts');
 
-  if (process.argv.includes('--autoteste')) return autoteste(L);
+  if (process.argv.includes('--autoteste')) return autoteste(L, M);
 
   // ---- lei 8: as formas por kind ----
   const probFormas = verificaFormas(SH, L);

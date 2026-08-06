@@ -534,6 +534,231 @@
   cursor: not-allowed;
 }
 
+/* ---------- campos da entidade (ER) e listas editáveis ---------- */
+.erf-row {
+  display: grid;
+  grid-template-columns: 42px 1fr 62px 20px;
+  gap: 4px;
+  align-items: center;
+}
+.erf-row input,
+.erf-row select {
+  min-width: 0;
+  font-size: 11px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 4px 6px;
+}
+.erf-row input:focus,
+.erf-row select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.erf-key {
+  font-size: 9px !important;
+  padding: 4px 2px !important;
+}
+.erf-del,
+.lane-del {
+  background: transparent;
+  border: none;
+  color: var(--faint);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 2px;
+}
+.erf-del:hover:not(:disabled),
+.lane-del:hover:not(:disabled) {
+  color: var(--s-rejected);
+}
+.fcard-add {
+  margin-top: 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+  background: var(--surface-2);
+  border: 1px dashed var(--border-2);
+  border-radius: var(--r-sm);
+  padding: 6px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.fcard-add:hover:not(:disabled) {
+  color: var(--fg);
+  border-color: var(--accent);
+}
+.fcard-add:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ==========================================================================
+   EdgeCard — o card da seta (FF-006). Nasce no meio da aresta selecionada,
+   via EdgeLabelRenderer, pra não ter que caçar a seta num painel lateral.
+   ========================================================================== */
+.ecard-anchor {
+  position: absolute;
+  pointer-events: all;
+  z-index: 30;
+}
+.ecard {
+  width: 214px;
+  background: color-mix(in oklch, var(--surface) 96%, transparent);
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-2);
+  padding: 10px;
+  backdrop-filter: blur(8px);
+  cursor: default;
+}
+.ecard-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--faint);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 8px;
+}
+.ecard-badge {
+  margin-left: auto;
+  color: var(--muted);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.ecard-del {
+  background: transparent;
+  border: none;
+  color: var(--faint);
+  cursor: pointer;
+  padding: 0 2px;
+}
+.ecard-del:hover:not(:disabled) {
+  color: var(--s-rejected);
+}
+.ecard-input {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: var(--body);
+  font-size: 12px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 6px 8px;
+}
+.ecard-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.ecard-card-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+.ecard-card-row select {
+  flex: 1;
+  font-size: 11px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 4px 6px;
+}
+.ecard-card-row .sep {
+  color: var(--faint);
+}
+/* o status ATUAL da seta fica marcado — sem isso não dá pra saber o que está valendo */
+.fpanel-verdict .v.on {
+  outline: 1px solid currentColor;
+  outline-offset: 1px;
+}
+
+/* ==========================================================================
+   LanesPanel — raias (atores) da Swimlane. Metadado do diagrama, não nó.
+   ========================================================================== */
+.lanespanel {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: 10;
+  width: 216px;
+  background: color-mix(in oklch, var(--surface) 92%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  backdrop-filter: blur(8px);
+  overflow: hidden;
+}
+.lanespanel.ro {
+  opacity: 0.5;
+  pointer-events: none;
+}
+.lanes-head {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+.lanes-head .chev {
+  margin-left: auto;
+}
+.lanes-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 10px 10px;
+}
+.lane-row {
+  display: grid;
+  grid-template-columns: 16px 1fr 18px;
+  gap: 5px;
+  align-items: center;
+}
+.lane-ord {
+  display: flex;
+  flex-direction: column;
+}
+.lane-ord button {
+  font-size: 7px;
+  line-height: 1;
+  padding: 1px 0;
+  color: var(--faint);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+.lane-ord button:hover:not(:disabled) {
+  color: var(--accent);
+}
+.lane-ord button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.lane-row input {
+  min-width: 0;
+  font-size: 11px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 4px 6px;
+}
+.lane-row input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
 /* ---------- painel de ações EFÊMERO (nasce ao selecionar o nó) ---------- */
 .fpanel {
   position: absolute;

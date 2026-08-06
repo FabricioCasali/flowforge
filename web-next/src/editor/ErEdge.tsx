@@ -1,6 +1,7 @@
-import { BaseEdge, type EdgeProps } from '@xyflow/react'
-import type { NodeStatus } from '../types.js'
+import { BaseEdge, EdgeLabelRenderer, type EdgeProps } from '@xyflow/react'
+import type { DEdge, NodeStatus } from '../types.js'
 import { SC } from './status.js'
+import { EdgeCard } from './EdgeCard.js'
 
 export interface ErEdgeData {
   points?: { x: number; y: number }[]
@@ -8,12 +9,16 @@ export interface ErEdgeData {
   label?: string
   sourceCard?: string
   targetCard?: string
+  edge?: DEdge
+  busy?: boolean
+  onEdgeEdit?: (id: string, patch: Partial<DEdge>) => void
+  onEdgeDelete?: (id: string) => void
   [key: string]: unknown
 }
 
 /** Relacionamento ER: polilinha ortogonal + cardinalidade (1/N) nas pontas, sem seta. */
 export function ErEdge(props: EdgeProps): JSX.Element {
-  const { sourceX, sourceY, targetX, targetY } = props
+  const { sourceX, sourceY, targetX, targetY, selected } = props
   const data = props.data as ErEdgeData | undefined
   const pts =
     data?.points && data.points.length >= 2
@@ -29,7 +34,7 @@ export function ErEdge(props: EdgeProps): JSX.Element {
 
   return (
     <>
-      <BaseEdge path={d} style={{ stroke: sc, strokeWidth: 1.6 }} />
+      <BaseEdge path={d} style={{ stroke: selected ? 'var(--accent)' : sc, strokeWidth: selected ? 2.6 : 1.6 }} />
       {data?.sourceCard && (
         <text className="er-card" x={a.x + 12} y={a.y - 6} fill={sc}>
           {data.sourceCard}
@@ -44,6 +49,16 @@ export function ErEdge(props: EdgeProps): JSX.Element {
         <text className="orth-label" x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 5} textAnchor="middle">
           {data.label}
         </text>
+      )}
+      {selected && data?.edge && data.onEdgeEdit && data.onEdgeDelete && (
+        <EdgeLabelRenderer>
+          <div
+            className="ecard-anchor"
+            style={{ transform: `translate(-50%, -50%) translate(${(a.x + b.x) / 2}px, ${(a.y + b.y) / 2}px)` }}
+          >
+            <EdgeCard edge={data.edge} er busy={data.busy} onEdit={data.onEdgeEdit} onDelete={data.onEdgeDelete} />
+          </div>
+        </EdgeLabelRenderer>
       )}
     </>
   )

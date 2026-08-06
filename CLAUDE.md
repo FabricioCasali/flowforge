@@ -73,7 +73,17 @@ Trocar desenho bonito por perda de edição é regressão, não progresso.
    `@xyflow/react` + `elkjs` no front; `ws` e Node puro no servidor. Cytoscape e dagre
    morrem junto com o `web/` antigo.
 
-10. **A divergência entre os dois editores é ACEITA — não a "conserte".** Depois da
+10. **A seta tem status PRÓPRIO.** A propagação nó→aresta (o consenso das duas pontas)
+    só pode recalcular **as arestas do nó que acabou de receber veredito** — é o que o
+    editor antigo faz (`app.js:831`, `propagateFrom`). Recalcular o diagrama inteiro a
+    cada clique apagaria marcação de seta do outro lado do desenho, e isso não é
+    hipótese: **34 das 143 arestas dos diagramas reais** têm status que a regra não
+    derivaria das pontas. Elas existem porque a seta pode discordar do consenso.
+    Decidido pelo Fabricio em 06/08/2026; contrato inalterado. A versão global
+    (`propagateEdges`, em `types.ts`) sobrou só para proposta crua vinda de fora, onde
+    não existe marcação anterior a preservar — **não a use no editor**.
+
+11. **A divergência entre os dois editores é ACEITA — não a "conserte".** Depois da
     migração, `/` escreve em `diagram.json` e `/v2` em `workspace.json`, e os dois nunca
     mais conversam. Decidido pelo Fabricio em 05/08/2026, e o motivo é o que importa:
     **ele não vai ter os dois cenários rodando em paralelo** — usa um OU outro, não

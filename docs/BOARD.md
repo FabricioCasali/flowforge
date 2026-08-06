@@ -60,11 +60,14 @@ _(fase 1 fechada — a fase 2 começa no FF-004)_
   gravado — sem isso o campo seria enfeite e as 54 pontas ancoradas dos diagramas reais
   desenhariam diferente do editor antigo. · `[porte/fase-2]` · M · importante
 
-## 🗂️ Backlog
+- **FF-006** **Edição: aresta, campos ER e raias** — `EdgeCard` no meio da seta selecionada
+  (rótulo, status próprio, cardinalidade na lente ER, excluir); aba **campos** no card da
+  entidade (nome/tipo/pk/fk); `LanesPanel` para criar, renomear, reordenar e remover raia, e
+  seletor de raia no card do nó. A propagação virou **local** (`propagateFrom`) — é a lei 10,
+  decidida em 06/08/2026 depois de medir que 24% das arestas reais divergem das pontas. ·
+  `[porte/fase-2]` · M · importante
 
-- **FF-006** **Edição: aresta, campos ER e raias** — rótulo e status próprio da seta,
-  cardinalidade `sourceCard`/`targetCard`, editor de campos da entidade (nome/tipo/pk/fk),
-  criar e renomear raia, atribuir nó à raia. · `[porte/fase-2]` · M · importante
+## 🗂️ Backlog
 
 - **FF-007** **Ferramentas** — export PNG e Mermaid, busca com salto, undo/redo (20 níveis),
   menu de layouts nomeados, título editável, e o destaque do que o Claude mudou (o diff com

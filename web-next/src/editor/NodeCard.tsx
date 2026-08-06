@@ -18,38 +18,25 @@
 // ============================================================================
 
 import { useEffect, useState } from 'react'
-import type { Comment, DNode, NodeStatus } from '../types.js'
-import { KINDS } from './shapes.js'
+import type { Comment, DNode, ErField, Lane, NodeStatus } from '../types.js'
+import { GRUPO_FLUXO, KIND_LABEL, KINDS } from './shapes.js'
 import { STLBL } from './status.js'
 
-/** Rótulo em PT-BR de cada kind, agrupado como no `select` do editor antigo. */
-const KIND_LABEL: Record<string, string> = {
-  start: 'início',
-  task: 'tarefa',
-  decision: 'decisão',
-  end: 'fim',
-  idea: 'ideia',
-  'event-start': 'evento início',
-  'event-intermediate': 'evento intermediário',
-  'event-end': 'evento fim',
-  'gateway-exclusive': 'gateway exclusivo (ou)',
-  'gateway-parallel': 'gateway paralelo (e)',
-  subprocess: 'subprocesso',
-  'data-object': 'objeto de dado',
-  annotation: 'anotação'
-}
-const GRUPO_FLUXO = new Set(['start', 'task', 'decision', 'end', 'idea'])
+type Tab = 'desc' | 'campos' | 'notas'
 
 export interface NodeCardProps {
   node: DNode
   busy?: boolean
+  /** Raias do diagrama — quando existem, o card deixa escolher a do nó. */
+  lanes?: Lane[]
   onVerdict: (id: string, status: NodeStatus, reason?: string) => void
   /** Grava campos do nó (já commitado — não chamar a cada tecla). */
   onEdit: (id: string, patch: Partial<DNode>) => void
 }
 
-export function NodeCard({ node, busy = false, onVerdict, onEdit }: NodeCardProps): JSX.Element {
-  const [tab, setTab] = useState<'desc' | 'notas'>('desc')
+export function NodeCard({ node, busy = false, lanes = [], onVerdict, onEdit }: NodeCardProps): JSX.Element {
+  const ehEntidade = node.kind === 'entity'
+  const [tab, setTab] = useState<Tab>('desc')
   const [reasonFor, setReasonFor] = useState<NodeStatus | null>(null)
   const [reason, setReason] = useState('')
 
@@ -102,12 +89,23 @@ export function NodeCard({ node, busy = false, onVerdict, onEdit }: NodeCardProp
         <button className={tab === 'desc' ? 'on' : ''} onClick={() => setTab('desc')}>
           descrição
         </button>
+        {ehEntidade && (
+          <button className={tab === 'campos' ? 'on' : ''} onClick={() => setTab('campos')}>
+            campos{(node.fields?.length ?? 0) > 0 ? ` · ${node.fields!.length}` : ''}
+          </button>
+        )}
         <button className={tab === 'notas' ? 'on' : ''} onClick={() => setTab('notas')}>
           notas{notas > 0 ? ` · ${notas}` : ''}
         </button>
       </div>
 
-      {tab === 'desc' ? (
+      {tab === 'campos' ? (
+        <CamposEr
+          busy={busy}
+          fields={node.fields ?? []}
+          onChange={(fields) => onEdit(node.id, { fields })}
+        />
+      ) : tab === 'desc' ? (
         <div className="fcard-pane">
           <label className="fcard-lbl neon-mono" htmlFor={`lbl-${node.id}`}>
             rótulo
@@ -174,6 +172,28 @@ export function NodeCard({ node, busy = false, onVerdict, onEdit }: NodeCardProp
               if (e.key === 'Escape') setDesc(node.description ?? '')
             }}
           />
+
+          {lanes.length > 0 && (
+            <>
+              <label className="fcard-lbl neon-mono" htmlFor={`lane-${node.id}`}>
+                raia (ator)
+              </label>
+              <select
+                id={`lane-${node.id}`}
+                className="fcard-input"
+                value={node.lane ?? ''}
+                disabled={busy}
+                onChange={(e) => onEdit(node.id, { lane: e.target.value || undefined })}
+              >
+                <option value="">— sem raia —</option>
+                {lanes.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.label || l.id}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
         </div>
       ) : (
         <div className="fcard-pane">
@@ -226,6 +246,77 @@ export function NodeCard({ node, busy = false, onVerdict, onEdit }: NodeCardProp
           <button onClick={confirmReason}>ok</button>
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * Campos da entidade (ER). Cada linha é nome + tipo + chave; a lista inteira vai
+ * de uma vez pro `onChange`, porque `fields` é um array no modelo e patch parcial
+ * de array não existe. Nome e tipo commitam no blur, como todo texto do card.
+ */
+function CamposEr({
+  fields,
+  busy,
+  onChange
+}: {
+  fields: ErField[]
+  busy: boolean
+  onChange: (f: ErField[]) => void
+}): JSX.Element {
+  const troca = (i: number, patch: Partial<ErField>): void => {
+    const next = fields.map((f, j) => (j === i ? { ...f, ...patch } : f))
+    onChange(next)
+  }
+  return (
+    <div className="fcard-pane">
+      {fields.length === 0 && <p className="fcard-vazio">sem campos ainda.</p>}
+      {fields.map((f, i) => (
+        <div key={i} className="erf-row">
+          <select
+            className="erf-key neon-mono"
+            value={f.key ?? ''}
+            disabled={busy}
+            title="chave"
+            onChange={(e) => troca(i, { key: (e.target.value || null) as ErField['key'] })}
+          >
+            <option value="">—</option>
+            <option value="pk">PK</option>
+            <option value="fk">FK</option>
+          </select>
+          <input
+            className="erf-name"
+            defaultValue={f.name}
+            disabled={busy}
+            placeholder="nome"
+            onBlur={(e) => e.target.value !== f.name && troca(i, { name: e.target.value })}
+            onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+          />
+          <input
+            className="erf-type neon-mono"
+            defaultValue={f.type}
+            disabled={busy}
+            placeholder="tipo"
+            onBlur={(e) => e.target.value !== f.type && troca(i, { type: e.target.value })}
+            onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+          />
+          <button
+            className="erf-del"
+            disabled={busy}
+            title="remover campo"
+            onClick={() => onChange(fields.filter((_, j) => j !== i))}
+          >
+            ✕
+          </button>
+        </div>
+      ))}
+      <button
+        className="fcard-add"
+        disabled={busy}
+        onClick={() => onChange([...fields, { name: 'campo', type: 'text', key: null }])}
+      >
+        + campo
+      </button>
     </div>
   )
 }

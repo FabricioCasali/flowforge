@@ -19,7 +19,7 @@
 
 import { Fragment } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
-import type { DNode, NodeStatus, Side } from '../types.js'
+import type { DNode, Lane, NodeStatus, Side } from '../types.js'
 import { LIVE, SC, STLBL } from './status.js'
 import { NodeCard } from './NodeCard.js'
 import { BOXY, DIAMONDISH, LABEL_OUTSIDE, shapeOf } from './shapes.js'
@@ -67,13 +67,14 @@ export function sideOfHandle(handleId?: string | null): Side | undefined {
 export interface FlowNodeData {
   node: DNode
   busy?: boolean
+  lanes?: Lane[]
   onVerdict: (id: string, status: NodeStatus, reason?: string) => void
   onEdit: (id: string, patch: Partial<DNode>) => void
   [key: string]: unknown
 }
 
 export function FlowNode({ data, selected }: NodeProps): JSX.Element {
-  const { node, onVerdict, onEdit, busy } = data as FlowNodeData
+  const { node, onVerdict, onEdit, busy, lanes } = data as FlowNodeData
   const sc = `var(${SC[node.status]})`
   const live = LIVE.has(node.status)
   const shape = shapeOf(node.kind)
@@ -121,7 +122,7 @@ export function FlowNode({ data, selected }: NodeProps): JSX.Element {
         </div>
       )}
 
-      {selected && <NodeCard node={node} busy={busy} onVerdict={onVerdict} onEdit={onEdit} />}
+      {selected && <NodeCard node={node} busy={busy} lanes={lanes} onVerdict={onVerdict} onEdit={onEdit} />}
     </div>
   )
 }

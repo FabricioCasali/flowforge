@@ -30,9 +30,10 @@ import {
   type NodeChange,
   type ReactFlowInstance
 } from '@xyflow/react'
-import type { Diagram, DNode, ModelKey, NodeStatus, SeqModel, Workspace } from '../types.js'
+import type { DEdge, Diagram, DNode, Lane, ModelKey, NodeStatus, SeqModel, Workspace } from '../types.js'
 import { FlowNode, sideOfHandle } from './FlowNode.js'
 import { Palette } from './Palette.js'
+import { LanesPanel } from './LanesPanel.js'
 import { EntityNode } from './EntityNode.js'
 import { MindNode } from './MindNode.js'
 import { LaneNode } from './LaneNode.js'
@@ -49,7 +50,7 @@ import {
   toSavedPoint,
   type LayoutResult
 } from './layout.js'
-import { applyVerdict, novaEdge, novoNode, propagateEdges } from './model.js'
+import { applyVerdict, novaEdge, novoNode, propagateFrom } from './model.js'
 import { LENSES, LENS_BY_KEY, type LensDef, type LensKey } from './lenses.js'
 
 const STATUS_COLOR: Record<NodeStatus, string> = {
@@ -116,8 +117,9 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
     const model = lensDef.model
     if (model === 'seq') return
     writeModel(model, (dia) => {
+      const mudaram = dia.nodes.filter((n) => n.status === 'proposed').map((n) => n.id)
       const nodes = dia.nodes.map((n) => (n.status === 'proposed' ? { ...n, status: 'approved' as NodeStatus } : n))
-      return { ...dia, nodes, edges: propagateEdges(nodes, dia.edges) }
+      return { ...dia, nodes, edges: propagateFrom(nodes, dia.edges, mudaram) }
     })
   }, [lensDef.model, writeModel])
 
@@ -164,7 +166,7 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
       if (model === 'seq') return
       writeModel(model, (dia) => {
         const nodes = dia.nodes.map((n) => (n.id === id ? applyVerdict(n, status, reason) : n))
-        return { ...dia, nodes, edges: propagateEdges(nodes, dia.edges) }
+        return { ...dia, nodes, edges: propagateFrom(nodes, dia.edges, [id]) }
       })
     },
     [lensDef.model, writeModel]
@@ -261,7 +263,8 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
         const jaExiste = dia.edges.some((e) => e.source === c.source && e.target === c.target)
         if (jaExiste) return dia
         const edge = novaEdge(c.source!, c.target!, sideOfHandle(c.sourceHandle), sideOfHandle(c.targetHandle))
-        return { ...dia, edges: propagateEdges(dia.nodes, [...dia.edges, edge]) }
+        // a aresta nasce já com o consenso das suas próprias pontas
+        return { ...dia, edges: propagateFrom(dia.nodes, [...dia.edges, edge], [c.source!, c.target!]) }
       })
     },
     [busy, lensDef.model, writeModel]
@@ -281,6 +284,52 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
       }))
     },
     [busy, lensDef.model, writeModel]
+  )
+
+  /**
+   * Raias. Quando uma raia some, os nós dela perdem o `lane` em vez de sumirem
+   * junto — apagar trabalho por tabela seria pior que uma raia órfã.
+   */
+  const onLanesChange = useCallback(
+    (lanes: Lane[], removida?: string) => {
+      const model = lensDef.model
+      if (model === 'seq') return
+      writeModel(model, (dia) => ({
+        ...dia,
+        lanes,
+        nodes: removida ? dia.nodes.map((n) => (n.lane === removida ? { ...n, lane: undefined } : n)) : dia.nodes
+      }))
+    },
+    [lensDef.model, writeModel]
+  )
+
+  /** Campos da seta (rótulo, status próprio, cardinalidade ER) — do EdgeCard. */
+  const onEdgeEdit = useCallback(
+    (id: string, patch: Partial<DEdge>) => {
+      const model = lensDef.model
+      if (model === 'seq') return
+      writeModel(model, (dia) => ({
+        ...dia,
+        edges: dia.edges.map((e) => {
+          if (e.id !== id) return e
+          const next = { ...e, ...patch }
+          // cardinalidade "—" limpa o campo em vez de gravar string vazia
+          if (patch.sourceCard === undefined && 'sourceCard' in patch) delete next.sourceCard
+          if (patch.targetCard === undefined && 'targetCard' in patch) delete next.targetCard
+          return next
+        })
+      }))
+    },
+    [lensDef.model, writeModel]
+  )
+
+  const onEdgeDeleteOne = useCallback(
+    (id: string) => {
+      const model = lensDef.model
+      if (model === 'seq') return
+      writeModel(model, (dia) => ({ ...dia, edges: dia.edges.filter((e) => e.id !== id) }))
+    },
+    [lensDef.model, writeModel]
   )
 
   const onEdgesDelete = useCallback(
@@ -394,7 +443,7 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
         data:
           lensDef.nodeType === 'mind'
             ? { node: n, busy, onVerdict, onEdit: onEditNode, branch: branch[n.id] ?? 0, isRoot: branch[n.id] === -1 }
-            : { node: n, busy, onVerdict, onEdit: onEditNode }
+            : { node: n, busy, lanes: activeDiagram.lanes ?? [], onVerdict, onEdit: onEditNode }
       })
     }
     return out
@@ -419,14 +468,22 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
         source: e.source,
         target: e.target,
         type: lensDef.edgeType,
-        data: { points, status: e.status, label: e.label } as Record<string, unknown>
+        data: {
+          points,
+          status: e.status,
+          label: e.label,
+          edge: e,
+          busy,
+          onEdgeEdit,
+          onEdgeDelete: onEdgeDeleteOne
+        } as Record<string, unknown>
       }
       if (lensDef.edgeType === 'orth') return { ...base, markerEnd: `url(#neon-arrow-${e.status})` }
       if (lensDef.edgeType === 'er') return { ...base, data: { ...base.data, sourceCard: e.sourceCard, targetCard: e.targetCard } }
       if (lensDef.edgeType === 'mind') return { ...base, data: { points, branch: branch[e.target] ?? 0 } }
       return base
     })
-  }, [layout, activeDiagram, lensDef.edgeType, branch, posOf, posOverride])
+  }, [layout, activeDiagram, lensDef.edgeType, branch, posOf, posOverride, busy, onEdgeEdit, onEdgeDeleteOne])
 
   const shell = 'neon-editor' + (busy ? ' ro' : '')
 
@@ -445,6 +502,9 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
     <div className={shell} onDrop={onDrop} onDragOver={onDragOver}>
       <LensBar lens={lens} onLens={onLens} />
       <Palette busy={busy} onPick={criarNoCentro} />
+      {lens === 'swimlane' && activeDiagram && (
+        <LanesPanel lanes={activeDiagram.lanes ?? []} busy={busy} onChange={onLanesChange} />
+      )}
       {actions}
       {layout?.noLanes && (
         <div className="lanes-empty neon-mono" role="status">

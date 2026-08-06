@@ -1,24 +1,24 @@
-import { BaseEdge, type EdgeProps } from '@xyflow/react'
-import type { NodeStatus } from '../types.js'
-
-const SC: Record<NodeStatus, string> = {
-  proposed: '--s-proposed',
-  approved: '--s-approved',
-  questioned: '--s-questioned',
-  rejected: '--s-rejected'
-}
+import { BaseEdge, EdgeLabelRenderer, type EdgeProps } from '@xyflow/react'
+import type { DEdge, NodeStatus } from '../types.js'
+import { SC } from './status.js'
+import { EdgeCard } from './EdgeCard.js'
 
 export interface OrthEdgeData {
   points?: { x: number; y: number }[]
   status: NodeStatus
   label?: string
+  /** A aresta do modelo + os callbacks — só chegam quando a lente edita. */
+  edge?: DEdge
+  busy?: boolean
+  onEdgeEdit?: (id: string, patch: Partial<DEdge>) => void
+  onEdgeDelete?: (id: string) => void
   [key: string]: unknown
 }
 
 /** Aresta ortogonal: desenha a polilinha roteada pelo elk (data.points) com
  *  cantos arredondados. Se faltar rota, cai num L simples source→target. */
 export function OrthEdge(props: EdgeProps): JSX.Element {
-  const { sourceX, sourceY, targetX, targetY, markerEnd } = props
+  const { sourceX, sourceY, targetX, targetY, markerEnd, selected } = props
   const data = props.data as OrthEdgeData | undefined
   const pts = data?.points && data.points.length >= 2 ? data.points : [
     { x: sourceX, y: sourceY },
@@ -34,12 +34,27 @@ export function OrthEdge(props: EdgeProps): JSX.Element {
       <BaseEdge
         path={path}
         markerEnd={markerEnd}
-        style={{ stroke: sc, strokeWidth: status === 'proposed' ? 1.4 : 1.9 }}
+        style={{
+          stroke: selected ? 'var(--accent)' : sc,
+          strokeWidth: selected ? 2.6 : status === 'proposed' ? 1.4 : 1.9
+        }}
       />
       {data?.label && mid && (
         <text className="orth-label" x={mid.x} y={mid.y - 5} textAnchor="middle">
           {data.label}
         </text>
+      )}
+      {selected && data?.edge && data.onEdgeEdit && data.onEdgeDelete && mid && (
+        <EdgeLabelRenderer>
+          <div className="ecard-anchor" style={{ transform: `translate(-50%, -50%) translate(${mid.x}px, ${mid.y}px)` }}>
+            <EdgeCard
+              edge={data.edge}
+              busy={data.busy}
+              onEdit={data.onEdgeEdit}
+              onDelete={data.onEdgeDelete}
+            />
+          </div>
+        </EdgeLabelRenderer>
       )}
     </>
   )

@@ -253,6 +253,52 @@ function autoteste(raizCopia) {
     return d7.process.edges.every((e) => ids.has(e.source) && ids.has(e.target));
   })()]);
 
+  // ---- FF-006: seta com status proprio, campos ER e raias ----
+
+  // a seta guarda um status que a regra das pontas NAO derivaria. Isto e o
+  // coracao da decisao de 06/08/2026: 34 das 143 arestas reais sao assim.
+  const m8 = clone(d7.process);
+  m8.edges = [{ id: 'ex', source: 'b', target: 'novo1', label: 'se falhar', status: 'rejected', sourceSide: 'bottom' }];
+  m8.nodes = m8.nodes.map((n) => ({ ...n, status: 'approved' }));
+  const d8 = S.writeWorkspaceLens(slug, 'process', m8, 'user');
+  const ex = d8.process.edges.find((e) => e.id === 'ex');
+  casos.push(['seta guarda status proprio divergente das pontas', !!ex && ex.status === 'rejected']);
+  casos.push(['rotulo da seta sobrevive', !!ex && ex.label === 'se falhar']);
+
+  // campos ER (nome/tipo/pk/fk) no round-trip
+  const mer = clone(d8.er);
+  mer.nodes = [{ id: 'ent1', label: 'Cliente', kind: 'entity', status: 'proposed', comments: [],
+    fields: [{ name: 'id', type: 'int', key: 'pk' }, { name: 'nome', type: 'text', key: null }] }];
+  const der = S.writeWorkspaceLens(slug, 'er', mer, 'user');
+  const ent = der.er.nodes[0];
+  casos.push(['campos ER sobrevivem com nome/tipo/chave', !!ent && ent.fields.length === 2 && ent.fields[0].key === 'pk' && ent.fields[1].type === 'text']);
+
+  // cardinalidade ER
+  const mer2 = clone(der.er);
+  mer2.nodes.push({ id: 'ent2', label: 'Pedido', kind: 'entity', status: 'proposed', comments: [], fields: [] });
+  mer2.edges = [{ id: 'r1', source: 'ent1', target: 'ent2', label: 'faz', status: 'proposed', sourceCard: '1', targetCard: 'N' }];
+  const der2 = S.writeWorkspaceLens(slug, 'er', mer2, 'user');
+  const rel = der2.er.edges[0];
+  casos.push(['cardinalidade 1/N sobrevive', !!rel && rel.sourceCard === '1' && rel.targetCard === 'N']);
+
+  // raias: criar, renomear, e remover SEM levar os nos junto
+  const ml = clone(d8.process);
+  ml.lanes = [{ id: 'l1', label: 'Analista', order: 0 }, { id: 'l2', label: 'Sistema', order: 1 }];
+  ml.nodes = ml.nodes.map((n, i) => ({ ...n, lane: i === 0 ? 'l1' : 'l2' }));
+  const dl = S.writeWorkspaceLens(slug, 'process', ml, 'user');
+  casos.push(['criar raias grava lanes com ordem', dl.process.lanes.length === 2 && dl.process.lanes[1].order === 1]);
+  casos.push(['no guarda a raia atribuida', dl.process.nodes[0].lane === 'l1']);
+
+  const ml2 = clone(dl.process);
+  ml2.lanes = ml2.lanes.filter((l) => l.id !== 'l2').map((l, i) => ({ ...l, order: i }));
+  ml2.nodes = ml2.nodes.map((n) => (n.lane === 'l2' ? { ...n, lane: undefined } : n));
+  const dl2 = S.writeWorkspaceLens(slug, 'process', ml2, 'user');
+  casos.push(['remover raia nao apaga os nos dela', dl2.process.nodes.length === dl.process.nodes.length]);
+  casos.push(['no da raia removida fica sem raia, nao com raia fantasma', (() => {
+    const ids = new Set(dl2.process.lanes.map((l) => l.id));
+    return dl2.process.nodes.every((n) => !n.lane || ids.has(n.lane));
+  })()]);
+
   let falhas = 0;
   for (const [nome, ok] of casos) {
     console.log(`   ${ok ? 'ok   ' : 'FALHA'} ${nome}`);
