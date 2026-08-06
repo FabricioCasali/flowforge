@@ -321,6 +321,32 @@ async function autoteste(L) {
     const r = await L.swimlaneLayout(d);
     casos.push(['swimlane com `lanes` monta banda e nao avisa', !r.noLanes && (r.lanes || []).length === 1]);
   }
+  // 6b. FF-005: a aresta ancorada num LADO tem de SAIR por aquele lado. Sem isto
+  //     gravar sourceSide/targetSide seria enfeite, e os 54 lados ancorados dos
+  //     diagramas reais desenhariam diferente do editor antigo.
+  {
+    const s = { x: 0, y: 0 }, ss = { width: 100, height: 40 };
+    const t = { x: 300, y: 300 }, ts = { width: 100, height: 40 };
+    const auto = L.orthRoute(s, ss, t, ts);
+    const preso = L.orthRoute(s, ss, t, ts, 'right', 'top');
+    const p0 = preso[0], pf = preso[preso.length - 1];
+    const saiDireita = Math.abs(p0.x - (s.x + ss.width)) < 0.5 && Math.abs(p0.y - (s.y + ss.height / 2)) < 0.5;
+    const entraTopo = Math.abs(pf.x - (t.x + ts.width / 2)) < 0.5 && Math.abs(pf.y - t.y) < 0.5;
+    casos.push(['aresta ancorada sai pelo lado pedido (right)', saiDireita]);
+    casos.push(['aresta ancorada entra pelo lado pedido (top)', entraTopo]);
+    casos.push(['sem lado, o roteamento continua sendo o automatico', JSON.stringify(auto) !== JSON.stringify(preso)]);
+  }
+  // 6c. lado ancorado nas arestas de um diagrama inteiro (o caminho do routeAll)
+  {
+    const d = base();
+    d.edges[0].sourceSide = 'left';
+    d.edges[0].targetSide = 'right';
+    const r = await L.layoutDiagram(d, 'DOWN', 70);
+    const pts = r.edgePoints.e1;
+    const sa = pts[0];
+    const ok = Math.abs(sa.x - r.positions.a.x) < 0.5; // saiu pela ESQUERDA do nó a
+    casos.push(['routeAll respeita o lado gravado no arquivo', ok]);
+  }
   // 7. swimlane IGNORA o x/y salvo (lente derivada — decisao de 06/08/2026)
   {
     const d = base();

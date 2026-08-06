@@ -215,6 +215,44 @@ function autoteste(raizCopia) {
   const d3 = S.writeWorkspaceLens(slug, 'process', mutilado, 'user');
   casos.push(['a checagem ACUSA um patch que veio sem x', d3.process.nodes[0].x === undefined]);
 
+  // ---- FF-005: criar, ligar e deletar ----
+
+  // criar um no (o que o drop da paleta manda)
+  const m4 = clone(d3.process);
+  m4.nodes.push({ id: 'novo1', label: 'nova tarefa', kind: 'task', status: 'proposed', comments: [], description: '', x: 500, y: 500 });
+  const d4 = S.writeWorkspaceLens(slug, 'process', m4, 'user');
+  casos.push(['criar no grava o no novo', d4.process.nodes.length === 3 && !!d4.process.nodes.find((n) => n.id === 'novo1')]);
+  casos.push(['criar no nao mexe nos que ja existiam', d4.process.nodes[1].label === 'B']);
+
+  // no SEM x/y (criado numa lente derivada) tem de sobreviver sem ganhar posicao
+  const m5 = clone(d4.process);
+  m5.nodes.push({ id: 'semxy', label: 'sem posicao', kind: 'task', status: 'proposed', comments: [] });
+  const d5 = S.writeWorkspaceLens(slug, 'process', m5, 'user');
+  const semxy = d5.process.nodes.find((n) => n.id === 'semxy');
+  casos.push(['no sem x/y sobrevive sem ganhar posicao inventada', !!semxy && semxy.x === undefined && semxy.y === undefined]);
+
+  // ligar dois nos GRAVANDO OS LADOS — se o servidor podar isso, a ancoragem
+  // dos 4 lados nao volta quando a sessao reabre
+  const m6 = clone(d5.process);
+  m6.edges.push({ id: 'enova', source: 'a', target: 'novo1', label: '', status: 'proposed', sourceSide: 'right', targetSide: 'left' });
+  const d6 = S.writeWorkspaceLens(slug, 'process', m6, 'user');
+  const enova = d6.process.edges.find((e) => e.id === 'enova');
+  casos.push(['ligar grava a aresta', !!enova]);
+  casos.push(['sourceSide/targetSide sobrevivem ao round-trip', !!enova && enova.sourceSide === 'right' && enova.targetSide === 'left']);
+
+  // deletar um no leva as arestas penduradas junto
+  const idsFora = new Set(['a']);
+  const m7 = clone(d6.process);
+  m7.nodes = m7.nodes.filter((n) => !idsFora.has(n.id));
+  m7.edges = m7.edges.filter((e) => !idsFora.has(e.source) && !idsFora.has(e.target));
+  const d7 = S.writeWorkspaceLens(slug, 'process', m7, 'user');
+  casos.push(['deletar tira o no', !d7.process.nodes.find((n) => n.id === 'a')]);
+  casos.push(['deletar leva junto as arestas penduradas', d7.process.edges.every((e) => e.source !== 'a' && e.target !== 'a')]);
+  casos.push(['deletar nao deixa aresta orfa apontando pro vazio', (() => {
+    const ids = new Set(d7.process.nodes.map((n) => n.id));
+    return d7.process.edges.every((e) => ids.has(e.source) && ids.has(e.target));
+  })()]);
+
   let falhas = 0;
   for (const [nome, ok] of casos) {
     console.log(`   ${ok ? 'ok   ' : 'FALHA'} ${nome}`);

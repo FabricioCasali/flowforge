@@ -16,7 +16,7 @@
 // ============================================================================
 
 import ELK from 'elkjs/lib/elk.bundled.js'
-import type { Diagram, DNode } from '../types.js'
+import type { Diagram, DNode, Side } from '../types.js'
 import { EVENT_SIZE, GATE_SIZE, shapeOf } from './shapes.js'
 
 const elk = new ELK()
@@ -199,11 +199,27 @@ function anchorToSaved(
  * editor antigo, que é o que o Fabricio aprovou na fase 3. Sai pelo lado mais
  * curto e dobra na metade do caminho.
  */
-export function orthRoute(sp: Pt, ss: Size, tp: Pt, ts: Size): Pt[] {
+export function orthRoute(sp: Pt, ss: Size, tp: Pt, ts: Size, sourceSide?: Side, targetSide?: Side): Pt[] {
   const sc = { x: sp.x + ss.width / 2, y: sp.y + ss.height / 2 }
   const tc = { x: tp.x + ts.width / 2, y: tp.y + ts.height / 2 }
   const dx = tc.x - sc.x
   const dy = tc.y - sc.y
+
+  // Lado ancorado no arquivo manda (54 pontas dos diagramas reais usam isto).
+  // Sem lado, a geometria decide — que é o comportamento de sempre.
+  if (sourceSide || targetSide) {
+    const sSide = sourceSide ?? autoSide(dx, dy, false)
+    const tSide = targetSide ?? autoSide(dx, dy, true)
+    const sa = anchorOn(sp, ss, sSide)
+    const ta = anchorOn(tp, ts, tSide)
+    const s1 = pushOut(sa, sSide, STUB)
+    const t1 = pushOut(ta, tSide, STUB)
+    const meio = vertical(sSide)
+      ? [{ x: s1.x, y: (s1.y + t1.y) / 2 }, { x: t1.x, y: (s1.y + t1.y) / 2 }]
+      : [{ x: (s1.x + t1.x) / 2, y: s1.y }, { x: (s1.x + t1.x) / 2, y: t1.y }]
+    return dedup([sa, s1, ...meio, t1, ta])
+  }
+
   if (Math.abs(dy) >= Math.abs(dx)) {
     const sa = { x: sc.x, y: dy > 0 ? sp.y + ss.height : sp.y }
     const ta = { x: tc.x, y: dy > 0 ? tp.y : tp.y + ts.height }
@@ -216,6 +232,55 @@ export function orthRoute(sp: Pt, ss: Size, tp: Pt, ts: Size): Pt[] {
   return [sa, { x: mx, y: sa.y }, { x: mx, y: ta.y }, ta]
 }
 
+/** Quanto a aresta anda reto ao sair da borda antes de dobrar. */
+const STUB = 18
+
+function vertical(s: Side): boolean {
+  return s === 'top' || s === 'bottom'
+}
+
+/** Ponto no meio do lado pedido. */
+function anchorOn(p: Pt, s: Size, side: Side): Pt {
+  switch (side) {
+    case 'top':
+      return { x: p.x + s.width / 2, y: p.y }
+    case 'bottom':
+      return { x: p.x + s.width / 2, y: p.y + s.height }
+    case 'left':
+      return { x: p.x, y: p.y + s.height / 2 }
+    default:
+      return { x: p.x + s.width, y: p.y + s.height / 2 }
+  }
+}
+
+function pushOut(p: Pt, side: Side, d: number): Pt {
+  switch (side) {
+    case 'top':
+      return { x: p.x, y: p.y - d }
+    case 'bottom':
+      return { x: p.x, y: p.y + d }
+    case 'left':
+      return { x: p.x - d, y: p.y }
+    default:
+      return { x: p.x + d, y: p.y }
+  }
+}
+
+/** Lado que a geometria escolheria — usado quando só uma ponta está ancorada. */
+function autoSide(dx: number, dy: number, isTarget: boolean): Side {
+  if (Math.abs(dy) >= Math.abs(dx)) {
+    if (dy > 0) return isTarget ? 'top' : 'bottom'
+    return isTarget ? 'bottom' : 'top'
+  }
+  if (dx > 0) return isTarget ? 'left' : 'right'
+  return isTarget ? 'right' : 'left'
+}
+
+/** Tira pontos repetidos — eles viram cantos fantasmas no traço. */
+function dedup(pts: Pt[]): Pt[] {
+  return pts.filter((p, i) => i === 0 || Math.abs(p.x - pts[i - 1]!.x) > 0.5 || Math.abs(p.y - pts[i - 1]!.y) > 0.5)
+}
+
 /** Re-roteia TODAS as arestas — usado sempre que as posições não são as do elk. */
 function routeAll(diagram: Diagram, positions: Record<string, Pt>, sizes: Record<string, Size>): Record<string, Pt[]> {
   const out: Record<string, Pt[]> = {}
@@ -223,7 +288,7 @@ function routeAll(diagram: Diagram, positions: Record<string, Pt>, sizes: Record
     const s = positions[e.source]
     const t = positions[e.target]
     if (!s || !t) continue
-    out[e.id] = orthRoute(s, sizes[e.source]!, t, sizes[e.target]!)
+    out[e.id] = orthRoute(s, sizes[e.source]!, t, sizes[e.target]!, e.sourceSide, e.targetSide)
   }
   return out
 }

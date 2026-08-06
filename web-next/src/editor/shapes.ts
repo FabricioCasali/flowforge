@@ -69,6 +69,45 @@ export function shapeOf(kind: string): FlowShape {
   return (SHAPE_BY_KIND as Record<string, FlowShape>)[kind] ?? 'rect'
 }
 
+/** Nome em PT-BR de cada kind — o mesmo do `select` do editor antigo. */
+export const KIND_LABEL: Record<string, string> = {
+  start: 'início',
+  task: 'tarefa',
+  decision: 'decisão',
+  end: 'fim',
+  idea: 'ideia',
+  'event-start': 'evento início',
+  'event-intermediate': 'evento intermediário',
+  'event-end': 'evento fim',
+  'gateway-exclusive': 'gateway exclusivo (ou)',
+  'gateway-parallel': 'gateway paralelo (e)',
+  subprocess: 'subprocesso',
+  'data-object': 'objeto de dado',
+  annotation: 'anotação',
+  entity: 'entidade'
+}
+
+/** Rótulo com que o nó NASCE (`web/app.js:970`). Some assim que o Fabricio digita. */
+export const KIND_NEW_LABEL: Record<string, string> = {
+  start: 'início',
+  end: 'fim',
+  decision: 'decisão?',
+  idea: 'ideia',
+  task: 'nova tarefa',
+  'event-start': 'início',
+  'event-end': 'fim',
+  'event-intermediate': 'evento',
+  'gateway-exclusive': 'ou?',
+  'gateway-parallel': 'e',
+  subprocess: 'subprocesso',
+  'data-object': 'dado',
+  annotation: 'anotação',
+  entity: 'NovaEntidade'
+}
+
+/** Os que a paleta agrupa como "Fluxo"; o resto é BPM. */
+export const GRUPO_FLUXO = new Set<string>(['start', 'task', 'decision', 'end', 'idea'])
+
 /** Formas pequenas demais para o texto caber dentro — rótulo vai embaixo. */
 export const LABEL_OUTSIDE = new Set<FlowShape>(['event', 'gate'])
 

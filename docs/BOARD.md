@@ -53,11 +53,14 @@ _(fase 1 fechada — a fase 2 começa no FF-004)_
   `rev` e o eco comeria o cursor. Prova nova: `scripts/verifica-edicao.mjs`, que cobre o
   caminho de escrita inteiro da fase 2. · `[porte/fase-2]` · M · importante
 
-## 🗂️ Backlog
+- **FF-005** **Edição: criar, deletar e ligar** — paleta flutuante com os 13 kinds (mini-SVG
+  da forma real), criar por arrastar-soltar, por clique ou por duplo-clique no vazio;
+  `Del`/`Backspace` apaga e leva as arestas penduradas junto; nozinhos nos 4 lados (só no
+  hover) gravando `sourceSide`/`targetSide`. O `orthRoute` passou a **respeitar** o lado
+  gravado — sem isso o campo seria enfeite e as 54 pontas ancoradas dos diagramas reais
+  desenhariam diferente do editor antigo. · `[porte/fase-2]` · M · importante
 
-- **FF-005** **Edição: criar, deletar e ligar** — paleta com os 13 kinds, `Del`, e os nozinhos
-  dos 4 lados com aresta-fantasma gravando `sourceSide`/`targetSide`. O editor novo não cria
-  nada hoje. · `[porte/fase-2]` · M · importante
+## 🗂️ Backlog
 
 - **FF-006** **Edição: aresta, campos ER e raias** — rótulo e status próprio da seta,
   cardinalidade `sourceCard`/`targetCard`, editor de campos da entidade (nome/tipo/pk/fk),

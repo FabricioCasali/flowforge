@@ -44,12 +44,36 @@
 .react-flow__attribution {
   display: none;
 }
+/* Nozinhos de conexão dos 4 lados (FF-005). Como no editor antigo, eles só
+   APARECEM quando o mouse passa no nó — um canvas com 22 nós e 88 bolinhas
+   permanentes é ilegível. Invisível ≠ inerte: continuam clicáveis num raio
+   pequeno, senão acertar o nó certo vira perícia. */
 .react-flow__handle.fh {
   width: 10px;
   height: 10px;
   background: var(--accent);
   border: 2px solid var(--bg);
   box-shadow: 0 0 10px color-mix(in oklch, var(--accent) 70%, transparent);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.fnode:hover .react-flow__handle.fh,
+.fnode.sel .react-flow__handle.fh,
+.react-flow__handle.fh:hover,
+.react-flow.dragging .react-flow__handle.fh {
+  opacity: 1;
+}
+/* o de SAÍDA fica por cima: arrastar de um lado começa uma seta a partir dele */
+.react-flow__handle.fh-s {
+  z-index: 2;
+}
+.react-flow__handle.fh-t {
+  z-index: 1;
+}
+/* modo leitura (lei 7): sem nozinho nenhum */
+.neon-editor.ro .react-flow__handle.fh {
+  opacity: 0 !important;
+  pointer-events: none;
 }
 .react-flow__controls button {
   background: var(--surface);
@@ -702,6 +726,85 @@
   left: 16px;
   z-index: 11;
 }
+/* ==========================================================================
+   PALETA (FF-005) — flutua na borda esquerda. Mini-SVG da forma real, como o
+   Fabricio pediu na fase 3: escolhe-se pela silhueta, não pela leitura.
+   ========================================================================== */
+.palette {
+  position: absolute;
+  left: 16px;
+  top: calc(var(--lensbar-top, 12px) + var(--lensbar-h, 32px) + 14px);
+  z-index: 10;
+  width: 92px;
+  max-height: calc(100% - var(--lensbar-top, 12px) - var(--lensbar-h, 32px) - 46px);
+  overflow-y: auto;
+  padding: 8px;
+  background: color-mix(in oklch, var(--surface) 92%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  backdrop-filter: blur(8px);
+}
+.palette.ro {
+  opacity: 0.45;
+  pointer-events: none;
+}
+.pal-sec {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--faint);
+  padding: 4px 2px 6px;
+}
+.pal-sec + .pal-grid {
+  margin-bottom: 6px;
+}
+.pal-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 3px;
+}
+.pal-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 5px 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  cursor: grab;
+  text-align: left;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.pal-item:hover:not(:disabled) {
+  color: var(--fg);
+  background: color-mix(in oklch, var(--accent) 10%, transparent);
+  border-color: color-mix(in oklch, var(--accent) 40%, transparent);
+}
+.pal-item:active {
+  cursor: grabbing;
+}
+.pal-item:disabled {
+  cursor: not-allowed;
+}
+.pal-item svg {
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.pal-lbl {
+  font-size: 9.5px;
+  line-height: 1.15;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
 /* ---------- barra de lentes ---------- */
 .lensbar {
   position: absolute;

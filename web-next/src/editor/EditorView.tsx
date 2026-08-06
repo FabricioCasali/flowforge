@@ -18,18 +18,21 @@
 // `draggable:false`). Ver/navegar/zoom continuam livres.
 // ============================================================================
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent } from 'react'
 import {
   Background,
   Controls,
   MiniMap,
   ReactFlow,
+  type Connection,
   type Edge,
   type Node,
-  type NodeChange
+  type NodeChange,
+  type ReactFlowInstance
 } from '@xyflow/react'
 import type { Diagram, DNode, ModelKey, NodeStatus, SeqModel, Workspace } from '../types.js'
-import { FlowNode } from './FlowNode.js'
+import { FlowNode, sideOfHandle } from './FlowNode.js'
+import { Palette } from './Palette.js'
 import { EntityNode } from './EntityNode.js'
 import { MindNode } from './MindNode.js'
 import { LaneNode } from './LaneNode.js'
@@ -46,7 +49,7 @@ import {
   toSavedPoint,
   type LayoutResult
 } from './layout.js'
-import { applyVerdict, propagateEdges } from './model.js'
+import { applyVerdict, novaEdge, novoNode, propagateEdges } from './model.js'
 import { LENSES, LENS_BY_KEY, type LensDef, type LensKey } from './lenses.js'
 
 const STATUS_COLOR: Record<NodeStatus, string> = {
@@ -167,6 +170,129 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
     [lensDef.model, writeModel]
   )
 
+  // ------------------------------------------------------------------------
+  // CRIAR · LIGAR · DELETAR (FF-005)
+  // ------------------------------------------------------------------------
+
+  const rfRef = useRef<ReactFlowInstance | null>(null)
+
+  /**
+   * Nasce um nó. A posição que chega é o CENTRO (é o que o arquivo guarda).
+   *
+   * Numa lente que não é dona da posição — a Swimlane — o nó nasce SEM `x`/`y`:
+   * o `y` de lá é a banda da raia e o `x` é a ordem do elk, nenhum dos dois diz
+   * onde a etapa fica no Fluxograma. Melhor deixar o elk decidir da próxima vez
+   * (o FF-001 já sabe posicionar quem não tem posição) do que gravar um palpite.
+   */
+  const criarNode = useCallback(
+    (kind: string, center: Pt | null) => {
+      const model = lensDef.model
+      if (busy || model === 'seq') return
+      const node = novoNode(kind, center ?? { x: 0, y: 0 })
+      if (!lensDef.savesPos || !center) {
+        delete node.x
+        delete node.y
+      }
+      writeModel(model, (dia) => ({ ...dia, nodes: [...dia.nodes, node] }))
+    },
+    [busy, lensDef, writeModel]
+  )
+
+  /** Converte um ponto da tela para coords do canvas (onde o mouse soltou). */
+  const pontoDoEvento = useCallback((clientX: number, clientY: number): Pt | null => {
+    const rf = rfRef.current
+    return rf ? rf.screenToFlowPosition({ x: clientX, y: clientY }) : null
+  }, [])
+
+  const onDrop = useCallback(
+    (evt: DragEvent) => {
+      const kind = evt.dataTransfer.getData('text/flowforge-kind')
+      if (!kind) return
+      evt.preventDefault()
+      criarNode(kind, pontoDoEvento(evt.clientX, evt.clientY))
+    },
+    [criarNode, pontoDoEvento]
+  )
+  const onDragOver = useCallback((evt: DragEvent) => {
+    if (!evt.dataTransfer.types.includes('text/flowforge-kind')) return
+    evt.preventDefault()
+    evt.dataTransfer.dropEffect = 'copy'
+  }, [])
+
+  /**
+   * Duplo-clique no VAZIO cria uma tarefa ali — o atalho de quem já sabe.
+   * Só no vazio: dois cliques num nó (ou no card dele) não podem virar nó novo.
+   */
+  const onPaneDoubleClick = useCallback(
+    (evt: MouseEvent) => {
+      const alvo = evt.target as HTMLElement | null
+      if (!alvo?.classList.contains('react-flow__pane')) return
+      criarNode('task', pontoDoEvento(evt.clientX, evt.clientY))
+    },
+    [criarNode, pontoDoEvento]
+  )
+
+  /** Clique na paleta (sem arrastar): põe no meio do que está à vista. */
+  const criarNoCentro = useCallback(
+    (kind: string) => {
+      const rf = rfRef.current
+      if (!rf) return criarNode(kind, null)
+      const { x, y, zoom } = rf.getViewport()
+      const el = document.querySelector('.neon-editor .react-flow')
+      const r = el?.getBoundingClientRect()
+      const cx = r ? r.width / 2 : 400
+      const cy = r ? r.height / 2 : 300
+      criarNode(kind, { x: (cx - x) / zoom, y: (cy - y) / zoom })
+    },
+    [criarNode]
+  )
+
+  /**
+   * Liga dois nós. O id do handle carrega o lado (`s-right` → `right`), e é ele
+   * que vira `sourceSide`/`targetSide` no arquivo — o mesmo campo que o editor
+   * antigo grava, e que 54 pontas dos diagramas reais já usam.
+   */
+  const onConnect = useCallback(
+    (c: Connection) => {
+      const model = lensDef.model
+      if (busy || model === 'seq' || !c.source || !c.target) return
+      if (c.source === c.target) return // laço em si mesmo não desenha nada útil
+      writeModel(model, (dia) => {
+        const jaExiste = dia.edges.some((e) => e.source === c.source && e.target === c.target)
+        if (jaExiste) return dia
+        const edge = novaEdge(c.source!, c.target!, sideOfHandle(c.sourceHandle), sideOfHandle(c.targetHandle))
+        return { ...dia, edges: propagateEdges(dia.nodes, [...dia.edges, edge]) }
+      })
+    },
+    [busy, lensDef.model, writeModel]
+  )
+
+  /** Del/Backspace num nó: o nó sai e leva junto as arestas penduradas nele. */
+  const onNodesDelete = useCallback(
+    (nodes: Node[]) => {
+      const model = lensDef.model
+      if (busy || model === 'seq') return
+      const ids = new Set(nodes.map((n) => n.id).filter((id) => !id.startsWith('lane_')))
+      if (!ids.size) return
+      writeModel(model, (dia) => ({
+        ...dia,
+        nodes: dia.nodes.filter((n) => !ids.has(n.id)),
+        edges: dia.edges.filter((e) => !ids.has(e.source) && !ids.has(e.target))
+      }))
+    },
+    [busy, lensDef.model, writeModel]
+  )
+
+  const onEdgesDelete = useCallback(
+    (edges: Edge[]) => {
+      const model = lensDef.model
+      if (busy || model === 'seq') return
+      const ids = new Set(edges.map((e) => e.id))
+      writeModel(model, (dia) => ({ ...dia, edges: dia.edges.filter((e) => !ids.has(e.id)) }))
+    },
+    [busy, lensDef.model, writeModel]
+  )
+
   /**
    * Edição de campo do nó (rótulo, kind, descrição, notas) vinda do NodeCard.
    * Já chega commitada — o card só chama isto no blur/Enter, nunca por tecla.
@@ -279,7 +405,14 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
     return activeDiagram.edges.map((e) => {
       const moved = movedRef.current.has(e.source) || movedRef.current.has(e.target)
       const points = moved
-        ? orthRoute(posOf(e.source), sizeOf(layout, e.source), posOf(e.target), sizeOf(layout, e.target))
+        ? orthRoute(
+            posOf(e.source),
+            sizeOf(layout, e.source),
+            posOf(e.target),
+            sizeOf(layout, e.target),
+            e.sourceSide,
+            e.targetSide
+          )
         : layout.edgePoints[e.id]
       const base = {
         id: e.id,
@@ -309,8 +442,9 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
   const counts = activeDiagram ? tally(activeDiagram) : null
 
   return (
-    <div className={shell}>
+    <div className={shell} onDrop={onDrop} onDragOver={onDragOver}>
       <LensBar lens={lens} onLens={onLens} />
+      <Palette busy={busy} onPick={criarNoCentro} />
       {actions}
       {layout?.noLanes && (
         <div className="lanes-empty neon-mono" role="status">
@@ -325,6 +459,15 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
         edgeTypes={edgeTypes}
         onNodesChange={onNodesChange}
         onNodeDragStop={onNodeDragStop}
+        onInit={(rf) => (rfRef.current = rf)}
+        onConnect={onConnect}
+        onNodesDelete={onNodesDelete}
+        onEdgesDelete={onEdgesDelete}
+        onDoubleClick={onPaneDoubleClick}
+        // Del e Backspace apagam; com `busy` ninguém apaga nada (lei 7)
+        deleteKeyCode={busy ? null : ['Delete', 'Backspace']}
+        nodesConnectable={!busy}
+        elementsSelectable
         fitView
         proOptions={{ hideAttribution: true }}
         minZoom={0.15}

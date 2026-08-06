@@ -17,8 +17,9 @@
 // par desta tabela: mudou um, mude o outro.
 // ============================================================================
 
+import { Fragment } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
-import type { DNode, NodeStatus } from '../types.js'
+import type { DNode, NodeStatus, Side } from '../types.js'
 import { LIVE, SC, STLBL } from './status.js'
 import { NodeCard } from './NodeCard.js'
 import { BOXY, DIAMONDISH, LABEL_OUTSIDE, shapeOf } from './shapes.js'
@@ -41,6 +42,26 @@ function SubMark(): JSX.Element {
       <path d="M12 8 L12 16 M8 12 L16 12" />
     </svg>
   )
+}
+
+/**
+ * Os 4 nozinhos de conexão (`app.js:1031`). Cada lado tem um handle de SAÍDA e um
+ * de ENTRADA sobrepostos, porque no FlowForge qualquer lado liga em qualquer
+ * lado — e é o id do handle que vira `sourceSide`/`targetSide` no arquivo.
+ * Ficam invisíveis até o mouse passar no nó; arrastar o corpo continua movendo.
+ */
+export const SIDES: { side: Side; pos: Position }[] = [
+  { side: 'top', pos: Position.Top },
+  { side: 'right', pos: Position.Right },
+  { side: 'bottom', pos: Position.Bottom },
+  { side: 'left', pos: Position.Left }
+]
+
+/** `s-right` → `right`. Devolve undefined pro handle sem lado (ER, mind). */
+export function sideOfHandle(handleId?: string | null): Side | undefined {
+  if (!handleId) return undefined
+  const s = handleId.slice(2)
+  return s === 'top' || s === 'right' || s === 'bottom' || s === 'left' ? s : undefined
 }
 
 export interface FlowNodeData {
@@ -70,7 +91,12 @@ export function FlowNode({ data, selected }: NodeProps): JSX.Element {
 
   return (
     <div className={cls} style={{ ['--sc' as string]: sc }}>
-      <Handle type="target" position={Position.Top} className="fh" />
+      {SIDES.map(({ side, pos }) => (
+        <Fragment key={side}>
+          <Handle type="target" position={pos} id={`t-${side}`} className="fh fh-t" />
+          <Handle type="source" position={pos} id={`s-${side}`} className="fh fh-s" />
+        </Fragment>
+      ))}
 
       {DIAMONDISH.has(shape) && <span className="fnode-di" aria-hidden />}
       {shape === 'gate' && <GateMark kind={node.kind} />}
@@ -96,8 +122,6 @@ export function FlowNode({ data, selected }: NodeProps): JSX.Element {
       )}
 
       {selected && <NodeCard node={node} busy={busy} onVerdict={onVerdict} onEdit={onEdit} />}
-
-      <Handle type="source" position={Position.Bottom} className="fh" />
     </div>
   )
 }
