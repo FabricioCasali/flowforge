@@ -37,7 +37,15 @@ import { OrthEdge } from './OrthEdge.js'
 import { ErEdge } from './ErEdge.js'
 import { MindEdge } from './MindEdge.js'
 import { SequenceView } from './SequenceView.js'
-import { layoutDiagram, orthRoute, radialLayout, swimlaneLayout, type LayoutResult } from './layout.js'
+import {
+  layoutDiagram,
+  nodeSize,
+  orthRoute,
+  radialLayout,
+  swimlaneLayout,
+  toSavedPoint,
+  type LayoutResult
+} from './layout.js'
 import { applyVerdict, propagateEdges } from './model.js'
 import { LENSES, LENS_BY_KEY, type LensDef, type LensKey } from './lenses.js'
 
@@ -196,12 +204,13 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
       writeModel(model, (dia) => ({
         ...dia,
         nodes: dia.nodes.map((n) => {
-          const p = byId.get(n.id) ?? posOf(n.id)
-          return { ...n, x: Math.round(p.x), y: Math.round(p.y) }
+          // canto (React Flow) → centro (o que o arquivo guarda). Ver `savedPositions`.
+          const p = toSavedPoint(byId.get(n.id) ?? posOf(n.id), layout ? sizeOf(layout, n.id) : nodeSize(n))
+          return { ...n, x: p.x, y: p.y }
         })
       }))
     },
-    [lensDef, activeDiagram, writeModel, posOf]
+    [lensDef, activeDiagram, writeModel, posOf, layout]
   )
 
   const rfNodes: Node[] = useMemo(() => {

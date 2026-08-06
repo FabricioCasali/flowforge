@@ -66,15 +66,39 @@ function sizesOf(diagram: Diagram): LayoutResult['sizes'] {
 // Posições do arquivo
 // ---------------------------------------------------------------------------
 
-/** O que o arquivo já define. Nó sem `x`/`y` (recém-nascido do Claude) fica fora. */
-export function savedPositions(diagram: Diagram): Record<string, Pt> {
+/**
+ * O que o arquivo já define, convertido para o referencial do React Flow.
+ *
+ * ATENÇÃO — os dois editores ancoram o nó em pontos DIFERENTES: o `x`/`y` do
+ * arquivo é o CENTRO do nó (é o que `position` significa no Cytoscape, e é o que
+ * o `web/` antigo gravou em todos os diagramas reais), enquanto o React Flow
+ * posiciona pelo canto superior-esquerdo. Ler um como o outro entorta o desenho:
+ * cada nó desce e anda para a direita metade do próprio tamanho, e como o
+ * tamanho varia por `kind`, o que estava alinhado deixa de estar.
+ *
+ * A prova está nos dados: no `teste-vivo` o `x` é 319 numa pílula estreita, numa
+ * task larga e num losango — só fecha se 319 for o meio de cada um.
+ *
+ * A conversão mora AQUI e em `toSavedPoint` (o caminho de volta). O arquivo
+ * continua na semântica antiga de propósito: o `web/` antigo ainda roda em `/`
+ * (lei 1) e lê os mesmos diagramas.
+ *
+ * Nó sem `x`/`y` (recém-nascido do Claude) fica fora.
+ */
+export function savedPositions(diagram: Diagram, sizes: Record<string, Size>): Record<string, Pt> {
   const out: Record<string, Pt> = {}
   for (const n of diagram.nodes) {
     if (typeof n.x === 'number' && Number.isFinite(n.x) && typeof n.y === 'number' && Number.isFinite(n.y)) {
-      out[n.id] = { x: n.x, y: n.y }
+      const s = sizes[n.id] ?? nodeSize(n)
+      out[n.id] = { x: n.x - s.width / 2, y: n.y - s.height / 2 }
     }
   }
   return out
+}
+
+/** O caminho de volta: canto do React Flow → centro, que é o que vai pro arquivo. */
+export function toSavedPoint(topLeft: Pt, size: Size): Pt {
+  return { x: Math.round(topLeft.x + size.width / 2), y: Math.round(topLeft.y + size.height / 2) }
 }
 
 function overlaps(a: Pt, as: Size, b: Pt, bs: Size, gap: number): boolean {
@@ -196,7 +220,7 @@ export async function layoutDiagram(
   honorSaved = true
 ): Promise<LayoutResult> {
   const sizes = sizesOf(diagram)
-  const saved = honorSaved ? savedPositions(diagram) : {}
+  const saved = honorSaved ? savedPositions(diagram, sizes) : {}
   const savedCount = Object.keys(saved).length
 
   // Desenho inteiro salvo: o arquivo manda sozinho e o elk nem roda.
@@ -342,7 +366,7 @@ export function radialLayout(diagram: Diagram): LayoutResult {
   if (root) place(root.id, 0, -Math.PI, Math.PI)
 
   // o arquivo manda também aqui (o Fabricio arruma o mapa na mão)
-  const saved = savedPositions(diagram)
+  const saved = savedPositions(diagram, sizes)
   const positions = Object.keys(saved).length ? anchorToSaved(diagram, saved, computed, sizes) : computed
 
   // arestas mind = bezier entre centros (a aresta custom desenha a curva)

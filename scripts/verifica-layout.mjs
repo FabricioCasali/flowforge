@@ -119,13 +119,18 @@ function confere(diagrama, lente, res) {
     if (!res.positions[n.id]) problemas.push(`no '${n.id}' ficou SEM posicao`);
   }
 
-  // 1) fidelidade: quem tem x/y no arquivo manda
+  // 1) fidelidade: quem tem x/y no arquivo manda.
+  //    O arquivo guarda o CENTRO do no (heranca do Cytoscape) e o React Flow
+  //    posiciona pelo canto — entao o esperado e o centro menos meio tamanho.
+  //    Comparar sem converter foi o bug que este teste passou a pegar.
   if (lente.honra) {
     for (const [id, p] of salvos) {
       const got = res.positions[id];
-      if (!got) continue;
-      if (got.x !== p.x || got.y !== p.y) {
-        problemas.push(`no '${id}': arquivo diz (${p.x},${p.y}) mas o layout pos em (${got.x},${got.y})`);
+      const s = res.sizes[id];
+      if (!got || !s) continue;
+      const esp = { x: p.x - s.width / 2, y: p.y - s.height / 2 };
+      if (got.x !== esp.x || got.y !== esp.y) {
+        problemas.push(`no '${id}': centro (${p.x},${p.y}) pede canto (${esp.x},${esp.y}) mas o layout pos em (${got.x},${got.y})`);
       }
     }
   }
@@ -201,12 +206,32 @@ async function autoteste(L) {
     edges: [{ id: 'e1', source: 'a', target: 'b', label: '', status: 'proposed' }],
   });
 
-  // 1. tudo salvo -> tem de sair identico
+  // 1. tudo salvo -> tem de sair identico, ja convertido de centro para canto
   {
     const d = base();
     const r = await L.layoutDiagram(d, 'DOWN', 70);
-    const ok = r.positions.a.x === 100 && r.positions.a.y === 100 && r.positions.b.y === 300;
+    const sa = r.sizes.a;
+    const ok = r.positions.a.x === 100 - sa.width / 2 && r.positions.a.y === 100 - sa.height / 2;
     casos.push(['posicao salva e respeitada ao pe da letra', ok]);
+  }
+  // 1b. o x/y do arquivo e o CENTRO: dois nos de larguras diferentes com o mesmo
+  //     x tem de sair CENTRADOS no mesmo eixo (foi assim que o `web/` gravou)
+  {
+    const d = base();
+    d.nodes[0].label = 'A';
+    d.nodes[1].label = 'B com um rotulo bem mais comprido que o outro';
+    const r = await L.layoutDiagram(d, 'DOWN', 70);
+    const ca = r.positions.a.x + r.sizes.a.width / 2;
+    const cb = r.positions.b.x + r.sizes.b.width / 2;
+    const larguraDiferente = r.sizes.a.width !== r.sizes.b.width;
+    casos.push(['nos de larguras diferentes com mesmo x saem centrados', larguraDiferente && ca === cb]);
+  }
+  // 1c. ida e volta: canto -> centro tem de devolver o x/y original
+  {
+    const d = base();
+    const r = await L.layoutDiagram(d, 'DOWN', 70);
+    const volta = L.toSavedPoint(r.positions.a, r.sizes.a);
+    casos.push(['converter de volta devolve o x/y do arquivo', volta.x === 100 && volta.y === 100]);
   }
   // 2. nada salvo -> o elk manda (e ninguem fica sem posicao)
   {
@@ -221,7 +246,7 @@ async function autoteste(L) {
     d.nodes.push({ id: 'c', label: 'C novo', kind: 'task', status: 'proposed', comments: [] });
     d.edges.push({ id: 'e2', source: 'b', target: 'c', label: '', status: 'proposed' });
     const r = await L.layoutDiagram(d, 'DOWN', 70);
-    const fiel = r.positions.a.x === 100 && r.positions.a.y === 100;
+    const fiel = L.toSavedPoint(r.positions.a, r.sizes.a).x === 100 && L.toSavedPoint(r.positions.a, r.sizes.a).y === 100;
     const c = r.positions.c, sc = r.sizes.c;
     const limpo = !sobrepoe(c, sc, r.positions.a, r.sizes.a, 0) && !sobrepoe(c, sc, r.positions.b, r.sizes.b, 0);
     casos.push(['diagrama misto: salvo fica, novo entra sem sobrepor', fiel && limpo]);
