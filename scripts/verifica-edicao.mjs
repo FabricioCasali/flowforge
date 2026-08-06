@@ -61,7 +61,7 @@ function listarDiagramas() {
       let slug = e.name;
       while (usados.has(slug)) slug = `${rotulo.replace(/[^a-z0-9]+/gi, '-')}-${slug}`;
       usados.add(slug);
-      achados.push({ rotulo, sessao: e.name, slug, diagramaOrigem: diag });
+      achados.push({ rotulo, sessao: e.name, slug, origem: path.join(dir, e.name), diagramaOrigem: diag });
     }
   }
   return achados;
@@ -87,6 +87,12 @@ function avalia(alvo, raizCopia) {
   const destino = path.join(raizCopia, alvo.slug);
   fs.mkdirSync(destino, { recursive: true });
   fs.writeFileSync(path.join(destino, 'diagram.json'), bruto);
+
+  // Sessao que NASCEU no /v2 tem o conteudo no workspace.json e um diagram.json
+  // esqueleto (o servidor cria um pro editor antigo). Copiar o workspace faz o
+  // teste valer pra esse caso — que vira o normal depois do FF-008.
+  const wsOrigem = path.join(alvo.origem, 'workspace.json');
+  if (fs.existsSync(wsOrigem)) fs.copyFileSync(wsOrigem, path.join(destino, 'workspace.json'));
 
   S.setDataDir(raizCopia);
   S.ensureSession(alvo.slug);

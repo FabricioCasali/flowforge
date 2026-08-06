@@ -73,10 +73,13 @@ export function nodeSize(n: DNode): Size {
     case 'idea':
       return { width: Math.max(96, Math.min(210, 44 + len * 7.6)), height: 40 }
     default: {
-      // retângulo (task/subprocess/state): cabeçalho + corpo mono
+      // Retângulo (task/subprocess/state): cabeçalho + corpo mono.
+      // 92 e não 82: o cabeçalho come ~35px e as 2 linhas do corpo ~48px com a
+      // JetBrains Mono de verdade carregada (antes do FF-003 o fallback do
+      // sistema era mais baixo, e a segunda linha saía cortada no meio).
       const width = Math.max(190, Math.min(300, 66 + len * 7))
       const hasDesc = !!(n.description && n.description.trim())
-      return { width, height: hasDesc ? 82 : 42 }
+      return { width, height: hasDesc ? 92 : 42 }
     }
   }
 }

@@ -14,7 +14,7 @@
 // LEI 7: com `busy` a paleta não arrasta — o `dragstart` é cancelado na origem.
 // ============================================================================
 
-import { GRUPO_FLUXO, KIND_LABEL, KINDS, shapeOf, type FlowShape } from './shapes.js'
+import { GRUPO_FLUXO, KIND_LABEL, KIND_LABEL_CURTO, KINDS, shapeOf, type FlowShape } from './shapes.js'
 
 /** Silhueta da forma, do tamanho de um selo. Traço só — a cor vem do CSS. */
 function ShapeGlyph({ shape }: { shape: FlowShape }): JSX.Element {
@@ -117,7 +117,7 @@ export function Palette({ busy = false, onPick }: PaletteProps): JSX.Element {
       onClick={() => !busy && onPick(kind)}
     >
       <GlyphFor kind={kind} />
-      <span className="pal-lbl">{KIND_LABEL[kind]}</span>
+      <span className="pal-lbl">{KIND_LABEL_CURTO[kind] ?? KIND_LABEL[kind]}</span>
     </button>
   )
 

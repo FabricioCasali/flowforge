@@ -235,6 +235,9 @@ function workspaceDe(alvo, raizCopia) {
   const destino = path.join(raizCopia, alvo.slug);
   fs.mkdirSync(destino, { recursive: true });
   fs.copyFileSync(alvo.diagramaOrigem, path.join(destino, 'diagram.json'));
+  // sessao nascida no /v2: o conteudo esta no workspace.json (ver verifica-edicao)
+  const wsOrigem = path.join(alvo.origem, 'workspace.json');
+  if (fs.existsSync(wsOrigem)) fs.copyFileSync(wsOrigem, path.join(destino, 'workspace.json'));
   S.setDataDir(raizCopia);
   S.ensureSession(alvo.slug);
   return JSON.parse(fs.readFileSync(path.join(destino, 'workspace.json'), 'utf8'));

@@ -87,6 +87,28 @@ export const KIND_LABEL: Record<string, string> = {
   entity: 'entidade'
 }
 
+/**
+ * Nome CURTO, pra paleta. Ela é uma coluna estreita ao lado do canvas: o nome
+ * inteiro ("gateway exclusivo (ou)") não cabe e sai cortado no meio da palavra.
+ * O nome completo continua no `title` do item e no select do card do nó.
+ */
+export const KIND_LABEL_CURTO: Record<string, string> = {
+  start: 'início',
+  task: 'tarefa',
+  decision: 'decisão',
+  end: 'fim',
+  idea: 'ideia',
+  'event-start': 'ev. início',
+  'event-intermediate': 'ev. meio',
+  'event-end': 'ev. fim',
+  'gateway-exclusive': 'gate ou',
+  'gateway-parallel': 'gate e',
+  subprocess: 'subproc.',
+  'data-object': 'dado',
+  annotation: 'anotação',
+  entity: 'entidade'
+}
+
 /** Rótulo com que o nó NASCE (`web/app.js:970`). Some assim que o Fabricio digita. */
 export const KIND_NEW_LABEL: Record<string, string> = {
   start: 'início',

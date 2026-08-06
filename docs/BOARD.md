@@ -91,5 +91,12 @@ do Fabricio na tela antes de encostar no FF-008, que é irreversível.)_
 
 - **FF-011** **Quebras e roteamento de aresta** — as bend handles arrastáveis e o roteador
   ortogonal com desvio de obstáculos (A\*) do editor antigo (`app.js:196`, `app.js:1124-1236`)
-  não têm equivalente no novo. Nenhum diagrama real usa `waypoints` hoje, então isso pode
-  simplesmente não voltar — decidir antes de FF-008. · `[porte]` · M · melhoria
+  não têm equivalente no novo. **Confirmado na validação de 06/08/2026**: o Fabricio viu
+  linhas voltando pelo próprio eixo e cruzando por baixo de cards. Ele classificou como "não
+  grave, já tínhamos antes" — mas é o argumento a favor de trazer o desvio de volta. Decidir
+  antes de FF-008. · `[porte]` · M · melhoria
+
+- **FF-012** **Card do nó em diagrama denso** — o `.fpanel` abre sempre à direita do nó
+  (`left: calc(100% + 16px)`). Num nó colado na borda direita da viewport ele nasce fora da
+  tela. Precisa escolher o lado (ou virar popover com colisão). Saiu da validação de
+  06/08/2026. · `[porte]` · P · melhoria

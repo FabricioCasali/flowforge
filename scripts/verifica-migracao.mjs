@@ -144,6 +144,13 @@ function avalia(alvo, raizCopia) {
   const hashAntes = sha(bruto);
   const original = JSON.parse(bruto.toString('utf8'));
 
+  // Sessao que NASCEU no /v2 (conteudo no workspace.json, diagram.json e so o
+  // esqueleto que o servidor cria pro editor antigo): nao ha migracao a provar.
+  // Pular e o certo — mas em voz alta, senao a tabela finge cobertura que nao tem.
+  if (!(original.nodes || []).length && fs.existsSync(path.join(alvo.origem, 'workspace.json'))) {
+    return { alvo, original, problemas: [], notas: [], modelo: null, tabela: null, pulado: 'nasceu no /v2' };
+  }
+
   // 1) copia para a area temporaria (nada acontece sobre o dado real)
   const destino = path.join(raizCopia, alvo.slug);
   fs.mkdirSync(destino, { recursive: true });
@@ -318,7 +325,11 @@ function main() {
   console.log(`Copia de trabalho: ${raizCopia}`);
   console.log(`Diagramas reais encontrados: ${alvos.length}\n`);
 
-  const resultados = alvos.map((a) => avalia(a, raizCopia));
+  const todos = alvos.map((a) => avalia(a, raizCopia));
+  const pulados = todos.filter((r) => r.pulado);
+  const resultados = todos.filter((r) => !r.pulado);
+  for (const p of pulados) console.log(`(pulado) ${p.alvo.rotulo}/${p.alvo.sessao}: ${p.pulado} — nao ha migracao a provar`);
+  if (pulados.length) console.log('');
 
   // ---- tabela ----
   const cab = ['sessao', 'origem', 'type', 'modelo', 'type-int', 'nos', 'arestas', 'lanes', 'x/y', 'comm', 'descr', 'fields', 'lane', 'sides', 'cards', 'veredito'];
