@@ -1,15 +1,18 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import type { DNode, NodeStatus } from '../types.js'
-import { LIVE, SC, VerdictPanel } from './VerdictPanel.js'
+import { LIVE, SC } from './status.js'
+import { NodeCard } from './NodeCard.js'
 
 export interface EntityNodeData {
   node: DNode
+  busy?: boolean
   onVerdict: (id: string, status: NodeStatus, reason?: string) => void
+  onEdit: (id: string, patch: Partial<DNode>) => void
   [key: string]: unknown
 }
 
 export function EntityNode({ data, selected }: NodeProps): JSX.Element {
-  const { node, onVerdict } = data as EntityNodeData
+  const { node, onVerdict, onEdit, busy } = data as EntityNodeData
   const sc = `var(${SC[node.status]})`
   const live = LIVE.has(node.status)
 
@@ -32,7 +35,7 @@ export function EntityNode({ data, selected }: NodeProps): JSX.Element {
           </div>
         ))}
       </div>
-      {selected && <VerdictPanel node={node} onVerdict={onVerdict} />}
+      {selected && <NodeCard node={node} busy={busy} onVerdict={onVerdict} onEdit={onEdit} />}
       <Handle type="source" position={Position.Right} className="fh" />
     </div>
   )

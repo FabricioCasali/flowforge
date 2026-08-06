@@ -47,10 +47,13 @@ Classe: **importante** · **melhoria**
 
 _(fase 1 fechada — a fase 2 começa no FF-004)_
 
-## 🗂️ Backlog
+- **FF-004** **Edição: inspector de nó** — o `VerdictPanel` virou `NodeCard`, com abas
+  descrição/notas: rótulo, `kind` (13 opções agrupadas Fluxo/BPM), descrição técnica e notas
+  livres. Escreve no `change` (blur/Enter), nunca por tecla — senão cada caractere viraria um
+  `rev` e o eco comeria o cursor. Prova nova: `scripts/verifica-edicao.mjs`, que cobre o
+  caminho de escrita inteiro da fase 2. · `[porte/fase-2]` · M · importante
 
-- **FF-004** **Edição: inspector de nó** — rótulo, `kind`, descrição técnica e notas livres.
-  Hoje o `VerdictPanel` só dá veredito. · `[porte/fase-2]` · M · importante
+## 🗂️ Backlog
 
 - **FF-005** **Edição: criar, deletar e ligar** — paleta com os 13 kinds, `Del`, e os nozinhos
   dos 4 lados com aresta-fantasma gravando `sourceSide`/`targetSide`. O editor novo não cria

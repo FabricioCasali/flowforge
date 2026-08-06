@@ -1,6 +1,6 @@
 import { BaseEdge, type EdgeProps } from '@xyflow/react'
 import type { NodeStatus } from '../types.js'
-import { SC } from './VerdictPanel.js'
+import { SC } from './status.js'
 
 export interface ErEdgeData {
   points?: { x: number; y: number }[]

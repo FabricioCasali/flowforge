@@ -10,7 +10,7 @@
 //     equivalente é a conversa do `thread.json`, e ela mora no App.
 //   · botão "← constelação" → não existem duas altitudes aqui.
 //
-// O que ficou (e é requisito): barra de 6 lentes, VerdictPanel (via FlowNode),
+// O que ficou (e é requisito): barra de 6 lentes, NodeCard (via FlowNode),
 // "Aprovar tudo", HUD de contagem, layout por lente e arrastar de nós.
 //
 // LEI 7: com `busy` ligado o canvas é SÓ LEITURA — sem veredito, sem "Aprovar
@@ -28,7 +28,7 @@ import {
   type Node,
   type NodeChange
 } from '@xyflow/react'
-import type { Diagram, ModelKey, NodeStatus, SeqModel, Workspace } from '../types.js'
+import type { Diagram, DNode, ModelKey, NodeStatus, SeqModel, Workspace } from '../types.js'
 import { FlowNode } from './FlowNode.js'
 import { EntityNode } from './EntityNode.js'
 import { MindNode } from './MindNode.js'
@@ -127,11 +127,15 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
       </div>
     ) : null
 
-  // Inclui `x`/`y` de propósito: quando o Claude MOVE um nó (mesma estrutura,
-  // posição outra), o canvas tem que refletir isso sozinho — é o loop vivo.
+  // Assinatura do que MEXE NO LAYOUT. Inclui `x`/`y` porque o Claude move nó pelo
+  // arquivo e o canvas tem que refletir sozinho (o loop vivo), e inclui `kind`,
+  // rótulo, descrição e campos porque todos entram no `nodeSize`: mudar o rótulo
+  // muda a largura, e com a posição ancorada no CENTRO isso desloca o canto.
   const structureKey = useMemo(() => {
     if (!activeDiagram) return 'seq'
-    const nodes = activeDiagram.nodes.map((n) => `${n.id}@${n.x ?? '-'},${n.y ?? '-'}`).join(',')
+    const nodes = activeDiagram.nodes
+      .map((n) => `${n.id}@${n.x ?? '-'},${n.y ?? '-'}:${n.kind}:${n.label}:${n.description ?? ''}:${n.fields?.length ?? 0}`)
+      .join(',')
     return lens + '|' + nodes + '|' + activeDiagram.edges.map((e) => e.id).join(',')
   }, [lens, activeDiagram])
 
@@ -159,6 +163,22 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
         const nodes = dia.nodes.map((n) => (n.id === id ? applyVerdict(n, status, reason) : n))
         return { ...dia, nodes, edges: propagateEdges(nodes, dia.edges) }
       })
+    },
+    [lensDef.model, writeModel]
+  )
+
+  /**
+   * Edição de campo do nó (rótulo, kind, descrição, notas) vinda do NodeCard.
+   * Já chega commitada — o card só chama isto no blur/Enter, nunca por tecla.
+   */
+  const onEditNode = useCallback(
+    (id: string, patch: Partial<DNode>) => {
+      const model = lensDef.model
+      if (model === 'seq') return
+      writeModel(model, (dia) => ({
+        ...dia,
+        nodes: dia.nodes.map((n) => (n.id === id ? { ...n, ...patch } : n))
+      }))
     },
     [lensDef.model, writeModel]
   )
@@ -247,8 +267,8 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
         zIndex: 1,
         data:
           lensDef.nodeType === 'mind'
-            ? { node: n, onVerdict, branch: branch[n.id] ?? 0, isRoot: branch[n.id] === -1 }
-            : { node: n, onVerdict }
+            ? { node: n, busy, onVerdict, onEdit: onEditNode, branch: branch[n.id] ?? 0, isRoot: branch[n.id] === -1 }
+            : { node: n, busy, onVerdict, onEdit: onEditNode }
       })
     }
     return out
