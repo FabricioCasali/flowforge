@@ -3,16 +3,17 @@
 //
 // Protocolo (não mude de um lado só — o outro lado é `server/index.js`):
 //   conecta  ws://<host>/ws?session=<slug>
-//   recebe   { type:'state', session, workspace, diagram, thread, busy }
-//   recebe   { type:'busy',  session, busy }
-//   envia    { type:'patch', session, lens, diagram }   ← lens-aware (lei 4)
+//   recebe   { type:'state',  session, workspace, thread, busy, claudeOnline }
+//   recebe   { type:'busy',   session, busy }
+//   recebe   { type:'claude', online }
+//   envia    { type:'patch',  session, lens, diagram }   ← lens-aware (lei 4)
 //   envia    { type:'analyze', session, note }
 //
 // O campo `diagram` do patch é o nome do PROTOCOLO, não do tipo: na lente `seq`
 // o payload é um SeqModel { participants, messages }. O servidor sabe disso.
 //
-// O `diagram` que vem no 'state' é do editor ANTIGO (web/, servido em /) e é
-// ignorado aqui de propósito — os dois arquivos-verdade não se cruzam (lei 1+4).
+// O 'state' levava também um `diagram` (do editor antigo, servido em /). Saiu no
+// FF-008, junto com o editor.
 //
 // LEI 7 (trava `busy`): enquanto o Claude pensa, o editor é SÓ LEITURA. A recusa
 // mora aqui embaixo, no transporte: `patch()` simplesmente não sai quando busy.
@@ -36,7 +37,6 @@ export interface StateMsg {
   type: 'state'
   session: string
   workspace?: unknown
-  diagram?: unknown // editor antigo — ignorado por nós
   thread?: unknown
   busy?: boolean
   /** Tem Monitor do Claude ligado no `/claude`? Sem isso, "Analisar" vai pro inbox. */

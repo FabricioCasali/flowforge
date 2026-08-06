@@ -1,21 +1,19 @@
 #!/usr/bin/env node
 'use strict';
 // FlowForge bridge server.
-//   - serve o editor antigo (web/, Cytoscape) em /          -> lei 1: nao pode parar
-//   - serve o editor novo   (web-next/dist, React Flow) em /v2
+//   - serve o editor (web-next/dist, React Flow + elkjs) em /
 //   - WS /ws?session=<slug>  -> browsers (editam e recebem updates ao vivo)
 //   - WS /claude             -> Monitor do Claude (recebe eventos de "Analisar")
 //   - fs.watch nas sessoes   -> quando um arquivo muda (browser OU Claude), empurra o estado pros browsers
 //
 // Arquivos sao a fonte da verdade. O Claude edita sessions/<slug>/workspace.json
-// (ou o diagram.json antigo) diretamente; o fs.watch propaga a mudanca pro canvas
-// sem refresh manual.
+// diretamente; o fs.watch propaga a mudanca pro canvas sem refresh manual.
 //
-// Durante o porte os DOIS editores rodam ao mesmo tempo, cada um no seu arquivo:
-//   /    -> web/       -> diagram.json    -> patch SEM lens  -> writeDiagram
-//   /v2  -> web-next/  -> workspace.json  -> patch COM lens  -> writeWorkspaceLens
-// Por isso o broadcast de 'state' leva os dois: 'diagram' (pro antigo) e
-// 'workspace' (pro novo). Quando o antigo morrer, 'diagram' sai daqui.
+// O editor antigo (Cytoscape, pasta web/, servido em /) foi REMOVIDO no FF-008,
+// depois de o /v2 ser validado na tela. Sobrou dele so a migracao lazy em
+// state.js: sessao antiga ainda tem diagram.json, ele vira workspace.json na
+// primeira abertura e e preservado como backup (lei 5). Nada mais le nem escreve
+// nesse arquivo.
 
 const http = require('http');
 const fs = require('fs');
@@ -35,8 +33,7 @@ const INITIAL_SESSION = argVal('session', null);
 const DATA_DIR = argVal('data-dir', process.env.FLOWFORGE_DATA || null);
 if (DATA_DIR) S.setDataDir(DATA_DIR);
 
-const WEB_DIR = path.join(__dirname, '..', 'web');            // editor antigo (/)
-const WEB_NEXT_DIR = path.join(__dirname, '..', 'web-next', 'dist'); // editor novo (/v2)
+const WEB_DIR = path.join(__dirname, '..', 'web-next', 'dist'); // o editor, servido em /
 
 // ---- estado em memoria ----------------------------------------------------
 const browsersBySession = new Map(); // slug -> Set<ws>
@@ -55,30 +52,8 @@ const MIME = {
   '.ico': 'image/x-icon',
 };
 
-function serveStatic(req, res, pathname) {
-  let rel = decodeURIComponent(pathname);
-  if (rel === '/' || rel === '') rel = '/index.html';
-  const filePath = path.normalize(path.join(WEB_DIR, rel));
-  if (!filePath.startsWith(WEB_DIR)) { res.writeHead(403); return res.end('forbidden'); }
-  fs.readFile(filePath, (err, buf) => {
-    if (err) { res.writeHead(404); return res.end('not found'); }
-    const headers = { 'Content-Type': MIME[path.extname(filePath)] || 'application/octet-stream' };
-    // assets que mudam (o app em si) nunca sao cacheados -> sem Ctrl+Shift+R.
-    // libs vendorizadas podem cachear (nao mudam).
-    headers['Cache-Control'] = rel.startsWith('/vendor/') ? 'public, max-age=86400' : 'no-store';
-    res.writeHead(200, headers);
-    res.end(buf);
-  });
-}
-
-// /v2 -> web-next/dist (o editor novo). Rota separada de proposito: o / continua
-// servindo o web/ antigo exatamente como sempre (lei 1). Como e uma SPA, uma rota
-// que nao existe em disco cai no index.html — mas SO se parecer rota (sem extensao
-// ou .html); asset faltando devolve 404 de verdade, senao um bundle quebrado viria
-// disfarcado de HTML e o erro apareceria longe da causa.
-// Tipos que so o build do Vite produz. Tabela separada de proposito: mexer no
-// MIME compartilhado mudaria o Content-Type de arquivos servidos em / tambem.
-const MIME_V2 = Object.assign({}, MIME, {
+// Tipos que o build do Vite produz (fontes, sourcemap, imagens).
+const MIME_EXTRA = {
   '.map': 'application/json; charset=utf-8',
   '.woff': 'font/woff',
   '.woff2': 'font/woff2',
@@ -87,17 +62,22 @@ const MIME_V2 = Object.assign({}, MIME, {
   '.webp': 'image/webp',
   '.gif': 'image/gif',
   '.txt': 'text/plain; charset=utf-8',
-});
+};
 
-function serveV2(req, res, pathname) {
-  let rel = decodeURIComponent(pathname.slice('/v2'.length));
+// O editor e uma SPA: rota que nao existe em disco cai no index.html — mas SO se
+// PARECER rota (sem extensao, ou .html). Asset faltando devolve 404 de verdade,
+// senao um bundle quebrado viria disfarcado de HTML e o erro apareceria longe da
+// causa.
+function serveStatic(req, res, pathname) {
+  let rel = decodeURIComponent(pathname);
   if (rel === '' || rel === '/') rel = '/index.html';
-  const filePath = path.normalize(path.join(WEB_NEXT_DIR, rel));
-  if (!filePath.startsWith(WEB_NEXT_DIR)) { res.writeHead(403); return res.end('forbidden'); }
+  const filePath = path.normalize(path.join(WEB_DIR, rel));
+  if (!filePath.startsWith(WEB_DIR)) { res.writeHead(403); return res.end('forbidden'); }
 
   fs.readFile(filePath, (err, buf) => {
     if (!err) {
-      const headers = { 'Content-Type': MIME_V2[path.extname(filePath)] || 'application/octet-stream' };
+      const ext = path.extname(filePath);
+      const headers = { 'Content-Type': MIME[ext] || MIME_EXTRA[ext] || 'application/octet-stream' };
       // o Vite versiona o nome dos assets (hash) -> pode cachear; o resto, nunca.
       headers['Cache-Control'] = rel.startsWith('/assets/') ? 'public, max-age=86400' : 'no-store';
       res.writeHead(200, headers);
@@ -106,13 +86,12 @@ function serveV2(req, res, pathname) {
     const ext = path.extname(rel);
     if (ext && ext !== '.html') { res.writeHead(404); return res.end('not found'); }
 
-    fs.readFile(path.join(WEB_NEXT_DIR, 'index.html'), (e2, html) => {
+    fs.readFile(path.join(WEB_DIR, 'index.html'), (e2, html) => {
       if (e2) {
         res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
-        return res.end('O editor novo ainda nao foi buildado.\n'
-          + 'Rode: cd web-next && npm run build\n'
-          + 'Esperado em: ' + WEB_NEXT_DIR + '\n'
-          + 'O editor antigo continua em / (intocado).');
+        return res.end('O editor ainda nao foi buildado.\n'
+          + 'Rode: cd web-next && npm install && npm run build\n'
+          + 'Esperado em: ' + WEB_DIR + '\n');
       }
       res.writeHead(200, { 'Content-Type': MIME['.html'], 'Cache-Control': 'no-store' });
       res.end(html);
@@ -126,17 +105,14 @@ function sendJson(res, code, obj) {
 }
 
 // ---- leitura segura (ignora escrita parcial) ------------------------------
-// Le os DOIS arquivos-verdade. Se um deles existe mas nao le (rename em curso),
-// devolve null: o proximo evento do fs.watch tenta de novo. Devolver um estado
-// meio-lido seria pior que nao devolver nada — o canvas apagaria a lente.
+// O arquivo-verdade e o workspace.json. Se ele existe mas nao le (rename em
+// curso), devolve null: o proximo evento do fs.watch tenta de novo. Devolver um
+// estado meio-lido seria pior que nao devolver nada — o canvas apagaria a lente.
+//
+// Antes do FF-008 isto exigia TAMBEM o diagram.json e devolvia null sem ele.
+// Sessao nova nao tem mais esse arquivo, entao exigi-lo deixaria o canvas vazio
+// pra sempre.
 function safeReadState(slug) {
-  let diagram;
-  try {
-    diagram = JSON.parse(fs.readFileSync(S.diagramPath(slug), 'utf8'));
-  } catch (e) {
-    return null; // arquivo no meio de um rename/escrita — outro evento vira
-  }
-
   let workspace = null;
   try {
     workspace = JSON.parse(fs.readFileSync(S.workspacePath(slug), 'utf8'));
@@ -147,7 +123,7 @@ function safeReadState(slug) {
   let thread = { messages: [] };
   try { thread = JSON.parse(fs.readFileSync(S.threadPath(slug), 'utf8')); } catch (e) {}
 
-  return { diagram, workspace: S.normalizeWorkspace(workspace), thread };
+  return { workspace: S.normalizeWorkspace(workspace), thread };
 }
 
 // ---- estado "Claude pensando" (trava de edicao no browser) ----------------
@@ -199,7 +175,6 @@ function statePayload(slug, st) {
     type: 'state',
     session: slug,
     workspace: st.workspace,
-    diagram: st.diagram,
     thread: st.thread,
     busy: busyBySession.has(slug),
     claudeOnline: claudeClients.size > 0,
@@ -258,15 +233,14 @@ const server = http.createServer((req, res) => {
 
   if (pathname === '/api/health') return sendJson(res, 200, { ok: true, port: PORT, dataDir: S.getRoot() });
 
-  // editor novo. O redirect /v2 -> /v2/ existe pra base de assets fechar
-  // (index.html referencia /v2/assets/...); sem a barra o browser resolveria na raiz.
-  if (pathname === '/v2') {
-    res.writeHead(302, { Location: '/v2/' + (parsed.search || '') });
+  // O editor morava em /v2 durante o porte. Quem tem a aba aberta ou um link
+  // salvo cai aqui e e mandado pra raiz, com a query intacta (a sessao vai nela).
+  if (pathname === '/v2' || pathname.startsWith('/v2/')) {
+    const resto = pathname.slice(3) || '/';
+    res.writeHead(301, { Location: resto + (parsed.search || '') });
     return res.end();
   }
-  if (pathname.startsWith('/v2/')) return serveV2(req, res, pathname);
 
-  // editor antigo: exatamente como sempre (lei 1)
   return serveStatic(req, res, pathname);
 });
 
@@ -317,44 +291,37 @@ wss.on('connection', (ws) => {
 
     if (msg.type === 'patch' && msg.diagram) {
       // browser editou -> grava (rev++). fs.watch propaga pros demais.
-      // Quem manda 'lens' e o editor novo: grava SO aquele modelo dentro do
-      // workspace. Quem nao manda e o editor antigo: continua gravando o
-      // diagram.json inteiro, como sempre (lei 1).
-      if (msg.lens) {
-        if (!S.isModelKey(msg.lens)) { console.error('[patch] lens desconhecida:', msg.lens); return; }
-        // atencao: na lens 'seq' o payload e um SeqModel { participants, messages },
-        // nao um Diagram — o campo se chama 'diagram' so por causa do protocolo.
-        S.writeWorkspaceLens(slug, msg.lens, msg.diagram, 'user');
-      } else {
-        S.writeDiagram(slug, msg.diagram, 'user');
-      }
+      // Todo patch e lens-aware desde o FF-008. Patch sem `lens` era do editor
+      // antigo: recusa em voz alta em vez de adivinhar a lente, porque escrever
+      // no modelo errado e pior que nao escrever.
+      if (!msg.lens) { console.error('[patch] recusado: veio sem `lens` (cliente desatualizado?)'); return; }
+      if (!S.isModelKey(msg.lens)) { console.error('[patch] lens desconhecida:', msg.lens); return; }
+      // atencao: na lens 'seq' o payload e um SeqModel { participants, messages },
+      // nao um Diagram — o campo se chama 'diagram' so por causa do protocolo.
+      S.writeWorkspaceLens(slug, msg.lens, msg.diagram, 'user');
       return;
     }
 
     if (msg.type === 'analyze') {
       const note = String(msg.note || '').slice(0, 4000);
-      const diagram = S.readDiagram(slug);
       const workspace = S.readWorkspace(slug);
       const at = new Date().toISOString();
       if (note) S.appendThread(slug, { author: 'user', text: note, ts: Date.now() });
-      // 'rev'/'title'/'diagramPath' continuam falando do diagram.json enquanto o
-      // editor antigo existir. 'workspaceRev' e o rev que o Claude precisa somar
-      // quando escrever no arquivo novo — os dois revs andam separados.
+      // Um arquivo, um rev. Antes do FF-008 este evento carregava tambem o
+      // rev/title/path do diagram.json, e os dois revs andavam separados — era
+      // fonte de confusao pro Claude sobre qual somar.
       const event = {
         kind: 'analyze',
         session: slug,
         note,
-        rev: diagram.rev,
-        title: diagram.title,
         at,
         workspacePath: S.workspacePath(slug),
         workspaceRev: workspace.rev,
         workspaceTitle: S.workspaceTitle(workspace),
-        diagramPath: S.diagramPath(slug),
         threadPath: S.threadPath(slug),
         hint: 'Leia workspacePath + threadPath, rebata, e edite o workspace: um dos 5 modelos '
           + '(process|state|er|mind|seq) com rev = workspaceRev+1 e updatedBy:"claude". '
-          + 'diagramPath e o arquivo do editor antigo (/), ainda vivo — so mexa nele se o pedido for de la.',
+          + 'Termine SEMPRE postando no threadPath — e isso que destrava o canvas.',
       };
       S.appendInbox(slug, event);
       const n = pushToClaude(event);
@@ -392,8 +359,7 @@ server.listen(PORT, () => {
   if (INITIAL_SESSION) {
     const s = S.slugify(INITIAL_SESSION);
     console.log('  sessao inicial: ' + s);
-    console.log('  editor antigo: http://localhost:' + PORT + '/?session=' + s);
-    console.log('  editor novo:   http://localhost:' + PORT + '/v2/?session=' + s);
+    console.log('  editor: http://localhost:' + PORT + '/?session=' + s);
   }
   console.log('  claude WS: ws://localhost:' + PORT + '/claude');
 });

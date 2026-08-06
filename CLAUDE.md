@@ -1,4 +1,4 @@
-# FlowForge — regras do porte (editor React Flow)
+# FlowForge — regras do projeto (editor React Flow)
 
 > Este arquivo é lei. Vale para mim e para todos os subagents. Docs e comentários
 > em **PT-BR**; identificadores de código como estão.
@@ -6,24 +6,30 @@
 ## 1. O que está acontecendo
 
 O FlowForge é a ferramenta de trabalho **diária** do Fabricio: ele desenha o problema,
-clica **Analisar**, e o Claude responde editando os arquivos. O canvas de hoje
-(`web/`, Cytoscape + vanilla JS) está sendo **substituído** por um editor React Flow +
-elkjs, portado do NEON (`C:\desenv\particular\context_builder\app\packages\canvas\src\editor\`).
+clica **Analisar**, e o Claude responde editando os arquivos. O editor é React Flow +
+elkjs (`web-next/`), portado do NEON (Context Builder,
+`app/packages/canvas/src/editor/`) e servido em `/`.
 
 O FlowForge é a **bancada viva**: evolui rápido aqui, e o Context Builder recebe o
 aprendizado depois **como implementação nova** — por isso o código é **copiado**, não
 compartilhado em pacote. Os dois têm liberdade de divergir. Não crie dependência
 entre os repos.
 
-**Regra de ouro do porte:** o editor novo é um *visualizador com veredito*; o antigo é
-uma *prancheta*. O porte só termina quando o novo **edita tudo** que o antigo edita.
-Trocar desenho bonito por perda de edição é regressão, não progresso.
+**O porte terminou em 06/08/2026** (FF-001..FF-008), e a regra de ouro que o guiou
+continua valendo para o que vier: o editor é uma *prancheta*, não um visualizador
+bonito. Trocar edição por estética é regressão, não progresso.
+
+O projeto é **aberto (MIT)** e já tem gente de fora usando. Isso muda uma coisa no dia
+a dia: caminho de máquina, nome de pasta pessoal e decisão interna ficam **aqui**, não
+no `README.md` nem em nada que um estranho leia primeiro.
 
 ## 2. Leis invioláveis
 
-1. **A ferramenta do Fabricio não pode parar.** O `web/` antigo continua servido em `/`
-   e funcionando até o corte final. O editor novo nasce em `web-next/`, servido em `/v2`.
-   Só na última fase o `/v2` vira `/` e o antigo morre.
+1. **A ferramenta do Fabricio não pode parar.** _Cumprida no corte:_ o `web/` (Cytoscape)
+   viveu em `/` até o `/v2` ser validado na tela, e só então saiu — com `/v2` redirecionando
+   para `/` para não quebrar aba aberta nem link salvo. A lei permanece como regra de
+   conduta: mudança grande entra ao lado do que funciona, e o que funciona só morre depois
+   que o substituto foi usado de verdade.
 
 2. **Arquivos são a fonte da verdade.** O servidor espelha arquivo ↔ browser via
    `fs.watch`; o Claude edita os arquivos direto e a mudança chega sozinha no canvas.
@@ -62,20 +68,22 @@ Trocar desenho bonito por perda de edição é regressão, não progresso.
    entra em modo leitura; só libera quando o Claude posta no `thread.json`. O editor novo
    precisa honrar isso (`{type:'busy'}` no WS) — senão o Fabricio edita por cima da escrita.
 
-8. **As 11 formas por `kind` são requisito, não polimento.** `annotation` (tracejado, fundo
-   8%) é o 2º kind mais usado nos diagramas reais; `data-object` é canto cortado;
-   `subprocess` leva `[+]`; `idea` é elipse; `event-*` são círculos de 62px com label
-   embaixo (o intermediate tem borda dupla); os gateways são losangos com ✕ / ✛.
-   Referência exata: `web/app.js:60-74`. O `FlowNode` portado só conhece 3 famílias —
-   ampliar é tarefa da fase de render.
+8. **As formas por `kind` são requisito, não polimento.** `annotation` (tracejado,
+   esmaecido) é o 2º kind mais usado nos diagramas reais; `data-object` é canto cortado;
+   `subprocess` leva `[+]`; `idea` é elipse; `event-*` são círculos de 62px com rótulo
+   embaixo (o intermediate tem borda dupla); os gateways são losangos de 92px com ✕ / ✛.
+   A tabela é `web-next/src/editor/shapes.ts`, e ela é UMA só de propósito: o render e o
+   `nodeSize` leem dela, senão divergem em silêncio (nó com tamanho de losango e desenho
+   de retângulo). O verificador confere os 15 kinds — se mexer lá, rode-o.
+   _Referência histórica: `web/app.js:60-74`, no git antes do FF-008._
 
 9. **Nada de dependência nova sem necessidade.** O stack é: Vite + React + TS +
-   `@xyflow/react` + `elkjs` no front; `ws` e Node puro no servidor. Cytoscape e dagre
-   morrem junto com o `web/` antigo.
+   `@xyflow/react` + `elkjs` + `@fontsource/*` no front; `ws` e Node puro no servidor.
+   Cytoscape e dagre saíram com o `web/`.
 
 10. **A seta tem status PRÓPRIO.** A propagação nó→aresta (o consenso das duas pontas)
     só pode recalcular **as arestas do nó que acabou de receber veredito** — é o que o
-    editor antigo faz (`app.js:831`, `propagateFrom`). Recalcular o diagrama inteiro a
+    editor antigo fazia (`app.js:831`, no git antes do FF-008). Recalcular o diagrama inteiro a
     cada clique apagaria marcação de seta do outro lado do desenho, e isso não é
     hipótese: **34 das 143 arestas dos diagramas reais** têm status que a regra não
     derivaria das pontas. Elas existem porque a seta pode discordar do consenso.
@@ -83,13 +91,12 @@ Trocar desenho bonito por perda de edição é regressão, não progresso.
     (`propagateEdges`, em `types.ts`) sobrou só para proposta crua vinda de fora, onde
     não existe marcação anterior a preservar — **não a use no editor**.
 
-11. **A divergência entre os dois editores é ACEITA — não a "conserte".** Depois da
-    migração, `/` escreve em `diagram.json` e `/v2` em `workspace.json`, e os dois nunca
-    mais conversam. Decidido pelo Fabricio em 05/08/2026, e o motivo é o que importa:
-    **ele não vai ter os dois cenários rodando em paralelo** — usa um OU outro, não
-    alterna dentro da mesma sessão. Logo o risco é teórico e não vale código.
-    **Não implemente** re-sync, merge automático, tarja de aviso nem bloqueio — os três
-    foram considerados e recusados. Se você achar que isso é um bug, leia esta lei de novo.
+11. **~~A divergência entre os dois editores é ACEITA~~ — ENCERRADA no FF-008.** Existia
+    um editor antigo em `/` escrevendo `diagram.json` e o novo em `/v2` escrevendo
+    `workspace.json`, e a lei mandava não "consertar" a divergência entre eles. O antigo
+    saiu; sobrou **um** editor e **um** arquivo-verdade. Fica registrado porque o motivo
+    ainda ensina: a divergência era real, mas o Fabricio nunca rodava os dois em paralelo
+    — o risco era teórico e não valia código.
 
 ## 3. Protocolo (WS) — não mude sem atualizar os dois lados
 
@@ -105,7 +112,10 @@ Browser ↔ servidor em `/ws?session=<slug>`:
 - envia `{type:'analyze', session, note}`
 
 Monitor do Claude em `/claude`: recebe o evento `analyze` com `workspacePath` e
-`threadPath` absolutos.
+`threadPath` absolutos, mais `workspaceRev` (o rev a somar). **Sem Monitor conectado o
+pedido não se perde**: vai pro `inbox.jsonl` e é lido quando um conectar.
+
+`/v2` responde 301 para `/` — o editor morou lá durante o porte e há links salvos.
 
 ## 4. Comandos
 

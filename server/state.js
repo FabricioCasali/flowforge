@@ -258,7 +258,9 @@ function ensureSession(slug, title) {
     }
   }
 
-  if (!fs.existsSync(diagramPath(slug))) writeJson(diagramPath(slug), emptyDiagram(title));
+  // Sessao NOVA nao ganha mais diagram.json: ele existia pro editor antigo, que
+  // saiu no FF-008. A MIGRACAO acima continua — sessao antiga tem o arquivo e
+  // precisa dele pra virar workspace, e ele segue preservado como backup (lei 5).
   if (!fs.existsSync(threadPath(slug))) writeJson(threadPath(slug), { messages: [] });
 }
 

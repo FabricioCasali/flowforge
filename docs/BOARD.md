@@ -90,15 +90,20 @@ Classe: **importante** · **melhoria**
   pedido vai pro inbox. Protocolo: `state.claudeOnline` + evento `{type:'claude'}`. ·
   `[porte]` · P · importante
 
+- **FF-008** **Corte do antigo** — o editor Cytoscape (`web/`) saiu e o React Flow passou a
+  ser servido em `/`. `/v2` responde **301 para `/`** preservando a query, porque havia aba
+  aberta e link salvo. O payload do WS perdeu o campo `diagram`; patch sem `lens` agora é
+  recusado em voz alta em vez de adivinhar a lente. O `safeReadState` deixou de exigir
+  `diagram.json` — sessão nova não tem mais esse arquivo, e exigi-lo deixaria o canvas
+  vazio para sempre. A **migração lazy continua** (lei 5): sessão antiga vira `workspace.json`
+  na primeira abertura e o `diagram.json` fica preservado como backup, sem ninguém ler nem
+  escrever nele. Skill e leis atualizadas. · `[porte/fase-3]` · P · importante
+
 ## 📋 A fazer
 
-_(FF-008 é o próximo, e é irreversível: só com o aval do Fabricio.)_
+_(o porte fechou. O que sobra é melhoria e o projeto aberto — FF-014.)_
 
 ## 🗂️ Backlog
-
-- **FF-008** **Corte do antigo** — `/v2` vira `/`, o `web/` e o Cytoscape saem, e o campo
-  `diagram` sai do payload do WS. Só depois que FF-004..007 fecharem. · `[porte/fase-3]` · P
-  · importante
 
 - **FF-009** **`title` no nível do workspace** — hoje cada um dos 5 modelos tem `title`
   próprio. Decisão de contrato ainda em aberto; enquanto isso, o FF-007 **mitigou**: renomear
