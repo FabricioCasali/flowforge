@@ -56,8 +56,13 @@ function listarDiagramas() {
     try { entradas = fs.readdirSync(dir, { withFileTypes: true }); } catch { continue; }
     for (const e of entradas) {
       if (!e.isDirectory()) continue;
+      // Sessao vale se tem QUALQUER um dos dois arquivos-verdade. Antes so o
+      // diagram.json contava — e depois do FF-008 sessao nova nao tem mais esse
+      // arquivo, entao ela nasceria INVISIVEL pro teste e a cobertura degradaria
+      // sozinha com o tempo.
       const diag = path.join(dir, e.name, 'diagram.json');
-      if (!fs.existsSync(diag)) continue;
+      const wsp = path.join(dir, e.name, 'workspace.json');
+      if (!fs.existsSync(diag) && !fs.existsSync(wsp)) continue;
       let slug = e.name;
       while (usados.has(slug)) slug = `${rotulo.replace(/[^a-z0-9]+/gi, '-')}-${slug}`;
       usados.add(slug);
@@ -81,12 +86,14 @@ function modeloComConteudo(ws) {
 
 function avalia(alvo, raizCopia) {
   const problemas = [];
-  const bruto = fs.readFileSync(alvo.diagramaOrigem);
-  const hashDiagramaAntes = sha(bruto);
+  // Sessao nascida depois do FF-008 nao tem diagram.json — e isso e o normal.
+  const temLegado = fs.existsSync(alvo.diagramaOrigem);
+  const bruto = temLegado ? fs.readFileSync(alvo.diagramaOrigem) : null;
+  const hashDiagramaAntes = temLegado ? sha(bruto) : null;
 
   const destino = path.join(raizCopia, alvo.slug);
   fs.mkdirSync(destino, { recursive: true });
-  fs.writeFileSync(path.join(destino, 'diagram.json'), bruto);
+  if (temLegado) fs.writeFileSync(path.join(destino, 'diagram.json'), bruto);
 
   // Sessao que NASCEU no /v2 tem o conteudo no workspace.json e um diagram.json
   // esqueleto (o servidor cria um pro editor antigo). Copiar o workspace faz o
@@ -155,12 +162,14 @@ function avalia(alvo, raizCopia) {
     }
   }
 
-  // 5) o diagram.json (lei 5) nao pode ter sido tocado — nem na copia, nem no real
-  if (sha(fs.readFileSync(path.join(destino, 'diagram.json'))) !== hashDiagramaAntes) {
-    problemas.push({ msg: 'a escrita alterou o diagram.json da copia (lei 5)' });
-  }
-  if (sha(fs.readFileSync(alvo.diagramaOrigem)) !== hashDiagramaAntes) {
-    problemas.push({ msg: 'o diagram.json REAL do usuario foi tocado — bug do proprio teste' });
+  // 5) onde existe legado, ele nao pode ter sido tocado — nem na copia, nem no real (lei 5)
+  if (temLegado) {
+    if (sha(fs.readFileSync(path.join(destino, 'diagram.json'))) !== hashDiagramaAntes) {
+      problemas.push({ msg: 'a escrita alterou o diagram.json da copia (lei 5)' });
+    }
+    if (sha(fs.readFileSync(alvo.diagramaOrigem)) !== hashDiagramaAntes) {
+      problemas.push({ msg: 'o diagram.json REAL do usuario foi tocado — bug do proprio teste' });
+    }
   }
 
   // 6) a escrita do Claude marca autoria diferente e continua subindo o rev

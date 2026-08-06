@@ -219,8 +219,12 @@ function listarDiagramas() {
     for (const e of entradas) {
       if (!e.isDirectory()) continue;
       const origem = path.join(dir, e.name);
+      // Sessao vale se tem QUALQUER um dos dois arquivos-verdade. Antes so o
+      // diagram.json contava — e depois do FF-008 sessao nova nao tem mais esse
+      // arquivo, entao ela nasceria INVISIVEL pro teste e a cobertura degradaria
+      // sozinha a cada diagrama novo.
       const diag = path.join(origem, 'diagram.json');
-      if (!fs.existsSync(diag)) continue;
+      if (!fs.existsSync(diag) && !fs.existsSync(path.join(origem, 'workspace.json'))) continue;
       let slug = e.name;
       while (usados.has(slug)) slug = `${rotulo.replace(/[^a-z0-9]+/gi, '-')}-${slug}`;
       usados.add(slug);
@@ -234,8 +238,8 @@ function listarDiagramas() {
 function workspaceDe(alvo, raizCopia) {
   const destino = path.join(raizCopia, alvo.slug);
   fs.mkdirSync(destino, { recursive: true });
-  fs.copyFileSync(alvo.diagramaOrigem, path.join(destino, 'diagram.json'));
-  // sessao nascida no /v2: o conteudo esta no workspace.json (ver verifica-edicao)
+  // sessao nascida depois do FF-008 nao tem diagram.json — e isso e o normal
+  if (fs.existsSync(alvo.diagramaOrigem)) fs.copyFileSync(alvo.diagramaOrigem, path.join(destino, 'diagram.json'));
   const wsOrigem = path.join(alvo.origem, 'workspace.json');
   if (fs.existsSync(wsOrigem)) fs.copyFileSync(wsOrigem, path.join(destino, 'workspace.json'));
   S.setDataDir(raizCopia);
