@@ -27,6 +27,7 @@ import {
   type Connection,
   type Edge,
   type Node,
+  type EdgeChange,
   type NodeChange,
   type ReactFlowInstance
 } from '@xyflow/react'
@@ -441,7 +442,23 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
     [lensDef.model, writeModel]
   )
 
+  /**
+   * SELEÇÃO — precisa morar aqui, e isso não é detalhe.
+   *
+   * Os nós do React Flow são remontados a cada render a partir do arquivo. O
+   * React Flow avisa a seleção por `onNodesChange` ({type:'select'}); se a gente
+   * ignorar, o `selected` volta a `false` no render seguinte — o card do nó
+   * abria no clique e sumia no piscar de olhos. Guardar os ids selecionados é o
+   * que faz o card FICAR aberto.
+   */
+  const [sel, setSel] = useState<{ nodes: Set<string>; edges: Set<string> }>({
+    nodes: new Set(),
+    edges: new Set()
+  })
+
   const onNodesChange = useCallback((changes: NodeChange[]) => {
+    let mexeuSel = false
+    const selNext = new Set<string>()
     setPosOverride((prev) => {
       let next = prev
       for (const c of changes) {
@@ -452,6 +469,36 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
         }
       }
       return next
+    })
+    for (const c of changes) {
+      if (c.type === 'select') {
+        mexeuSel = true
+        if (c.selected) selNext.add(c.id)
+      }
+    }
+    if (mexeuSel) {
+      setSel((s) => {
+        const nodes = new Set(s.nodes)
+        for (const c of changes) {
+          if (c.type !== 'select') continue
+          if (c.selected) nodes.add(c.id)
+          else nodes.delete(c.id)
+        }
+        return { nodes, edges: s.edges }
+      })
+    }
+  }, [])
+
+  const onEdgesChange = useCallback((changes: EdgeChange[]) => {
+    if (!changes.some((c) => c.type === 'select')) return
+    setSel((s) => {
+      const edges = new Set(s.edges)
+      for (const c of changes) {
+        if (c.type !== 'select') continue
+        if (c.selected) edges.add(c.id)
+        else edges.delete(c.id)
+      }
+      return { nodes: s.nodes, edges }
     })
   }, [])
 
@@ -519,6 +566,7 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
         type: lensDef.nodeType,
         position: posOf(n.id),
         className: mudadosAqui?.has(n.id) ? 'ff-changed' : undefined,
+        selected: sel.nodes.has(n.id),
         width: s?.width,
         height: s?.height,
         style: s ? { width: s.width, height: s.height } : undefined,
@@ -531,7 +579,7 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
       })
     }
     return out
-  }, [layout, activeDiagram, lens, lensDef.nodeType, onVerdict, onEditNode, branch, posOf, busy, mudadosAqui])
+  }, [layout, activeDiagram, lens, lensDef.nodeType, onVerdict, onEditNode, branch, posOf, busy, mudadosAqui, sel.nodes])
 
   const rfEdges: Edge[] = useMemo(() => {
     if (!layout || !activeDiagram) return []
@@ -552,6 +600,7 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
         source: e.source,
         target: e.target,
         type: lensDef.edgeType,
+        selected: sel.edges.has(e.id),
         data: {
           points,
           status: e.status,
@@ -567,7 +616,7 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
       if (lensDef.edgeType === 'mind') return { ...base, data: { points, branch: branch[e.target] ?? 0 } }
       return base
     })
-  }, [layout, activeDiagram, lensDef.edgeType, branch, posOf, posOverride, busy, onEdgeEdit, onEdgeDeleteOne])
+  }, [layout, activeDiagram, lensDef.edgeType, branch, posOf, posOverride, busy, onEdgeEdit, onEdgeDeleteOne, sel.edges])
 
   // ------------------------------------------------------------------------
   // FERRAMENTAS (FF-007)
@@ -680,6 +729,7 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
         onNodeDragStop={onNodeDragStop}
         onInit={(rf) => (rfRef.current = rf)}
         onConnect={onConnect}

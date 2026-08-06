@@ -115,11 +115,24 @@
   border-radius: var(--r-md);
   box-shadow: var(--shadow-1);
   transition: box-shadow 0.2s, border-color 0.2s;
-  /* NADA de `overflow: hidden` aqui. O NodeCard é filho do nó e mora FORA dele
+  /* NADA de `overflow: hidden` aqui: o NodeCard é filho do nó e mora FORA dele
      (`left: calc(100% + 16px)`), então o clip do pai o comia inteiro — e como
      task/subprocess/state são a maioria dos nós, o card praticamente não abria.
-     Quem precisa cortar texto já corta sozinho: `.nn-body` tem o seu próprio
-     overflow e o line-clamp. */
+
+     Em troca, o conteúdo passa a se conter SOZINHO, por flex: o cabeçalho tem o
+     tamanho que precisa (o rótulo pode quebrar em duas linhas) e o corpo fica
+     com o que sobrar, cortando o próprio texto. Sem isso, título comprido
+     empurrava a descrição pra fora da caixa — que foi o que apareceu quando o
+     clip do pai saiu. */
+  display: flex;
+  flex-direction: column;
+}
+.fnode:is(.shape-rect, .shape-subprocess) .nn-head {
+  flex: 0 0 auto;
+}
+.fnode:is(.shape-rect, .shape-subprocess) .nn-body {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 .fnode:is(.shape-rect, .shape-subprocess).live {
   border-color: color-mix(in oklch, var(--sc) 50%, transparent);
