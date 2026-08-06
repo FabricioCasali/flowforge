@@ -96,14 +96,10 @@
 }
 
 /* ---------- canvas: abre espaço pra topbar e pro painel ---------- */
-/* especificidade > `.neon-editor` do editor.css (que assume `inset: 52px 0 0 0`) */
+/* O editor.css deixa o `.neon-editor` em `inset: 0`; quem sabe onde ele começa é
+   o shell, porque a topbar e o painel de conversa são daqui. */
 .ff-shell .neon-editor {
   inset: var(--ff-topbar-h) var(--ff-chat-w) 0 0;
-}
-/* o recuo de 48px existia por causa do botão "← constelação" do NEON, que não
-   foi portado — a barra de lentes volta pro topo. */
-.ff-shell .neon-editor .lensbar {
-  top: 12px;
 }
 /* modo leitura (lei 7): o canvas esmaece de leve e nada de cursor de edição */
 .ff-shell .neon-editor.ro .fnode,

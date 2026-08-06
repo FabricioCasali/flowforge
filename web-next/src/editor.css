@@ -18,15 +18,22 @@
                        .seq-arrow, .seq-msg.return/.async, .seq-label
      · handles/React Flow → .react-flow__handle.fh, controls, minimap
 
-   OBS de porte: `.neon-editor` e `.seqview` usam `inset: 52px/58px 0 0 0` — o
-   offset da barra superior do NEON. Quem monta o shell do FlowForge decide se
-   mantém esse recuo ou zera. Aqui ficou como estava (porte mecânico).
+   POSICIONAMENTO: este arquivo NÃO conhece a topbar de ninguém. O `.neon-editor`
+   preenche o container (`inset: 0`) e quem o recua é o shell — antes daqui saía
+   um `inset: 52px` que era a altura da barra do NEON, e o `shell.css` precisava
+   de uma regra só pra desfazer. O que ainda mora aqui são as medidas INTERNAS do
+   editor, e elas são tokens (`--lensbar-*`) justamente pra o `.seqview` seguir a
+   barra de lentes sozinho em vez de repetir o número na mão.
    ============================================================================ */
 
 /* ---------- editor (React Flow + elk) ---------- */
 .neon-editor {
+  /* o FlowForge não tem o botão "← constelação" do NEON, então a barra de lentes
+     encosta no topo; o shell não precisa mais mexer nisso. */
+  --lensbar-top: 12px;
+  --lensbar-h: 32px;
   position: absolute;
-  inset: 52px 0 0 0;
+  inset: 0;
 }
 .neon-editor .react-flow {
   background:
@@ -575,14 +582,10 @@
   left: 16px;
   z-index: 11;
 }
-.neon-editor .lensbar {
-  top: 48px;
-}
-
 /* ---------- barra de lentes ---------- */
 .lensbar {
   position: absolute;
-  top: 12px;
+  top: var(--lensbar-top, 12px);
   left: 16px;
   z-index: 10;
   display: flex;
@@ -840,7 +843,8 @@
 /* ---------- Sequência ---------- */
 .seqview {
   position: absolute;
-  inset: 58px 0 0 0;
+  /* começa logo abaixo da barra de lentes — derivado, não chutado */
+  inset: calc(var(--lensbar-top, 12px) + var(--lensbar-h, 32px) + 14px) 0 0 0;
   overflow: auto;
   padding: 10px 20px 30px;
 }

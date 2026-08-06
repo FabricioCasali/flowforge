@@ -36,11 +36,16 @@ Classe: **importante** · **melhoria**
   `web/` ainda lê os mesmos diagramas. Achado ao abrir o FF-002. · `[porte/fase-1]` · P ·
   importante
 
+- **FF-003** **Pele** — Space Grotesk e JetBrains Mono agora são auto-hospedadas via
+  `@fontsource` (7 arquivos: subset `latin`, só os pesos que a pele usa — sem CDN, porque a
+  ferramenta não pode depender de rede). O `inset: 52px` da barra do NEON saiu do
+  `editor.css`: o editor preenche o container e quem o recua é o shell; o recuo do
+  `.seqview` virou `calc()` sobre `--lensbar-top`/`--lensbar-h`. · `[porte/fase-1]` · P ·
+  melhoria
+
 ## 📋 A fazer
 
-- **FF-003** **Pele** — as fontes Space Grotesk e JetBrains Mono não vieram no porte (caem no
-  fallback do sistema) e o CSS herdou `inset: 52px` da barra do NEON, que não é a topbar
-  daqui. · `[porte/fase-1]` · P · melhoria
+_(fase 1 fechada — a fase 2 começa no FF-004)_
 
 ## 🗂️ Backlog
 
