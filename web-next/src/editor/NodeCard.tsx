@@ -140,7 +140,101 @@ export function NodeCard({ node, busy = false, lanes = [], onVerdict, onEdit }: 
         </button>
       </div>
 
-      {tab === 'teoria' ? (
+      {tab === 'desc' ? (
+        // Duas colunas: identidade à esquerda (campos curtos), texto à direita
+        // (campo longo). Empilhado, a descrição nascia num textarea de 3 linhas
+        // espremido no fim do card — o campo mais lido era o pior de ler.
+        <div className="fcard-pane fcard-2col">
+          <div className="fcard-col">
+            <label className="fcard-lbl neon-mono" htmlFor={`lbl-${node.id}`}>
+              rótulo
+            </label>
+            <input
+              id={`lbl-${node.id}`}
+              className="fcard-input"
+              value={label}
+              disabled={busy}
+              onChange={(e) => setLabel(e.target.value)}
+              onBlur={commitLabel}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') e.currentTarget.blur()
+                if (e.key === 'Escape') setLabel(node.label)
+              }}
+            />
+
+            <label className="fcard-lbl neon-mono" htmlFor={`kind-${node.id}`}>
+              tipo
+            </label>
+            <select
+              id={`kind-${node.id}`}
+              className="fcard-input"
+              value={node.kind}
+              disabled={busy}
+              onChange={(e) => onEdit(node.id, { kind: e.target.value })}
+            >
+              <optgroup label="Fluxo">
+                {KINDS.filter((k) => GRUPO_FLUXO.has(k)).map((k) => (
+                  <option key={k} value={k}>
+                    {KIND_LABEL[k]}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="BPM">
+                {KINDS.filter((k) => !GRUPO_FLUXO.has(k)).map((k) => (
+                  <option key={k} value={k}>
+                    {KIND_LABEL[k]}
+                  </option>
+                ))}
+              </optgroup>
+              {!(node.kind in KIND_LABEL) && (
+                <optgroup label="Atual">
+                  <option value={node.kind}>{node.kind}</option>
+                </optgroup>
+              )}
+            </select>
+
+            {lanes.length > 0 && (
+              <>
+                <label className="fcard-lbl neon-mono" htmlFor={`lane-${node.id}`}>
+                  raia (ator)
+                </label>
+                <select
+                  id={`lane-${node.id}`}
+                  className="fcard-input"
+                  value={node.lane ?? ''}
+                  disabled={busy}
+                  onChange={(e) => onEdit(node.id, { lane: e.target.value || undefined })}
+                >
+                  <option value="">— sem raia —</option>
+                  {lanes.map((l) => (
+                    <option key={l.id} value={l.id}>
+                      {l.label || l.id}
+                    </option>
+                  ))}
+                </select>
+              </>
+            )}
+          </div>
+
+          <div className="fcard-col fcard-col-texto">
+            <label className="fcard-lbl neon-mono" htmlFor={`desc-${node.id}`}>
+              o que acontece na prática
+            </label>
+            <textarea
+              id={`desc-${node.id}`}
+              className="fcard-input fcard-area fcard-area-alta neon-mono"
+              value={desc}
+              disabled={busy}
+              placeholder="o arquivo, o serviço, a tabela, o passo concreto…"
+              onChange={(e) => setDesc(e.target.value)}
+              onBlur={commitDesc}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') setDesc(node.description ?? '')
+              }}
+            />
+          </div>
+        </div>
+      ) : tab === 'teoria' ? (
         <div className="fcard-pane">
           <label className="fcard-lbl neon-mono" htmlFor={`teo-${node.id}`}>
             o conceito por trás desta etapa
@@ -168,96 +262,6 @@ export function NodeCard({ node, busy = false, lanes = [], onVerdict, onEdit }: 
           fields={node.fields ?? []}
           onChange={(fields) => onEdit(node.id, { fields })}
         />
-      ) : tab === 'desc' ? (
-        <div className="fcard-pane">
-          <label className="fcard-lbl neon-mono" htmlFor={`lbl-${node.id}`}>
-            rótulo
-          </label>
-          <input
-            id={`lbl-${node.id}`}
-            className="fcard-input"
-            value={label}
-            disabled={busy}
-            onChange={(e) => setLabel(e.target.value)}
-            onBlur={commitLabel}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') e.currentTarget.blur()
-              if (e.key === 'Escape') setLabel(node.label)
-            }}
-          />
-
-          <label className="fcard-lbl neon-mono" htmlFor={`kind-${node.id}`}>
-            tipo
-          </label>
-          <select
-            id={`kind-${node.id}`}
-            className="fcard-input"
-            value={node.kind}
-            disabled={busy}
-            onChange={(e) => onEdit(node.id, { kind: e.target.value })}
-          >
-            <optgroup label="Fluxo">
-              {KINDS.filter((k) => GRUPO_FLUXO.has(k)).map((k) => (
-                <option key={k} value={k}>
-                  {KIND_LABEL[k]}
-                </option>
-              ))}
-            </optgroup>
-            <optgroup label="BPM">
-              {KINDS.filter((k) => !GRUPO_FLUXO.has(k)).map((k) => (
-                <option key={k} value={k}>
-                  {KIND_LABEL[k]}
-                </option>
-              ))}
-            </optgroup>
-            {/* kind fora da lista (do Claude, ou de uma versão futura) não pode
-                sumir do select e virar 'task' sem ninguém pedir */}
-            {!(node.kind in KIND_LABEL) && (
-              <optgroup label="Atual">
-                <option value={node.kind}>{node.kind}</option>
-              </optgroup>
-            )}
-          </select>
-
-          <label className="fcard-lbl neon-mono" htmlFor={`desc-${node.id}`}>
-            descrição técnica
-          </label>
-          <textarea
-            id={`desc-${node.id}`}
-            className="fcard-input fcard-area neon-mono"
-            rows={3}
-            value={desc}
-            disabled={busy}
-            placeholder="o que essa etapa faz, na prática…"
-            onChange={(e) => setDesc(e.target.value)}
-            onBlur={commitDesc}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') setDesc(node.description ?? '')
-            }}
-          />
-
-          {lanes.length > 0 && (
-            <>
-              <label className="fcard-lbl neon-mono" htmlFor={`lane-${node.id}`}>
-                raia (ator)
-              </label>
-              <select
-                id={`lane-${node.id}`}
-                className="fcard-input"
-                value={node.lane ?? ''}
-                disabled={busy}
-                onChange={(e) => onEdit(node.id, { lane: e.target.value || undefined })}
-              >
-                <option value="">— sem raia —</option>
-                {lanes.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {l.label || l.id}
-                  </option>
-                ))}
-              </select>
-            </>
-          )}
-        </div>
       ) : (
         <div className="fcard-pane">
           {notas === 0 ? (

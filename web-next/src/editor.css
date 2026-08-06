@@ -474,6 +474,30 @@
   flex-direction: column;
   gap: 4px;
 }
+
+/* Duas colunas na aba "prática": identidade à esquerda (campos curtos), texto à
+   direita (o campo longo). Empilhado, a descrição — que é o campo mais LIDO —
+   nascia num textarea de 3 linhas espremido no fim do card. */
+.fcard-2col {
+  display: grid;
+  grid-template-columns: minmax(0, 168px) minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+.fcard-col {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.fcard-col-texto {
+  height: 100%;
+}
+.fcard-area-alta {
+  min-height: 168px;
+  height: 100%;
+  line-height: 1.55;
+}
 .fcard-lbl {
   font-size: 9px;
   text-transform: uppercase;
@@ -855,7 +879,7 @@
   position: absolute;
   top: -6px;
   left: calc(100% + 16px);
-  width: 268px;
+  width: 468px;
   background: color-mix(in oklch, var(--surface) 96%, transparent);
   border: 1px solid var(--border-2);
   border-radius: var(--r-lg);
@@ -963,9 +987,17 @@
 .fpanel-cmt.question {
   border-left-color: var(--s-questioned);
 }
+/* O veredito GRUDA no rodapé do card. É o gesto mais frequente e não pode
+   depender de rolar até o fim — no card alto ele saía da área visível, que foi
+   exatamente o que apareceu no uso. */
 .fpanel-verdict {
   display: flex;
   gap: 6px;
+  position: sticky;
+  bottom: -12px;
+  margin-top: 12px;
+  padding: 10px 0 2px;
+  background: linear-gradient(to bottom, transparent, var(--surface) 28%);
 }
 .fpanel-verdict .v {
   flex: 1;
