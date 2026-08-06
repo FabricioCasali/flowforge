@@ -58,12 +58,6 @@ import { baixarPng, baixarTexto, nomeSeguro, toMermaid, toSvg } from './export.j
 import { applyVerdict, diffNodes, novaEdge, novoNode, propagateFrom } from './model.js'
 import { LENSES, LENS_BY_KEY, type LensDef, type LensKey } from './lenses.js'
 
-const STATUS_COLOR: Record<NodeStatus, string> = {
-  proposed: 'oklch(0.58 0.02 258)',
-  approved: 'oklch(0.8 0.16 162)',
-  questioned: 'oklch(0.84 0.15 78)',
-  rejected: 'oklch(0.7 0.19 22)'
-}
 const nodeTypes = { flow: FlowNode, entity: EntityNode, mind: MindNode, lane: LaneNode }
 const edgeTypes = { orth: OrthEdge, er: ErEdge, mind: MindEdge }
 
@@ -638,7 +632,6 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
           onEdgeWaypoints
         } as Record<string, unknown>
       }
-      if (lensDef.edgeType === 'orth') return { ...base, markerEnd: `url(#neon-arrow-${e.status})` }
       if (lensDef.edgeType === 'er') return { ...base, data: { ...base.data, sourceCard: e.sourceCard, targetCard: e.targetCard } }
       if (lensDef.edgeType === 'mind') return { ...base, data: { points, branch: branch[e.target] ?? 0 } }
       return base
@@ -749,7 +742,6 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
           <b>sem raias definidas</b> — este diagrama não tem <code>lanes</code>, então o fluxo aparece sem bandas.
         </div>
       )}
-      <MarkerDefs />
       <ReactFlow
         nodes={rfNodes}
         edges={rfEdges}
@@ -843,27 +835,4 @@ function tally(d: Diagram): Record<NodeStatus, number> {
   const r: Record<NodeStatus, number> = { proposed: 0, approved: 0, questioned: 0, rejected: 0 }
   for (const n of d.nodes) r[n.status]++
   return r
-}
-
-function MarkerDefs(): JSX.Element {
-  return (
-    <svg style={{ position: 'absolute', width: 0, height: 0 }} aria-hidden>
-      <defs>
-        {(Object.keys(STATUS_COLOR) as NodeStatus[]).map((s) => (
-          <marker
-            key={s}
-            id={`neon-arrow-${s}`}
-            viewBox="0 0 10 10"
-            refX="8"
-            refY="5"
-            markerWidth="7"
-            markerHeight="7"
-            orient="auto-start-reverse"
-          >
-            <path d="M 0 0 L 10 5 L 0 10 z" fill={STATUS_COLOR[s]} />
-          </marker>
-        ))}
-      </defs>
-    </svg>
-  )
 }

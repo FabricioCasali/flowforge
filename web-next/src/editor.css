@@ -699,6 +699,41 @@
   outline-offset: 1px;
 }
 
+/* ==========================================================================
+   A SETA — direção e o tracejado que anda.
+   ========================================================================== */
+.orth-ponta {
+  pointer-events: none;
+}
+/* trilho de acerto: a linha desenhada tem 1.4px, clicar nela seria perícia */
+.orth-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 16;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+/* Aresta SELECIONADA: o traço vira tracejado que anda no sentido do fluxo —
+   source → target. É a leitura de direção que o Fabricio tinha no editor antigo
+   e sentiu falta: a ponta diz para onde vai, e o movimento confirma. */
+@keyframes ff-formigas {
+  to {
+    stroke-dashoffset: -28;
+  }
+}
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke-dasharray: 9 5;
+  animation: ff-formigas 0.55s linear infinite;
+}
+/* quem prefere a tela quieta (ou tem sensibilidade a movimento) mantém o
+   tracejado, que já mostra o sentido junto com a ponta, mas sem a animação */
+@media (prefers-reduced-motion: reduce) {
+  .react-flow__edge.selected .react-flow__edge-path {
+    animation: none;
+  }
+}
+
 /* ---------- quebras arrastáveis da aresta (FF-011) ---------- */
 .bend {
   position: absolute;

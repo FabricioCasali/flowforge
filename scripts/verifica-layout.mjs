@@ -606,6 +606,16 @@ async function main() {
       const res = await rodarLayout(L, d, lente);
       const problemas = confere(d, lente, res);
 
+      // A PONTA DA SETA sai do angulo do ultimo trecho do traco. Se esse trecho
+      // for degenerado (dois pontos iguais), a seta aponta pra qualquer lado —
+      // num diagrama de fluxo isso e mentira sobre a direcao.
+      for (const [eid, pts] of Object.entries(res.edgePoints)) {
+        if (!pts || pts.length < 2) { problemas.push(`aresta '${eid}': traco com menos de 2 pontos`); continue; }
+        const fim = pts[pts.length - 1];
+        const temDirecao = pts.some((p) => Math.abs(p.x - fim.x) + Math.abs(p.y - fim.y) > 0.5);
+        if (!temDirecao) problemas.push(`aresta '${eid}': traco sem direcao — a ponta da seta nao teria pra onde apontar`);
+      }
+
       // FF-007: o export tem de aguentar dado REAL (acento, aspas, rotulo longo).
       // So na lente dona do modelo, pra nao exportar o mesmo diagrama 2x.
       if (lente.honra) {
