@@ -37,6 +37,17 @@ Trocar desenho bonito por perda de edição é regressão, não progresso.
    `{ process, state, er, mind, seq, rev, updatedBy }`. As 6 lentes leem esses 5 modelos —
    `process` serve Fluxograma **e** Swimlane (mesmo grafo, layout diferente).
 
+   **A posição é do arquivo, e a Swimlane é lente derivada.** Quem tem `x`/`y` no
+   `workspace.json` é desenhado ali; o elk só calcula quem não tem, e o que ele calcular é
+   transladado para o referencial do desenho salvo. Arrastar grava a posição de **todos** os
+   nós — no primeiro arrasto o layout se materializa no arquivo e a sessão reabre idêntica.
+   A **Swimlane fica de fora** (`savesPos: false` em `lenses.ts`): ela divide o par `x`/`y`
+   com o Fluxograma, e num fluxograma vertical todo nó tem quase o mesmo `x` — herdar isso
+   empilharia a raia inteira numa coluna. Ela recalcula sempre, e arrastar lá vale só na
+   sessão. Decidido pelo Fabricio em 06/08/2026; o contrato de `types.ts` ficou **inalterado**
+   (nada de posição por lente). Swimlane num diagrama sem `lanes` **avisa** "sem raias
+   definidas" em vez de inventar uma faixa. Prova: `node scripts/verifica-layout.mjs`.
+
 5. **Migração é lazy e não destrutiva.** Ao abrir uma sessão que só tem `diagram.json`,
    o servidor converte para `workspace.json` **preservando o `diagram.json` como está**
    (backup). Mapa: `flowchart|bpm|swimlane` → `process` (preservando o `type` de dentro,

@@ -37,7 +37,7 @@ import { OrthEdge } from './OrthEdge.js'
 import { ErEdge } from './ErEdge.js'
 import { MindEdge } from './MindEdge.js'
 import { SequenceView } from './SequenceView.js'
-import { layoutDiagram, radialLayout, swimlaneLayout, type LayoutResult } from './layout.js'
+import { layoutDiagram, orthRoute, radialLayout, swimlaneLayout, type LayoutResult } from './layout.js'
 import { applyVerdict, propagateEdges } from './model.js'
 import { LENSES, LENS_BY_KEY, type LensDef, type LensKey } from './lenses.js'
 
@@ -119,9 +119,12 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
       </div>
     ) : null
 
+  // Inclui `x`/`y` de propósito: quando o Claude MOVE um nó (mesma estrutura,
+  // posição outra), o canvas tem que refletir isso sozinho — é o loop vivo.
   const structureKey = useMemo(() => {
     if (!activeDiagram) return 'seq'
-    return lens + '|' + activeDiagram.nodes.map((n) => n.id).join(',') + '|' + activeDiagram.edges.map((e) => e.id).join(',')
+    const nodes = activeDiagram.nodes.map((n) => `${n.id}@${n.x ?? '-'},${n.y ?? '-'}`).join(',')
+    return lens + '|' + nodes + '|' + activeDiagram.edges.map((e) => e.id).join(',')
   }, [lens, activeDiagram])
 
   // (re)layout ao trocar de lente / estrutura — e zera as posições arrastadas
@@ -172,6 +175,35 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
     [posOverride, layout]
   )
 
+  /**
+   * Soltou o nó → o desenho vira arquivo (lei 2).
+   *
+   * Grava a posição de TODOS os nós, não só a do que foi arrastado — é o que o
+   * editor antigo faz (`app.js:374`) e é o que dá estabilidade: no primeiro
+   * arrasto o layout do elk se materializa no `workspace.json` e, da próxima vez
+   * que a sessão abrir, o diagrama volta idêntico em vez de ser recalculado.
+   *
+   * Na Swimlane não grava nada: ela divide o `x`/`y` com o Fluxograma e é lente
+   * derivada (`savesPos: false`) — arrastar lá vale só enquanto a aba está aberta.
+   */
+  const onNodeDragStop = useCallback(
+    (_evt: unknown, _node: Node, dragged?: Node[]) => {
+      const model = lensDef.model
+      if (!lensDef.savesPos || model === 'seq' || !activeDiagram) return
+      const moved = (dragged?.length ? dragged : [_node]).filter((n): n is Node => !!n && !n.id.startsWith('lane_'))
+      if (!moved.length) return
+      const byId = new Map(moved.map((n) => [n.id, n.position]))
+      writeModel(model, (dia) => ({
+        ...dia,
+        nodes: dia.nodes.map((n) => {
+          const p = byId.get(n.id) ?? posOf(n.id)
+          return { ...n, x: Math.round(p.x), y: Math.round(p.y) }
+        })
+      }))
+    },
+    [lensDef, activeDiagram, writeModel, posOf]
+  )
+
   const rfNodes: Node[] = useMemo(() => {
     if (!layout || !activeDiagram) return []
     const out: Node[] = []
@@ -217,7 +249,9 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
     if (!layout || !activeDiagram) return []
     return activeDiagram.edges.map((e) => {
       const moved = movedRef.current.has(e.source) || movedRef.current.has(e.target)
-      const points = moved ? manualRoute(e.source, e.target, posOf, layout) : layout.edgePoints[e.id]
+      const points = moved
+        ? orthRoute(posOf(e.source), sizeOf(layout, e.source), posOf(e.target), sizeOf(layout, e.target))
+        : layout.edgePoints[e.id]
       const base = {
         id: e.id,
         source: e.source,
@@ -249,6 +283,11 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
     <div className={shell}>
       <LensBar lens={lens} onLens={onLens} />
       {actions}
+      {layout?.noLanes && (
+        <div className="lanes-empty neon-mono" role="status">
+          <b>sem raias definidas</b> — este diagrama não tem <code>lanes</code>, então o fluxo aparece sem bandas.
+        </div>
+      )}
       <MarkerDefs />
       <ReactFlow
         nodes={rfNodes}
@@ -256,6 +295,7 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         onNodesChange={onNodesChange}
+        onNodeDragStop={onNodeDragStop}
         fitView
         proOptions={{ hideAttribution: true }}
         minZoom={0.15}
@@ -304,26 +344,9 @@ async function computeLayout(lensDef: LensDef, diagram: Diagram): Promise<Layout
   }
 }
 
-/** Roteador ortogonal manual (re-roteia limpo ao arrastar um nó). */
-function manualRoute(sourceId: string, targetId: string, posOf: (id: string) => Pt, layout: LayoutResult): Pt[] {
-  const sp = posOf(sourceId)
-  const tp = posOf(targetId)
-  const ss = layout.sizes[sourceId] ?? { width: 180, height: 60 }
-  const ts = layout.sizes[targetId] ?? { width: 180, height: 60 }
-  const sc = { x: sp.x + ss.width / 2, y: sp.y + ss.height / 2 }
-  const tc = { x: tp.x + ts.width / 2, y: tp.y + ts.height / 2 }
-  const dx = tc.x - sc.x
-  const dy = tc.y - sc.y
-  if (Math.abs(dy) >= Math.abs(dx)) {
-    const sa = { x: sc.x, y: dy > 0 ? sp.y + ss.height : sp.y }
-    const ta = { x: tc.x, y: dy > 0 ? tp.y : tp.y + ts.height }
-    const my = (sa.y + ta.y) / 2
-    return [sa, { x: sa.x, y: my }, { x: ta.x, y: my }, ta]
-  }
-  const sa = { x: dx > 0 ? sp.x + ss.width : sp.x, y: sc.y }
-  const ta = { x: dx > 0 ? tp.x : tp.x + ts.width, y: tc.y }
-  const mx = (sa.x + ta.x) / 2
-  return [sa, { x: mx, y: sa.y }, { x: mx, y: ta.y }, ta]
+/** Tamanho do nó no layout, com um fallback pra aresta não sumir se faltar. */
+function sizeOf(layout: LayoutResult, id: string): { width: number; height: number } {
+  return layout.sizes[id] ?? { width: 180, height: 60 }
 }
 
 /** Ramo (cor) por nó no mind map: filhos da raiz = 0,1,2…; descendentes herdam. */

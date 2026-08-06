@@ -4,6 +4,15 @@
 //  • swimlaneLayout → colunas do elk + bandas por raia (ator×ação)
 //  • radialLayout   → árvore radial (Mind map)
 // Coordenadas = coords do React Flow. edgePoints alimentam a aresta custom.
+//
+// LEI 2 (arquivo é a verdade) aplicada à geometria: **quem tem `x`/`y` no
+// arquivo manda**. O elk só calcula quem não tem — e o que ele calcular é
+// transladado para o referencial do desenho salvo, senão o nó novo do Claude
+// aparece a mil pixels do diagrama que o Fabricio arrastou. Ver `anchorToSaved`.
+//
+// A Swimlane é a exceção declarada (`savesPos: false` em `lenses.ts`): ela
+// recalcula sempre, porque divide o `process` — e o par `x`/`y` — com o
+// Fluxograma. Decisão do Fabricio em 06/08/2026.
 // ============================================================================
 
 import ELK from 'elkjs/lib/elk.bundled.js'
@@ -18,13 +27,18 @@ export interface LaneBand {
   height: number
 }
 export interface LayoutResult {
-  positions: Record<string, { x: number; y: number }>
-  sizes: Record<string, { width: number; height: number }>
-  edgePoints: Record<string, { x: number; y: number }[]>
+  positions: Record<string, Pt>
+  sizes: Record<string, Size>
+  edgePoints: Record<string, Pt[]>
   lanes?: LaneBand[]
+  /** Swimlane pedida num diagrama sem `lanes` — a UI avisa em vez de fingir uma raia. */
+  noLanes?: boolean
 }
 
-export function nodeSize(n: DNode): { width: number; height: number } {
+export type Pt = { x: number; y: number }
+type Size = { width: number; height: number }
+
+export function nodeSize(n: DNode): Size {
   const len = (n.label || '').length
   const kind = n.kind
   if (kind === 'entity') {
@@ -48,13 +62,148 @@ function sizesOf(diagram: Diagram): LayoutResult['sizes'] {
   return sizes
 }
 
-/** elk `layered` ortogonal. direction DOWN (fluxo/estado) ou RIGHT (ER). */
+// ---------------------------------------------------------------------------
+// Posições do arquivo
+// ---------------------------------------------------------------------------
+
+/** O que o arquivo já define. Nó sem `x`/`y` (recém-nascido do Claude) fica fora. */
+export function savedPositions(diagram: Diagram): Record<string, Pt> {
+  const out: Record<string, Pt> = {}
+  for (const n of diagram.nodes) {
+    if (typeof n.x === 'number' && Number.isFinite(n.x) && typeof n.y === 'number' && Number.isFinite(n.y)) {
+      out[n.id] = { x: n.x, y: n.y }
+    }
+  }
+  return out
+}
+
+function overlaps(a: Pt, as: Size, b: Pt, bs: Size, gap: number): boolean {
+  return (
+    a.x < b.x + bs.width + gap &&
+    a.x + as.width + gap > b.x &&
+    a.y < b.y + bs.height + gap &&
+    a.y + as.height + gap > b.y
+  )
+}
+
+/**
+ * Casa o desenho salvo com o que o elk calculou.
+ *
+ * Quem tem posição no arquivo fica EXATAMENTE onde está. Quem não tem entra pela
+ * posição do elk, deslocada pela translação média entre os dois referenciais —
+ * assim o nó novo nasce perto de onde o elk quis pô-lo *em relação aos vizinhos*,
+ * e não na origem do canvas. Se ainda assim cair em cima de alguém, desce até
+ * achar espaço (o desempilhamento é burro de propósito: previsível > ótimo).
+ */
+function anchorToSaved(
+  diagram: Diagram,
+  saved: Record<string, Pt>,
+  computed: Record<string, Pt>,
+  sizes: Record<string, Size>
+): Record<string, Pt> {
+  let dx = 0
+  let dy = 0
+  let n = 0
+  for (const id of Object.keys(saved)) {
+    const c = computed[id]
+    if (!c) continue
+    dx += saved[id]!.x - c.x
+    dy += saved[id]!.y - c.y
+    n++
+  }
+  if (n > 0) {
+    dx /= n
+    dy /= n
+  }
+
+  const out: Record<string, Pt> = {}
+  const placed: { p: Pt; s: Size }[] = []
+  for (const [id, p] of Object.entries(saved)) {
+    out[id] = p
+    placed.push({ p, s: sizes[id]! })
+  }
+
+  const GAP = 22
+  const STEP = 26
+  for (const node of diagram.nodes) {
+    if (out[node.id]) continue
+    const s = sizes[node.id]!
+    const c = computed[node.id] ?? { x: 0, y: 0 }
+    const p = { x: Math.round(c.x + dx), y: Math.round(c.y + dy) }
+    for (let guard = 0; guard < 200; guard++) {
+      const hit = placed.find((q) => overlaps(p, s, q.p, q.s, GAP))
+      if (!hit) break
+      p.y = hit.p.y + hit.s.height + GAP + (STEP - GAP)
+    }
+    out[node.id] = p
+    placed.push({ p, s })
+  }
+  return out
+}
+
+// ---------------------------------------------------------------------------
+// Roteamento
+// ---------------------------------------------------------------------------
+
+/**
+ * Traço ortogonal L/Z entre dois nós — o mesmo desenho do `curve-style: taxi` do
+ * editor antigo, que é o que o Fabricio aprovou na fase 3. Sai pelo lado mais
+ * curto e dobra na metade do caminho.
+ */
+export function orthRoute(sp: Pt, ss: Size, tp: Pt, ts: Size): Pt[] {
+  const sc = { x: sp.x + ss.width / 2, y: sp.y + ss.height / 2 }
+  const tc = { x: tp.x + ts.width / 2, y: tp.y + ts.height / 2 }
+  const dx = tc.x - sc.x
+  const dy = tc.y - sc.y
+  if (Math.abs(dy) >= Math.abs(dx)) {
+    const sa = { x: sc.x, y: dy > 0 ? sp.y + ss.height : sp.y }
+    const ta = { x: tc.x, y: dy > 0 ? tp.y : tp.y + ts.height }
+    const my = (sa.y + ta.y) / 2
+    return [sa, { x: sa.x, y: my }, { x: ta.x, y: my }, ta]
+  }
+  const sa = { x: dx > 0 ? sp.x + ss.width : sp.x, y: sc.y }
+  const ta = { x: dx > 0 ? tp.x : tp.x + ts.width, y: tc.y }
+  const mx = (sa.x + ta.x) / 2
+  return [sa, { x: mx, y: sa.y }, { x: mx, y: ta.y }, ta]
+}
+
+/** Re-roteia TODAS as arestas — usado sempre que as posições não são as do elk. */
+function routeAll(diagram: Diagram, positions: Record<string, Pt>, sizes: Record<string, Size>): Record<string, Pt[]> {
+  const out: Record<string, Pt[]> = {}
+  for (const e of diagram.edges) {
+    const s = positions[e.source]
+    const t = positions[e.target]
+    if (!s || !t) continue
+    out[e.id] = orthRoute(s, sizes[e.source]!, t, sizes[e.target]!)
+  }
+  return out
+}
+
+// ---------------------------------------------------------------------------
+// Layouts
+// ---------------------------------------------------------------------------
+
+/**
+ * elk `layered` ortogonal. direction DOWN (fluxo/estado) ou RIGHT (ER).
+ *
+ * `honorSaved: false` ignora o `x`/`y` do arquivo — é o que a Swimlane usa para
+ * pegar só a ORDEM do fluxo do elk, sem herdar o desenho do Fluxograma.
+ */
 export async function layoutDiagram(
   diagram: Diagram,
   direction: 'DOWN' | 'RIGHT' = 'DOWN',
-  gapLayers = 70
+  gapLayers = 70,
+  honorSaved = true
 ): Promise<LayoutResult> {
   const sizes = sizesOf(diagram)
+  const saved = honorSaved ? savedPositions(diagram) : {}
+  const savedCount = Object.keys(saved).length
+
+  // Desenho inteiro salvo: o arquivo manda sozinho e o elk nem roda.
+  if (savedCount > 0 && savedCount === diagram.nodes.length) {
+    return { positions: saved, sizes, edgePoints: routeAll(diagram, saved, sizes) }
+  }
+
   const graph = {
     id: 'root',
     layoutOptions: {
@@ -71,32 +220,49 @@ export async function layoutDiagram(
     edges: diagram.edges.map((e) => ({ id: e.id, sources: [e.source], targets: [e.target] }))
   }
   const res = await elk.layout(graph)
-  const positions: LayoutResult['positions'] = {}
-  for (const c of res.children ?? []) positions[c.id] = { x: c.x ?? 0, y: c.y ?? 0 }
-  const edgePoints: LayoutResult['edgePoints'] = {}
-  for (const e of res.edges ?? []) {
-    const sec = e.sections?.[0]
-    if (!sec) continue
-    edgePoints[e.id] = [sec.startPoint, ...(sec.bendPoints ?? []), sec.endPoint].filter(Boolean) as {
-      x: number
-      y: number
-    }[]
+  const computed: Record<string, Pt> = {}
+  for (const c of res.children ?? []) computed[c.id] = { x: c.x ?? 0, y: c.y ?? 0 }
+
+  // Nada salvo: o elk manda inteiro, inclusive no roteamento (mais bonito que o
+  // nosso L/Z, porque ele desvia dos nós).
+  if (savedCount === 0) {
+    const edgePoints: LayoutResult['edgePoints'] = {}
+    for (const e of res.edges ?? []) {
+      const sec = e.sections?.[0]
+      if (!sec) continue
+      edgePoints[e.id] = [sec.startPoint, ...(sec.bendPoints ?? []), sec.endPoint].filter(Boolean) as Pt[]
+    }
+    return { positions: computed, sizes, edgePoints }
   }
-  return { positions, sizes, edgePoints }
+
+  // Misto: as arestas do elk não valem mais (os nós saíram do lugar) → re-rota.
+  const positions = anchorToSaved(diagram, saved, computed, sizes)
+  return { positions, sizes, edgePoints: routeAll(diagram, positions, sizes) }
 }
 
-/** Swimlane: x pelas colunas do elk (RIGHT); y por banda de raia (ator). */
+/**
+ * Swimlane: x pelas colunas do elk (RIGHT); y por banda de raia (ator).
+ *
+ * Lente DERIVADA — ignora o `x`/`y` do arquivo de propósito (ver cabeçalho).
+ * Sem `lanes` no diagrama não existe raia nenhuma: em vez de inventar uma faixa
+ * "_" e empilhar todo mundo dentro dela, devolve `noLanes` e deixa a UI dizer
+ * isso em voz alta.
+ */
 export async function swimlaneLayout(diagram: Diagram): Promise<LayoutResult> {
-  const base = await layoutDiagram(diagram, 'RIGHT', 90)
+  const base = await layoutDiagram(diagram, 'RIGHT', 90, false)
   const sizes = base.sizes
   const lanesDef = [...(diagram.lanes ?? [])].sort((a, b) => a.order - b.order)
-  const laneIds = lanesDef.length ? lanesDef.map((l) => l.id) : ['_']
+  if (!lanesDef.length) return { ...base, noLanes: true }
+
+  const laneIds = lanesDef.map((l) => l.id)
+  const fallbackLane = laneIds[0]!
+  const laneOf = (n: DNode): string => (n.lane && laneIds.includes(n.lane) ? n.lane : fallbackLane)
 
   // altura de cada banda = maior nó da raia + folga (mín 120)
   const bandHeight: Record<string, number> = {}
   for (const id of laneIds) bandHeight[id] = 120
   for (const n of diagram.nodes) {
-    const lane = n.lane && bandHeight[n.lane] != null ? n.lane : laneIds[0]!
+    const lane = laneOf(n)
     bandHeight[lane] = Math.max(bandHeight[lane]!, sizes[n.id]!.height + 46)
   }
   const bandY: Record<string, number> = {}
@@ -111,7 +277,7 @@ export async function swimlaneLayout(diagram: Diagram): Promise<LayoutResult> {
 
   const positions: LayoutResult['positions'] = {}
   for (const n of diagram.nodes) {
-    const lane = n.lane && bandY[n.lane] != null ? n.lane : laneIds[0]!
+    const lane = laneOf(n)
     const x = base.positions[n.id]?.x ?? 0
     const h = sizes[n.id]!.height
     positions[n.id] = { x: x + 150, y: bandY[lane]! + (bandHeight[lane]! - h) / 2 }
@@ -146,7 +312,7 @@ export function radialLayout(diagram: Diagram): LayoutResult {
   const sizes = sizesOf(diagram)
   const targets = new Set(diagram.edges.map((e) => e.target))
   const root = diagram.nodes.find((n) => !targets.has(n.id)) ?? diagram.nodes[0]
-  const positions: LayoutResult['positions'] = {}
+  const computed: Record<string, Pt> = {}
   const children: Record<string, string[]> = {}
   for (const e of diagram.edges) (children[e.source] ??= []).push(e.target)
 
@@ -164,7 +330,7 @@ export function radialLayout(diagram: Diagram): LayoutResult {
     const mid = (a0 + a1) / 2
     const r = depth * RING
     const s = sizes[id]!
-    positions[id] = { x: Math.cos(mid) * r - s.width / 2, y: Math.sin(mid) * r - s.height / 2 }
+    computed[id] = { x: Math.cos(mid) * r - s.width / 2, y: Math.sin(mid) * r - s.height / 2 }
     const ch = children[id] ?? []
     let a = a0
     for (const c of ch) {
@@ -174,6 +340,10 @@ export function radialLayout(diagram: Diagram): LayoutResult {
     }
   }
   if (root) place(root.id, 0, -Math.PI, Math.PI)
+
+  // o arquivo manda também aqui (o Fabricio arruma o mapa na mão)
+  const saved = savedPositions(diagram)
+  const positions = Object.keys(saved).length ? anchorToSaved(diagram, saved, computed, sizes) : computed
 
   // arestas mind = bezier entre centros (a aresta custom desenha a curva)
   const edgePoints: LayoutResult['edgePoints'] = {}

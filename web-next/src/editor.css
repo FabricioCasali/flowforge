@@ -453,6 +453,27 @@
   background: color-mix(in oklch, var(--s-approved) 20%, var(--surface));
 }
 
+/* ---------- Swimlane sem `lanes`: diz em voz alta em vez de fingir raia ---------- */
+.lanes-empty {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  font-size: 11px;
+  color: var(--s-questioned);
+  background: color-mix(in oklch, var(--s-questioned) 10%, var(--surface));
+  border: 1px dashed color-mix(in oklch, var(--s-questioned) 45%, transparent);
+  border-radius: var(--r-md);
+  padding: 7px 12px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.lanes-empty code {
+  font-family: var(--mono);
+  opacity: 0.85;
+}
+
 /* ---------- botão Cravar (gate design → runtime) ---------- */
 .neon-editor-actions .neon-crave {
   position: static;

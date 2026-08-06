@@ -11,13 +11,18 @@ Classe: **importante** · **melhoria**
 > (fundação) está entregue e provada: 11/11 diagramas migram sem perda, `/` continua servindo
 > o editor antigo intacto, e o Fabricio viu o `/v2` funcional na tela em 05/08/2026.
 
-## 📋 A fazer
+## ✅ Feito
 
-- **FF-001** **Layout fiel ao arquivo** — o editor novo ignora o `x`/`y` salvo e redesenha
-  tudo pelo elkjs ao abrir; arrastar também não persiste. Regra a implementar: quem tem
-  posição no arquivo manda, o elk calcula só quem não tem. Inclui a lente Swimlane, que
-  empilha tudo numa faixa quando o diagrama não tem `lanes` (`layout.ts:99`) — deve dizer
-  "sem raias definidas" em vez de fingir uma raia. · `[porte/fase-1]` · M · importante
+- **FF-001** **Layout fiel ao arquivo** — quem tem `x`/`y` no arquivo é desenhado ali; o elk
+  só calcula quem não tem, e o resultado dele é transladado para o referencial do desenho
+  salvo (nó novo do Claude nasce perto dos vizinhos, e desce se cair em cima de alguém).
+  Arrastar grava a posição de **todos** os nós, como o editor antigo faz. A **Swimlane é
+  lente derivada** — recalcula sempre e não grava (decisão do Fabricio em 06/08/2026, lei 4);
+  sem `lanes` ela avisa "sem raias definidas" em vez de fingir uma faixa. Prova nova:
+  `scripts/verifica-layout.mjs` (com `--autoteste`) — 20 combinações diagrama×lente, todas
+  fiéis. · `[porte/fase-1]` · M · importante
+
+## 📋 A fazer
 
 - **FF-002** **As 11 formas por `kind`** — o `FlowNode` portado conhece só 3 famílias
   (pill/diamond/rect). Faltam `annotation` (tracejado — 21 nós, o 2º kind mais usado),
