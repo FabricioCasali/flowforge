@@ -22,13 +22,21 @@ Classe: **importante** · **melhoria**
   `scripts/verifica-layout.mjs` (com `--autoteste`) — 20 combinações diagrama×lente, todas
   fiéis. · `[porte/fase-1]` · M · importante
 
-## 📋 A fazer
+- **FF-002** **As 11 formas por `kind`** — as 9 famílias de forma saíram: `rect`,
+  `subprocess` ([+]), `pill`, `diamond`, `gate` (✕/✛, 92px, rótulo fora), `event` (círculo
+  62px, rótulo fora, `end` com borda grossa e `intermediate` com borda dupla), `idea`
+  (elipse), `data` (canto cortado) e `annotation` (tracejada, esmaecida). A tabela virou
+  `editor/shapes.ts` — módulo sem React que o render **e** o `nodeSize` leem, para não
+  divergirem de novo. Regra de cor: fundo/contorno = `kind`, borda/glow = status.
+  Travado no verificador (15 kinds conferidos). · `[porte/fase-1]` · M · importante
 
-- **FF-002** **As 11 formas por `kind`** — o `FlowNode` portado conhece só 3 famílias
-  (pill/diamond/rect). Faltam `annotation` (tracejado — 21 nós, o 2º kind mais usado),
-  `subprocess` ([+]), `data-object` (canto cortado), `idea` (elipse), os `event-*` como
-  círculos de 62px com label embaixo, e os gateways com ✕/✛. Referência exata:
-  `web/app.js:60-74`. É a lei 8. · `[porte/fase-1]` · M · importante
+- **FF-fix** **`x`/`y` é o centro do nó** — o Cytoscape ancora no centro e o React Flow no
+  canto, então o `/v2` desenhava tudo deslocado e desalinhado. A conversão passou a morar na
+  borda (`savedPositions` / `toSavedPoint`); o arquivo mantém a semântica antiga porque o
+  `web/` ainda lê os mesmos diagramas. Achado ao abrir o FF-002. · `[porte/fase-1]` · P ·
+  importante
+
+## 📋 A fazer
 
 - **FF-003** **Pele** — as fontes Space Grotesk e JetBrains Mono não vieram no porte (caem no
   fallback do sistema) e o CSS herdou `inset: 52px` da barra do NEON, que não é a topbar

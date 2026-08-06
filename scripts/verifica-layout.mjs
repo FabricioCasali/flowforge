@@ -58,11 +58,11 @@ const LENTES = [
 // transpila o layout.ts real (nao reimplementa nada)
 // ---------------------------------------------------------------------------
 
-async function carregarLayout(tmp) {
+async function transpilar(tmp, arquivo) {
   const esbuild = require(path.join(WEBNEXT, 'node_modules', 'esbuild'));
-  const saida = path.join(tmp, 'layout.bundle.mjs');
+  const saida = path.join(tmp, arquivo.replace(/\.ts$/, '.bundle.mjs'));
   await esbuild.build({
-    entryPoints: [path.join(WEBNEXT, 'src', 'editor', 'layout.ts')],
+    entryPoints: [path.join(WEBNEXT, 'src', 'editor', arquivo)],
     bundle: true,
     format: 'esm',
     platform: 'node',
@@ -71,6 +71,55 @@ async function carregarLayout(tmp) {
     absWorkingDir: WEBNEXT,
   });
   return import(pathToFileURL(saida).href);
+}
+
+// =============================================================================
+// LEI 8 — as formas por kind.
+//
+// Esta tabela e a lei escrita como teste. Se alguem mexer em shapes.ts e um kind
+// escorregar para outra forma (ou cair no fallback 'rect' por omissao, que foi
+// o estado do porte durante a fase 0), isto aqui acusa.
+// =============================================================================
+const FORMA_ESPERADA = {
+  task: 'rect',
+  state: 'rect',
+  subprocess: 'subprocess',
+  start: 'pill',
+  end: 'pill',
+  decision: 'diamond',
+  'gateway-exclusive': 'gate',
+  'gateway-parallel': 'gate',
+  'event-start': 'event',
+  'event-end': 'event',
+  'event-intermediate': 'event',
+  idea: 'idea',
+  'data-object': 'data',
+  annotation: 'annotation',
+  entity: 'entity',
+};
+
+function verificaFormas(SH, L) {
+  const problemas = [];
+  for (const [kind, esperada] of Object.entries(FORMA_ESPERADA)) {
+    const obtida = SH.shapeOf(kind);
+    if (obtida !== esperada) problemas.push(`kind '${kind}': desenha como '${obtida}', deveria ser '${esperada}'`);
+  }
+  // o fallback e intencional: kind novo do Claude vira etapa comum, nao some
+  if (SH.shapeOf('um-kind-que-nao-existe') !== 'rect') {
+    problemas.push('kind desconhecido deixou de cair em rect (o fallback e proposital)');
+  }
+  // evento e gateway tem medida fixa: o rotulo fica FORA e nao pode empurrar a caixa
+  const rotulao = 'um rotulo comprido o suficiente para esticar qualquer caixa';
+  const ev = L.nodeSize({ id: 'x', label: rotulao, kind: 'event-start', status: 'proposed', comments: [] });
+  if (ev.width !== 62 || ev.height !== 62) problemas.push(`event-* deveria ser 62x62 e veio ${ev.width}x${ev.height}`);
+  const gt = L.nodeSize({ id: 'x', label: rotulao, kind: 'gateway-exclusive', status: 'proposed', comments: [] });
+  if (gt.width !== 92 || gt.height !== 92) problemas.push(`gateway-* deveria ser 92x92 e veio ${gt.width}x${gt.height}`);
+  // formas distintas nao podem colapsar no mesmo tamanho por acidente
+  const dec = L.nodeSize({ id: 'x', label: 'curto', kind: 'decision', status: 'proposed', comments: [] });
+  if (dec.width === gt.width && dec.height === gt.height) {
+    problemas.push('decision e gateway ficaram do mesmo tamanho (o losango classico leva rotulo dentro)');
+  }
+  return problemas;
 }
 
 async function rodarLayout(L, diagrama, lente) {
@@ -297,9 +346,19 @@ async function autoteste(L) {
 
 async function main() {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-verifica-layout-'));
-  const L = await carregarLayout(tmp);
+  const L = await transpilar(tmp, 'layout.ts');
+  const SH = await transpilar(tmp, 'shapes.ts');
 
   if (process.argv.includes('--autoteste')) return autoteste(L);
+
+  // ---- lei 8: as formas por kind ----
+  const probFormas = verificaFormas(SH, L);
+  console.log('Formas por kind (lei 8):');
+  for (const [kind, esperada] of Object.entries(FORMA_ESPERADA)) {
+    console.log(`   ${SH.shapeOf(kind) === esperada ? 'ok   ' : 'FALHA'} ${kind.padEnd(20)} -> ${SH.shapeOf(kind)}`);
+  }
+  for (const p of probFormas) console.log('   - ' + p);
+  console.log('');
 
   const alvos = listarDiagramas();
   if (!alvos.length) {
@@ -310,11 +369,15 @@ async function main() {
 
   const linhas = [];
   const falhas = [];
+  const kindsReais = {};
   for (const alvo of alvos) {
     const ws = workspaceDe(alvo, tmp);
     for (const lente of LENTES) {
       const d = ws[lente.modelo];
       if (!d || !(d.nodes || []).length) continue;
+      if (lente.key !== 'swimlane') {
+        for (const n of d.nodes) kindsReais[n.kind || '(sem kind)'] = (kindsReais[n.kind || '(sem kind)'] || 0) + 1;
+      }
       const salvos = (d.nodes || []).filter((n) => Number.isFinite(n.x) && Number.isFinite(n.y)).length;
       const res = await rodarLayout(L, d, lente);
       const problemas = confere(d, lente, res);
@@ -343,11 +406,22 @@ async function main() {
     console.log('');
   }
 
+  // Que kinds os diagramas de verdade usam, e como cada um vai ser desenhado.
+  // Serve pra ver de relance se algum kind real esta caindo no fallback.
+  console.log('Kinds em uso nos diagramas reais:');
+  for (const [kind, n] of Object.entries(kindsReais).sort((a, b) => b[1] - a[1])) {
+    const forma = SH.shapeOf(kind);
+    const generico = !(kind in FORMA_ESPERADA);
+    console.log(`   ${String(n).padStart(3)}  ${kind.padEnd(20)} -> ${forma}${generico ? '   (kind desconhecido: cai no retangulo)' : ''}`);
+  }
+  console.log('');
+
   fs.rmSync(tmp, { recursive: true, force: true });
-  const ok = falhas.length === 0;
+  const ok = falhas.length === 0 && probFormas.length === 0;
+  if (probFormas.length) console.log(`FALHA na lei 8: ${probFormas.length} problema(s) de forma listados acima.\n`);
   console.log(ok
-    ? `VEREDITO: OK — ${linhas.length} combinacoes diagrama x lente, todas fieis ao arquivo.`
-    : `VEREDITO: FALHA — ${falhas.length} de ${linhas.length} combinacoes sairam do lugar.`);
+    ? `VEREDITO: OK — ${linhas.length} combinacoes diagrama x lente fieis ao arquivo, e as ${Object.keys(FORMA_ESPERADA).length} formas por kind conferem.`
+    : `VEREDITO: FALHA — ${falhas.length} de ${linhas.length} combinacoes sairam do lugar; ${probFormas.length} desvio(s) de forma.`);
   process.exit(ok ? 0 : 1);
 }
 

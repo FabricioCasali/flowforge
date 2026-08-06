@@ -1,14 +1,45 @@
+// ============================================================================
+// FlowNode — o nó do grafo, com as formas por `kind` (LEI 8 do CLAUDE.md).
+//
+// O porte do NEON só conhecia 3 famílias (pill/diamond/rect), e isso apagava
+// distinção que os diagramas reais usam o tempo todo: `annotation` é o 2º kind
+// mais usado (21 nós) e virava um retângulo igual a uma etapa de verdade.
+//
+// Referência exata das formas: `web/app.js:60-74` (o editor antigo, Cytoscape).
+// A divisão de responsabilidade vem de lá e vale aqui:
+//     FUNDO/CONTORNO = kind   (o que a coisa É)
+//     BORDA/GLOW     = status (o veredito da co-decisão)
+// Por isso `start` não é pintado de verde-aprovado: a tinta do kind é discreta e
+// o eixo de cor forte continua sendo só o status.
+//
+// Rótulo FORA da forma em evento e gateway — são pequenos (62/92px) e é assim
+// que o BPM se lê. O tamanho da caixa vem de `nodeSize` em layout.ts, que é o
+// par desta tabela: mudou um, mude o outro.
+// ============================================================================
+
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import type { DNode, NodeStatus } from '../types.js'
 import { LIVE, SC, STLBL, VerdictPanel } from './VerdictPanel.js'
+import { BOXY, DIAMONDISH, LABEL_OUTSIDE, shapeOf } from './shapes.js'
 
-const PILL = new Set(['start', 'end', 'event-start', 'event-end', 'event-intermediate'])
-const DIAMOND = new Set(['decision', 'gateway-exclusive', 'gateway-parallel'])
+/** ✕ (exclusivo) e ✛ (paralelo) — SVG inline, nítido em qualquer zoom. */
+function GateMark({ kind }: { kind: string }): JSX.Element {
+  const parallel = kind === 'gateway-parallel'
+  return (
+    <svg className="mk mk-gate" viewBox="0 0 24 24" aria-hidden>
+      <path d={parallel ? 'M12 5 L12 19 M5 12 L19 12' : 'M6 6 L18 18 M18 6 L6 18'} />
+    </svg>
+  )
+}
 
-function shapeOf(kind: string): 'pill' | 'diamond' | 'rect' {
-  if (PILL.has(kind)) return 'pill'
-  if (DIAMOND.has(kind)) return 'diamond'
-  return 'rect'
+/** [+] do subprocesso, no rodapé da caixa — igual ao MARK_SUB do antigo. */
+function SubMark(): JSX.Element {
+  return (
+    <svg className="mk mk-sub" viewBox="0 0 24 24" aria-hidden>
+      <rect x="4" y="4" width="16" height="16" rx="2" />
+      <path d="M12 8 L12 16 M8 12 L16 12" />
+    </svg>
+  )
 }
 
 export interface FlowNodeData {
@@ -23,16 +54,26 @@ export function FlowNode({ data, selected }: NodeProps): JSX.Element {
   const live = LIVE.has(node.status)
   const shape = shapeOf(node.kind)
 
+  const cls = [
+    'fnode',
+    `shape-${shape}`,
+    `kind-${node.kind}`,
+    `st-${node.status}`,
+    live ? 'live' : '',
+    selected ? 'sel' : ''
+  ]
+    .filter(Boolean)
+    .join(' ')
+
   return (
-    <div
-      className={`fnode shape-${shape}` + (live ? ' live' : '') + (selected ? ' sel' : '') + ` st-${node.status}`}
-      style={{ ['--sc' as string]: sc }}
-    >
+    <div className={cls} style={{ ['--sc' as string]: sc }}>
       <Handle type="target" position={Position.Top} className="fh" />
 
-      {shape === 'diamond' && <span className="fnode-di" aria-hidden />}
+      {DIAMONDISH.has(shape) && <span className="fnode-di" aria-hidden />}
+      {shape === 'gate' && <GateMark kind={node.kind} />}
+      {shape === 'subprocess' && <SubMark />}
 
-      {shape === 'rect' ? (
+      {BOXY.has(shape) ? (
         <>
           <div className="nn-head">
             <span className="dot" />
@@ -41,9 +82,12 @@ export function FlowNode({ data, selected }: NodeProps): JSX.Element {
           </div>
           {node.description && <div className="nn-body neon-mono">{node.description}</div>}
         </>
+      ) : LABEL_OUTSIDE.has(shape) ? (
+        // evento/gateway: a forma fica vazia e o rótulo mora embaixo, fora dela
+        <span className="nn-out">{node.label}</span>
       ) : (
         <div className="nn-center">
-          <span className="dot" />
+          {shape !== 'annotation' && <span className="dot" />}
           <span className="nn-label">{node.label}</span>
         </div>
       )}

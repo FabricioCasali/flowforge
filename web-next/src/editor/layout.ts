@@ -17,6 +17,7 @@
 
 import ELK from 'elkjs/lib/elk.bundled.js'
 import type { Diagram, DNode } from '../types.js'
+import { EVENT_SIZE, GATE_SIZE, shapeOf } from './shapes.js'
 
 const elk = new ELK()
 
@@ -38,22 +39,46 @@ export interface LayoutResult {
 export type Pt = { x: number; y: number }
 type Size = { width: number; height: number }
 
+/**
+ * Tamanho da caixa por FORMA (lei 8). A forma vem de `shapes.ts` — a mesma
+ * tabela que o FlowNode usa para desenhar, para os dois não divergirem.
+ *
+ * Evento e gateway têm medida FIXA porque o rótulo deles fica FORA da forma:
+ * o texto não empurra a caixa. Todo o resto cresce com o rótulo.
+ */
 export function nodeSize(n: DNode): Size {
   const len = (n.label || '').length
-  const kind = n.kind
-  if (kind === 'entity') {
-    const rows = n.fields?.length ?? 0
-    return { width: 224, height: 36 + rows * 22 + 8 }
+  switch (shapeOf(n.kind)) {
+    case 'entity': {
+      const rows = n.fields?.length ?? 0
+      return { width: 224, height: 36 + rows * 22 + 8 }
+    }
+    case 'event':
+      return { width: EVENT_SIZE, height: EVENT_SIZE }
+    case 'gate':
+      return { width: GATE_SIZE, height: GATE_SIZE }
+    // losango clássico — rótulo DENTRO, então precisa de área
+    case 'diamond':
+      return { width: 168, height: 104 }
+    case 'data':
+      return { width: 128, height: 72 }
+    case 'annotation': {
+      // a anotação É o texto: quebra em ~2 linhas antes de crescer na largura
+      const width = Math.max(150, Math.min(280, 40 + len * 6.2))
+      const linhas = Math.max(1, Math.ceil((len * 6.2) / Math.max(1, width - 34)))
+      return { width, height: Math.max(44, 22 + linhas * 16) }
+    }
+    case 'pill':
+      return { width: Math.max(120, Math.min(230, 44 + len * 7.2)), height: 46 }
+    case 'idea':
+      return { width: Math.max(96, Math.min(210, 44 + len * 7.6)), height: 40 }
+    default: {
+      // retângulo (task/subprocess/state): cabeçalho + corpo mono
+      const width = Math.max(190, Math.min(300, 66 + len * 7))
+      const hasDesc = !!(n.description && n.description.trim())
+      return { width, height: hasDesc ? 82 : 42 }
+    }
   }
-  if (kind === 'decision' || kind === 'gateway-exclusive' || kind === 'gateway-parallel')
-    return { width: 168, height: 104 }
-  if (kind === 'start' || kind === 'end' || kind === 'event-start' || kind === 'event-end' || kind === 'event-intermediate')
-    return { width: Math.max(120, Math.min(230, 44 + len * 7.2)), height: 46 }
-  if (kind === 'idea') return { width: Math.max(96, Math.min(210, 44 + len * 7.6)), height: 40 }
-  // retângulo (task/subprocess/state): cabeçalho + corpo mono
-  const width = Math.max(190, Math.min(300, 66 + len * 7))
-  const hasDesc = !!(n.description && n.description.trim())
-  return { width, height: hasDesc ? 82 : 42 }
 }
 
 function sizesOf(diagram: Diagram): LayoutResult['sizes'] {

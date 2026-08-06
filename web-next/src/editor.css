@@ -4,8 +4,11 @@
    nada foi redesenhado. Depende dos tokens de `skin.css` (carregar skin ANTES).
 
    Cobre as classes usadas pelos componentes portados:
-     · FlowNode      → .fnode, .shape-rect/.shape-pill/.shape-diamond, .fnode-di,
-                       .nn-head, .nn-label, .nn-body, .nn-center, .dot, .badge
+     · FlowNode      → .fnode + .shape-* (rect, subprocess, pill, diamond, gate,
+                       event, idea, data, annotation) + .kind-* para a tinta de
+                       cada kind; .fnode-di (losango), .mk/.mk-gate/.mk-sub
+                       (marcadores ✕ ✛ [+]), .nn-head, .nn-label, .nn-body,
+                       .nn-center, .nn-out (rótulo fora), .dot, .badge
      · VerdictPanel  → .fpanel* (caret/head/kind/badge/desc/thread/cmt/verdict/reason)
      · EntityNode    → .ent, .ent-head, .ent-row, .ent-key(.pk/.fk), .ent-name, .ent-type
      · ErEdge        → .er-card, .orth-label
@@ -70,7 +73,7 @@
 }
 
 /* RETÂNGULO (task/subprocess): cabeçalho (dot+título+badge) + corpo mono */
-.fnode.shape-rect {
+.fnode:is(.shape-rect, .shape-subprocess) {
   background: var(--surface);
   border: 1px solid color-mix(in oklch, var(--sc) 34%, var(--border));
   border-radius: var(--r-md);
@@ -78,11 +81,11 @@
   overflow: hidden;
   transition: box-shadow 0.2s, border-color 0.2s;
 }
-.fnode.shape-rect.live {
+.fnode:is(.shape-rect, .shape-subprocess).live {
   border-color: color-mix(in oklch, var(--sc) 50%, transparent);
   box-shadow: var(--shadow-1), var(--glow-sc-soft);
 }
-.fnode.shape-rect.sel {
+.fnode:is(.shape-rect, .shape-subprocess).sel {
   border-color: var(--accent);
   box-shadow: var(--shadow-1), 0 0 0 1px var(--accent), 0 0 22px -6px var(--accent);
 }
@@ -181,12 +184,203 @@
   background: var(--surface);
   clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
 }
-.fnode.shape-diamond.live .fnode-di {
+.fnode:is(.shape-diamond, .shape-gate).live .fnode-di {
   background: color-mix(in oklch, var(--sc) 60%, transparent);
   filter: drop-shadow(0 0 10px color-mix(in oklch, var(--sc) 40%, transparent));
 }
-.fnode.shape-diamond.sel .fnode-di {
+.fnode:is(.shape-diamond, .shape-gate).sel .fnode-di {
   background: var(--accent);
+}
+
+/* ==========================================================================
+   LEI 8 — as formas por `kind`. Referência: web/app.js:60-74.
+   Regra que atravessa tudo aqui: FUNDO/CONTORNO diz o que a coisa É (kind),
+   BORDA/GLOW diz o veredito (status). Por isso as tintas de kind abaixo são
+   discretas — quem grita é o status.
+   ========================================================================== */
+
+/* ---------- rótulo FORA da forma (evento e gateway) ---------- */
+.nn-out {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 132px;
+  text-align: center;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--fg);
+  pointer-events: none;
+}
+
+/* ---------- marcadores SVG (✕ ✛ e o [+] do subprocesso) ---------- */
+.mk {
+  position: absolute;
+  fill: none;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+.mk-gate {
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 42%;
+  height: 42%;
+  z-index: 1;
+  stroke: var(--fg);
+  stroke-width: 3.2;
+}
+.fnode.kind-gateway-parallel .mk-gate {
+  width: 46%;
+  height: 46%;
+}
+.mk-sub {
+  left: 50%;
+  bottom: 2px;
+  transform: translateX(-50%);
+  width: 15px;
+  height: 15px;
+  z-index: 1;
+  stroke: var(--muted);
+  stroke-width: 2;
+}
+
+/* ---------- GATEWAY (losango 92px, marca no meio, rótulo embaixo) ---------- */
+.fnode.shape-gate {
+  filter: drop-shadow(0 2px 6px oklch(0 0 0 / 0.35));
+}
+
+/* ---------- EVENTO BPM (círculo 62px, rótulo embaixo) ---------- */
+.fnode.shape-event {
+  background: var(--surface);
+  border: 3px solid color-mix(in oklch, var(--sc) 45%, var(--border));
+  border-radius: 50%;
+  box-shadow: var(--shadow-1);
+  transition: box-shadow 0.2s, border-color 0.2s, border-width 0.2s;
+}
+.fnode.shape-event.live {
+  box-shadow: var(--shadow-1), var(--glow-sc-soft);
+}
+.fnode.shape-event.sel {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-1), 0 0 0 1px var(--accent), 0 0 22px -6px var(--accent);
+}
+/* início: tinta verde discreta (o verde FORTE é do status aprovado) */
+.fnode.kind-event-start {
+  background: color-mix(in oklch, var(--s-approved) 12%, var(--surface));
+}
+/* fim: borda grossa, que é como o BPM marca o evento terminal */
+.fnode.kind-event-end {
+  border-width: 6px;
+  background: color-mix(in oklch, var(--s-rejected) 12%, var(--surface));
+}
+/* intermediário: borda DUPLA */
+.fnode.kind-event-intermediate {
+  border-style: double;
+  border-width: 6px;
+}
+
+/* ---------- IDEIA (elipse) ---------- */
+.fnode.shape-idea {
+  background: var(--surface);
+  border: 1px solid color-mix(in oklch, var(--sc) 38%, var(--border));
+  border-radius: 50%;
+  box-shadow: var(--shadow-1);
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+.fnode.shape-idea.live {
+  box-shadow: var(--shadow-1), var(--glow-sc-soft);
+}
+.fnode.shape-idea.sel {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-1), 0 0 0 1px var(--accent), 0 0 22px -6px var(--accent);
+}
+.fnode.shape-idea .nn-center {
+  padding: 0 14px;
+  font-size: 12px;
+}
+
+/* ---------- OBJETO DE DADOS (canto cortado) ----------
+   O clip-path come a borda, então o contorno é feito com dois planos: o fundo é
+   a "borda" e o ::after, 1.5px pra dentro, é a superfície. Mesmo truque do
+   losango logo acima. */
+.fnode.shape-data {
+  --cut: 11px;
+  background: color-mix(in oklch, var(--sc) 42%, var(--border));
+  clip-path: polygon(
+    var(--cut) 0,
+    calc(100% - var(--cut)) 0,
+    100% var(--cut),
+    100% calc(100% - var(--cut)),
+    calc(100% - var(--cut)) 100%,
+    var(--cut) 100%,
+    0 calc(100% - var(--cut)),
+    0 var(--cut)
+  );
+  transition: background 0.2s;
+}
+.fnode.shape-data::after {
+  content: '';
+  position: absolute;
+  inset: 1.5px;
+  background: var(--surface);
+  clip-path: inherit;
+}
+.fnode.shape-data.live {
+  background: color-mix(in oklch, var(--sc) 60%, transparent);
+  filter: drop-shadow(0 0 10px color-mix(in oklch, var(--sc) 35%, transparent));
+}
+.fnode.shape-data.sel {
+  background: var(--accent);
+}
+.fnode.shape-data .nn-center {
+  position: relative;
+  z-index: 1;
+  padding: 0 14px;
+  font-size: 12px;
+}
+
+/* ---------- ANOTAÇÃO (tracejada, esmaecida) ----------
+   2º kind mais usado nos diagramas reais (21 nós). Tem de ler como NOTA à
+   margem, nunca como etapa do fluxo — daí o tracejado, o fundo quase ausente e
+   o texto em tom de comentário. */
+.fnode.shape-annotation {
+  background: color-mix(in oklch, var(--surface) 34%, transparent);
+  border: 2px dashed color-mix(in oklch, var(--sc) 30%, var(--border));
+  border-radius: var(--r-md);
+  transition: border-color 0.2s, background 0.2s;
+}
+.fnode.shape-annotation.live {
+  border-color: color-mix(in oklch, var(--sc) 48%, transparent);
+}
+.fnode.shape-annotation.sel {
+  border-color: var(--accent);
+  background: color-mix(in oklch, var(--surface) 62%, transparent);
+}
+.fnode.shape-annotation .nn-center {
+  padding: 7px 12px;
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--muted);
+  text-align: left;
+  justify-content: flex-start;
+}
+.fnode.shape-annotation .nn-label {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ---------- tinta de kind da pílula (início / fim) ---------- */
+.fnode.shape-pill.kind-start {
+  background: color-mix(in oklch, var(--s-approved) 11%, var(--surface));
+}
+.fnode.shape-pill.kind-end {
+  background: color-mix(in oklch, var(--s-rejected) 11%, var(--surface));
 }
 
 /* ---------- painel de ações EFÊMERO (nasce ao selecionar o nó) ---------- */
