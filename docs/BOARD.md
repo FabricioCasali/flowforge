@@ -99,6 +99,16 @@ Classe: **importante** · **melhoria**
   na primeira abertura e o `diagram.json` fica preservado como backup, sem ninguém ler nem
   escrever nele. Skill e leis atualizadas. · `[porte/fase-3]` · P · importante
 
+- **FF-015** **Modo guiado** — painel de etapas em cartões à esquerda; clicar num cartão
+  seleciona o nó e voa a tela até ele, e clicar num nó no canvas rola o painel até o cartão
+  (é de mão dupla, senão você perde o fio ao navegar). Campo novo `concept` em `types.ts`:
+  **painel = teoria, card = exemplo real** — duas frentes, decisão do Fabricio em
+  06/08/2026. Ordem por **posição** (`y`, `x` de desempate), não topológica: 3 dos 11
+  diagramas têm ciclo e 4 têm mais de uma raiz. Anotações vão pro fim (não são etapas).
+  Só nas lentes de percurso (Fluxograma, Swimlane, Máq. estados) — `mind`, `er` e `seq`
+  pediriam outra forma e ficam fora até o gesto se provar. Preferência lembrada em
+  `localStorage`. · `[uso]` · M · melhoria
+
 ## 📋 A fazer
 
 _(o porte fechou. O que sobra é melhoria e o projeto aberto — FF-014.)_

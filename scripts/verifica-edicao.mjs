@@ -299,6 +299,19 @@ function autoteste(raizCopia) {
   casos.push(['tirar as quebras limpa waypoints e routing juntos',
     dsem.process.edges[0].waypoints === undefined && dsem.process.edges[0].routing === undefined]);
 
+  // FF-015: o `concept` (a teoria do modo guiado) e um campo NOVO — se o servidor
+  // podar, o painel guiado nasce vazio e ninguem entende por que.
+  const mteo = clone(dsem.process);
+  mteo.nodes[0].concept = 'A teoria desta etapa, que aparece no painel guiado.';
+  mteo.nodes[0].description = 'O exemplo real, que aparece no card.';
+  const dteo = S.writeWorkspaceLens(slug, 'process', mteo, 'user');
+  const nteo = dteo.process.nodes[0];
+  casos.push(['concept sobrevive ao round-trip', nteo.concept === 'A teoria desta etapa, que aparece no painel guiado.']);
+  // os dois campos existem pra guardar coisas DIFERENTES: se um sobrescrevesse o
+  // outro, a separacao teoria/pratica seria so aparencia
+  casos.push(['concept e description convivem sem se sobrescrever',
+    nteo.description === 'O exemplo real, que aparece no card.' && nteo.concept !== nteo.description]);
+
   // campos ER (nome/tipo/pk/fk) no round-trip
   const mer = clone(d8.er);
   mer.nodes = [{ id: 'ent1', label: 'Cliente', kind: 'entity', status: 'proposed', comments: [],

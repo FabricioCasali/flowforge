@@ -46,7 +46,20 @@ export interface DNode {
   label: string
   kind: string
   status: NodeStatus
+  /**
+   * O EXEMPLO REAL: o que acontece na prática nesta etapa — arquivo, serviço,
+   * tabela, o passo concreto. Aparece no card do nó, junto do veredito.
+   */
   description?: string
+  /**
+   * A TEORIA: o conceito por trás da etapa, para quem está entendendo o fluxo
+   * pela primeira vez. Aparece no painel guiado, não no card.
+   *
+   * Campo separado de propósito (decisão do Fabricio, 06/08/2026): são duas
+   * frentes distintas, não dois recortes do mesmo texto. Quem lê para aprender
+   * quer o conceito; quem lê para implementar quer o exemplo.
+   */
+  concept?: string
   comments: Comment[]
   x?: number
   y?: number
@@ -266,6 +279,7 @@ export function coerceDiagram(raw: unknown): Diagram | null {
       comments: Array.isArray(n.comments) ? (n.comments as Comment[]) : []
     }
     if (typeof n.description === 'string') node.description = n.description
+    if (typeof n.concept === 'string') node.concept = n.concept
     if (typeof n.x === 'number') node.x = n.x
     if (typeof n.y === 'number') node.y = n.y
     if (typeof n.lane === 'string') node.lane = n.lane

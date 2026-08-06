@@ -488,6 +488,47 @@ async function testaFerramentas(L, M, X, base) {
   return casos;
 }
 
+/**
+ * FF-015 — a ordem do modo guiado. Por POSICAO, nao topologica, porque 3 dos 11
+ * diagramas reais tem ciclo e 4 tem mais de uma raiz. Anotacao vai pro fim: nao
+ * e etapa de percurso.
+ */
+function testaGuia(M) {
+  const casos = [];
+  const no = (id, y, x, kind) => ({ id, label: id, kind: kind || 'task', status: 'proposed', comments: [], x, y });
+  const ehNota = (n) => n.kind === 'annotation';
+
+  const fora = [no('c', 300, 0), no('a', 100, 0), no('b', 200, 0)];
+  casos.push(['ordena de cima pra baixo, como o desenho se le',
+    M.ordenarParaGuia(fora, ehNota).map((n) => n.id).join('') === 'abc']);
+
+  const mesmaAltura = [no('dir', 100, 900), no('esq', 100, 100)];
+  casos.push(['na mesma altura, desempata pela esquerda',
+    M.ordenarParaGuia(mesmaAltura, ehNota).map((n) => n.id).join('') === 'esqdir']);
+
+  const comNota = [no('nota', 50, 0, 'annotation'), no('etapa', 400, 0)];
+  casos.push(['anotacao vai pro FIM, mesmo estando no topo do desenho',
+    M.ordenarParaGuia(comNota, ehNota).map((n) => n.id).join('') === 'etapanota']);
+
+  const semPos = [{ id: 'novo', label: 'n', kind: 'task', status: 'proposed', comments: [] }, no('velho', 100, 0)];
+  casos.push(['no sem posicao (recem-criado) cai no fim, nao no topo',
+    M.ordenarParaGuia(semPos, ehNota).map((n) => n.id).join('') === 'velhonovo']);
+
+  // um diagrama com CICLO nao pode fazer a ordenacao sumir com no nenhum
+  const ciclo = [no('x', 300, 0), no('y', 100, 0), no('z', 200, 0)];
+  casos.push(['diagrama com ciclo nao perde no na ordenacao',
+    M.ordenarParaGuia(ciclo, ehNota).length === 3]);
+
+  casos.push(['ordenar nao muda o array original', (() => {
+    const orig = [no('b', 200, 0), no('a', 100, 0)];
+    const antes = orig.map((n) => n.id).join('');
+    M.ordenarParaGuia(orig, ehNota);
+    return orig.map((n) => n.id).join('') === antes;
+  })()]);
+
+  return casos;
+}
+
 async function autoteste(L, M, X) {
   const casos = [];
   const base = () => ({
@@ -605,6 +646,8 @@ async function autoteste(L, M, X) {
   casos.push(...(await testaFerramentas(L, M, X, base)));
   // FF-011: desvio de obstaculo e quebras manuais
   casos.push(...(await testaRoteamento(L)));
+  // FF-015: a ordem do modo guiado
+  casos.push(...testaGuia(M));
 
   let falhas = 0;
   for (const [nome, ok] of casos) {

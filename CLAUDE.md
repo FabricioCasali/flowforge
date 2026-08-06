@@ -35,6 +35,13 @@ no `README.md` nem em nada que um estranho leia primeiro.
    `fs.watch`; o Claude edita os arquivos direto e a mudança chega sozinha no canvas.
    Nunca invente um canal paralelo ao arquivo.
 
+   **Mas o FlowForge NÃO é memória.** Ele é ferramenta de *raciocínio*: serve pra tomar
+   decisão e entender fluxo, e o diagrama é descartável depois que cumpriu isso. O que
+   precisa sobreviver vai pra wiki, na curadoria (dito pelo Fabricio em 06/08/2026).
+   Consequência prática: **não pese decisão de contrato pelo custo de migrar o passado.**
+   Campo novo que nasce vazio nos diagramas existentes é aceitável — refazer um diagrama
+   custa pouco, e carregar um modelo ruim pra sempre custa caro.
+
 3. **Contrato antes de consumir.** `web-next/src/types.ts` é a barreira: modelo ou campo
    novo entra ali **antes** de qualquer componente ou do servidor consumir. É a cópia
    local do modelo — sem `@neon/shared`, sem import cruzando repo.

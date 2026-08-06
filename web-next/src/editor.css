@@ -1067,6 +1067,199 @@
   z-index: 11;
 }
 /* ==========================================================================
+   MODO GUIADO (FF-015) — o percurso em cartões, à esquerda.
+   Ocupa coluna de verdade (não flutua): é pra LER, e ler sobreposto ao canvas
+   cansa. O canvas recua junto, então a paleta e o resto acompanham sozinhos.
+   ========================================================================== */
+.neon-editor {
+  --ff-guia-w: 306px;
+}
+.neon-editor.com-guia .react-flow {
+  left: var(--ff-guia-w);
+  width: calc(100% - var(--ff-guia-w));
+}
+.neon-editor.com-guia .lensbar,
+.neon-editor.com-guia .palette,
+.neon-editor.com-guia .neon-editor-hud {
+  left: calc(var(--ff-guia-w) + 16px);
+}
+
+.guia {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--ff-guia-w);
+  z-index: 12;
+  display: flex;
+  flex-direction: column;
+  background: color-mix(in oklch, var(--surface) 96%, transparent);
+  border-right: 1px solid var(--border);
+  backdrop-filter: blur(8px);
+}
+.guia-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+.guia-cont {
+  color: var(--faint);
+}
+.guia-x {
+  margin-left: auto;
+  background: transparent;
+  border: none;
+  color: var(--faint);
+  cursor: pointer;
+  padding: 2px 4px;
+}
+.guia-x:hover {
+  color: var(--fg);
+}
+.guia-vazio {
+  margin: 0;
+  padding: 12px 14px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+.guia-lista {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.guia-card {
+  --sc: var(--s-proposed);
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  /* a barra de status à esquerda é o que deixa o painel legível de relance:
+     dá pra varrer o percurso e ver onde estão os pontos reprovados */
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--sc);
+  border-radius: var(--r-md);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, transform 0.1s;
+}
+.guia-card:hover {
+  background: color-mix(in oklch, var(--accent) 8%, var(--surface-2));
+  border-color: color-mix(in oklch, var(--accent) 40%, var(--border));
+}
+.guia-card.on {
+  border-color: var(--accent);
+  border-left-color: var(--sc);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.guia-card.st-approved {
+  --sc: var(--s-approved);
+}
+.guia-card.st-questioned {
+  --sc: var(--s-questioned);
+}
+.guia-card.st-rejected {
+  --sc: var(--s-rejected);
+}
+/* anotação não é etapa do percurso: entra no fim, apagada e tracejada */
+.guia-card.nota {
+  border-style: dashed;
+  opacity: 0.72;
+}
+.guia-card-topo {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--faint);
+  margin-bottom: 5px;
+}
+.guia-num {
+  color: var(--accent);
+  font-weight: 700;
+}
+.guia-kind {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.guia-st {
+  margin-left: auto;
+  color: var(--sc);
+}
+.guia-titulo {
+  font-family: var(--display);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--fg);
+  line-height: 1.25;
+}
+.guia-teoria {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.guia-falta {
+  margin-top: 6px;
+  font-size: 9.5px;
+  color: var(--faint);
+  font-style: italic;
+}
+
+/* ---------- o botão do guiado, na barra de lentes ---------- */
+.lensbar-sep {
+  width: 1px;
+  height: 15px;
+  background: var(--border);
+  margin: 0 3px;
+}
+.lensbar-guia {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--r-sm);
+  padding: 5px 10px;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+.lensbar-guia:hover:not(:disabled) {
+  color: var(--fg);
+}
+.lensbar-guia.on {
+  color: var(--bg);
+  background: var(--accent);
+}
+.lensbar-guia:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* dica no rodapé de uma aba do card */
+.fcard-dica {
+  margin: 8px 0 0;
+  font-size: 9.5px;
+  line-height: 1.45;
+  color: var(--faint);
+}
+
+/* ==========================================================================
    PALETA (FF-005) — flutua na borda esquerda. Mini-SVG da forma real, como o
    Fabricio pediu na fase 3: escolhe-se pela silhueta, não pela leitura.
    ========================================================================== */

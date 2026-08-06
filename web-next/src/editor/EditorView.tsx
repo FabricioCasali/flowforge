@@ -35,6 +35,7 @@ import type { DEdge, Diagram, DNode, Lane, ModelKey, NodeStatus, Pt, SeqModel, W
 import { FlowNode, sideOfHandle } from './FlowNode.js'
 import { Palette } from './Palette.js'
 import { LanesPanel } from './LanesPanel.js'
+import { GuidePanel } from './GuidePanel.js'
 import { Toolbar } from './Toolbar.js'
 import { EntityNode } from './EntityNode.js'
 import { MindNode } from './MindNode.js'
@@ -108,6 +109,29 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
   const activeDiagram: Diagram | null = lensDef.model === 'seq' ? null : (data[lensDef.model] as Diagram)
   /** O que o Claude mexeu NA LENTE ATUAL (o realce e o toast leem daqui). */
   const mudadosAqui = mudados[lensDef.model] ?? null
+
+  /**
+   * MODO GUIADO (FF-015) — lembrado entre sessões: é preferência de leitura, não
+   * estado do diagrama, então mora no localStorage e não no arquivo.
+   */
+  const [guiado, setGuiado] = useState(() => {
+    try {
+      return localStorage.getItem('ff-guiado') === '1'
+    } catch {
+      return false // navegador com storage bloqueado não pode derrubar o editor
+    }
+  })
+  const alternaGuiado = useCallback(() => {
+    setGuiado((v) => {
+      try {
+        localStorage.setItem('ff-guiado', v ? '0' : '1')
+      } catch {
+        /* sem storage: vale só nesta aba */
+      }
+      return !v
+    })
+  }, [])
+  const guiaAberto = guiado && lensDef.guiado && !!activeDiagram
 
   /**
    * Escreve um modelo: otimista na tela + patch no servidor (que reecoa o
@@ -691,12 +715,21 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
   )
 
 
-  const shell = 'neon-editor' + (busy ? ' ro' : '')
+  /** Cartão do guia → seleciona o nó (abre o card dele) e voa até ele. */
+  const irParaNo = useCallback(
+    (id: string) => {
+      setSel((s) => ({ nodes: new Set([id]), edges: s.edges }))
+      saltarPara(id)
+    },
+    [saltarPara]
+  )
+
+  const shell = 'neon-editor' + (busy ? ' ro' : '') + (guiaAberto ? ' com-guia' : '')
 
   if (lensDef.layout === 'seq') {
     return (
       <div className={shell}>
-        <LensBar lens={lens} onLens={onLens} />
+        <LensBar lens={lens} onLens={onLens} guiado={guiado} podeGuiar={false} onGuiado={alternaGuiado} />
         <SequenceView model={data.seq} />
       </div>
     )
@@ -706,7 +739,15 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
 
   return (
     <div className={shell} onDrop={onDrop} onDragOver={onDragOver}>
-      <LensBar lens={lens} onLens={onLens} />
+      <LensBar lens={lens} onLens={onLens} guiado={guiado} podeGuiar={lensDef.guiado} onGuiado={alternaGuiado} />
+      {guiaAberto && activeDiagram && (
+        <GuidePanel
+          nodes={activeDiagram.nodes}
+          selecionado={[...sel.nodes][0] ?? null}
+          onIr={irParaNo}
+          onFechar={alternaGuiado}
+        />
+      )}
       <Palette busy={busy} onPick={criarNoCentro} />
       {lens === 'swimlane' && activeDiagram && (
         <LanesPanel lanes={activeDiagram.lanes ?? []} busy={busy} onChange={onLanesChange} />
@@ -781,7 +822,19 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
   )
 }
 
-function LensBar({ lens, onLens }: { lens: LensKey; onLens: (l: LensKey) => void }): JSX.Element {
+function LensBar({
+  lens,
+  onLens,
+  guiado,
+  podeGuiar,
+  onGuiado
+}: {
+  lens: LensKey
+  onLens: (l: LensKey) => void
+  guiado: boolean
+  podeGuiar: boolean
+  onGuiado: () => void
+}): JSX.Element {
   return (
     <div className="lensbar neon-mono">
       <span className="lensbar-lbl">lente</span>
@@ -790,6 +843,21 @@ function LensBar({ lens, onLens }: { lens: LensKey; onLens: (l: LensKey) => void
           {l.label}
         </button>
       ))}
+      {/* o guiado é um modo de LER, então mora junto das lentes — mas separado,
+          porque não é uma delas: é uma camada por cima da que estiver ativa */}
+      <span className="lensbar-sep" />
+      <button
+        className={'lensbar-guia' + (guiado && podeGuiar ? ' on' : '')}
+        disabled={!podeGuiar}
+        onClick={onGuiado}
+        title={
+          podeGuiar
+            ? 'modo guiado: as etapas viram cartões, e clicar num deles leva até o nó'
+            : 'esta lente não tem percurso pra guiar (só Fluxograma, Swimlane e Máq. estados)'
+        }
+      >
+        ☰ guiado
+      </button>
     </div>
   )
 }

@@ -59,6 +59,25 @@ export function diffNodes(antes: Diagram | undefined, depois: Diagram | undefine
   return out
 }
 
+/**
+ * Ordem de leitura do MODO GUIADO (FF-015): por POSIÇÃO — `y`, com `x` de
+ * desempate — e as anotações no fim.
+ *
+ * Não é topológica de propósito. Medido nos 11 diagramas reais: 3 têm ciclo e 4
+ * têm mais de uma raiz, então seguir as setas quebraria neles e não saberia onde
+ * começar. A posição sempre existe e é do Fabricio (o FF-001 garantiu isso):
+ * ele desenha de cima pra baixo, então esta ordem é a leitura que ele já faz.
+ *
+ * Anotação vai pro fim porque não é etapa de percurso — são 12 nós soltos nos
+ * diagramas reais, e intercalá-las cortaria o fio da meada.
+ */
+export function ordenarParaGuia(nodes: DNode[], ehNota: (n: DNode) => boolean): DNode[] {
+  const y = (n: DNode): number => (typeof n.y === 'number' ? n.y : Number.MAX_SAFE_INTEGER)
+  const x = (n: DNode): number => (typeof n.x === 'number' ? n.x : Number.MAX_SAFE_INTEGER)
+  const ord = (a: DNode, b: DNode): number => y(a) - y(b) || x(a) - x(b)
+  return [...nodes.filter((n) => !ehNota(n)).sort(ord), ...nodes.filter(ehNota).sort(ord)]
+}
+
 /** Aresta nova entre dois nós, com os lados de ancoragem que o gesto escolheu. */
 export function novaEdge(source: string, target: string, sourceSide?: Side, targetSide?: Side): DEdge {
   const e: DEdge = { id: uid('e'), source, target, label: '', status: 'proposed' }

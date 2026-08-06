@@ -25,15 +25,25 @@ export interface LensDef {
    * O contrato fica inalterado (nada de posição por lente em `types.ts`).
    */
   savesPos: boolean
+  /**
+   * A lente aceita o MODO GUIADO (painel de etapas em cartões)?
+   *
+   * Só onde o diagrama se lê como PERCURSO. Fica de fora: `mind` (é hierarquia,
+   * pediria uma árvore indentada em vez de fila de cartões), `er` (não há
+   * percurso — viraria índice de entidades, que é outra coisa) e `seq` (a lente
+   * já É linear, o painel seria eco dela). Ligar isso nas três exige desenhar
+   * uma forma própria pra cada uma; não vale antes de o gesto se provar.
+   */
+  guiado: boolean
 }
 
 export const LENSES: LensDef[] = [
-  { key: 'flow', label: 'Fluxograma', model: 'process', layout: 'layered', nodeType: 'flow', edgeType: 'orth', family: 'lente', savesPos: true },
-  { key: 'swimlane', label: 'Swimlane', model: 'process', layout: 'swimlane', nodeType: 'flow', edgeType: 'orth', family: 'lente', savesPos: false },
-  { key: 'state', label: 'Máq. estados', model: 'state', layout: 'layered', nodeType: 'flow', edgeType: 'orth', family: 'lente', savesPos: true },
-  { key: 'er', label: 'ER', model: 'er', layout: 'er', nodeType: 'entity', edgeType: 'er', family: 'conteúdo', savesPos: true },
-  { key: 'mind', label: 'Mind map', model: 'mind', layout: 'radial', nodeType: 'mind', edgeType: 'mind', family: 'conteúdo', savesPos: true },
-  { key: 'seq', label: 'Sequência', model: 'seq', layout: 'seq', nodeType: 'flow', edgeType: 'orth', family: 'conteúdo', savesPos: false }
+  { key: 'flow', label: 'Fluxograma', model: 'process', layout: 'layered', nodeType: 'flow', edgeType: 'orth', family: 'lente', savesPos: true, guiado: true },
+  { key: 'swimlane', label: 'Swimlane', model: 'process', layout: 'swimlane', nodeType: 'flow', edgeType: 'orth', family: 'lente', savesPos: false, guiado: true },
+  { key: 'state', label: 'Máq. estados', model: 'state', layout: 'layered', nodeType: 'flow', edgeType: 'orth', family: 'lente', savesPos: true, guiado: true },
+  { key: 'er', label: 'ER', model: 'er', layout: 'er', nodeType: 'entity', edgeType: 'er', family: 'conteúdo', savesPos: true, guiado: false },
+  { key: 'mind', label: 'Mind map', model: 'mind', layout: 'radial', nodeType: 'mind', edgeType: 'mind', family: 'conteúdo', savesPos: true, guiado: false },
+  { key: 'seq', label: 'Sequência', model: 'seq', layout: 'seq', nodeType: 'flow', edgeType: 'orth', family: 'conteúdo', savesPos: false, guiado: false }
 ]
 
 export const LENS_BY_KEY: Record<LensKey, LensDef> = Object.fromEntries(LENSES.map((l) => [l.key, l])) as Record<

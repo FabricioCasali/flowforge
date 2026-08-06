@@ -22,7 +22,7 @@ import type { Comment, DNode, ErField, Lane, NodeStatus } from '../types.js'
 import { GRUPO_FLUXO, KIND_LABEL, KINDS } from './shapes.js'
 import { STLBL } from './status.js'
 
-type Tab = 'desc' | 'campos' | 'notas'
+type Tab = 'desc' | 'teoria' | 'campos' | 'notas'
 
 export interface NodeCardProps {
   node: DNode
@@ -44,9 +44,11 @@ export function NodeCard({ node, busy = false, lanes = [], onVerdict, onEdit }: 
   // seleção troca — sem isso o card abriria com o texto do nó anterior.
   const [label, setLabel] = useState(node.label)
   const [desc, setDesc] = useState(node.description ?? '')
+  const [teoria, setTeoria] = useState(node.concept ?? '')
   useEffect(() => {
     setLabel(node.label)
     setDesc(node.description ?? '')
+    setTeoria(node.concept ?? '')
     setTab('desc')
     setReasonFor(null)
   }, [node.id])
@@ -73,6 +75,9 @@ export function NodeCard({ node, busy = false, lanes = [], onVerdict, onEdit }: 
   }
   const commitDesc = (): void => {
     if (desc !== (node.description ?? '')) onEdit(node.id, { description: desc })
+  }
+  const commitTeoria = (): void => {
+    if (teoria !== (node.concept ?? '')) onEdit(node.id, { concept: teoria })
   }
 
   /**
@@ -115,8 +120,15 @@ export function NodeCard({ node, busy = false, lanes = [], onVerdict, onEdit }: 
       </div>
 
       <div className="fcard-tabs neon-mono">
-        <button className={tab === 'desc' ? 'on' : ''} onClick={() => setTab('desc')}>
-          descrição
+        <button className={tab === 'desc' ? 'on' : ''} onClick={() => setTab('desc')} title="o exemplo real: o que acontece na prática">
+          prática
+        </button>
+        <button
+          className={tab === 'teoria' ? 'on' : ''}
+          onClick={() => setTab('teoria')}
+          title="a teoria: o conceito, para quem está entendendo o fluxo — aparece no modo guiado"
+        >
+          teoria{node.concept?.trim() ? ' ·' : ''}
         </button>
         {ehEntidade && (
           <button className={tab === 'campos' ? 'on' : ''} onClick={() => setTab('campos')}>
@@ -128,7 +140,29 @@ export function NodeCard({ node, busy = false, lanes = [], onVerdict, onEdit }: 
         </button>
       </div>
 
-      {tab === 'campos' ? (
+      {tab === 'teoria' ? (
+        <div className="fcard-pane">
+          <label className="fcard-lbl neon-mono" htmlFor={`teo-${node.id}`}>
+            o conceito por trás desta etapa
+          </label>
+          <textarea
+            id={`teo-${node.id}`}
+            className="fcard-input fcard-area"
+            rows={5}
+            value={teoria}
+            disabled={busy}
+            placeholder="por que esta etapa existe, o que ela resolve, o que alguém precisa entender aqui…"
+            onChange={(e) => setTeoria(e.target.value)}
+            onBlur={commitTeoria}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setTeoria(node.concept ?? '')
+            }}
+          />
+          <p className="fcard-dica neon-mono">
+            é este texto que aparece no <b>modo guiado</b>. A aba “prática” é o exemplo real.
+          </p>
+        </div>
+      ) : tab === 'campos' ? (
         <CamposEr
           busy={busy}
           fields={node.fields ?? []}
