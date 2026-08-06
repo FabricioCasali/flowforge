@@ -271,6 +271,25 @@ function autoteste(raizCopia) {
   casos.push(['seta guarda status proprio divergente das pontas', !!ex && ex.status === 'rejected']);
   casos.push(['rotulo da seta sobrevive', !!ex && ex.label === 'se falhar']);
 
+  // FF-011: quebras manuais tem de sobreviver ao round-trip. Se o servidor
+  // podar `waypoints`, a linha que o Fabricio ajustou na mao volta torta.
+  const mwp = clone(d8.process);
+  mwp.edges[0].waypoints = [{ x: 900, y: 200 }, { x: 900, y: 420 }];
+  mwp.edges[0].routing = 'segments';
+  const dwp = S.writeWorkspaceLens(slug, 'process', mwp, 'user');
+  const ewp = dwp.process.edges[0];
+  casos.push(['waypoints sobrevivem ao round-trip', !!ewp.waypoints && ewp.waypoints.length === 2]);
+  casos.push(['waypoints mantem a ORDEM e os valores', !!ewp.waypoints && ewp.waypoints[0].y === 200 && ewp.waypoints[1].y === 420]);
+  casos.push(['routing segments sobrevive junto', ewp.routing === 'segments']);
+
+  // remover a ultima quebra nao pode deixar `routing` orfao
+  const msem = clone(dwp.process);
+  delete msem.edges[0].waypoints;
+  delete msem.edges[0].routing;
+  const dsem = S.writeWorkspaceLens(slug, 'process', msem, 'user');
+  casos.push(['tirar as quebras limpa waypoints e routing juntos',
+    dsem.process.edges[0].waypoints === undefined && dsem.process.edges[0].routing === undefined]);
+
   // campos ER (nome/tipo/pk/fk) no round-trip
   const mer = clone(d8.er);
   mer.nodes = [{ id: 'ent1', label: 'Cliente', kind: 'entity', status: 'proposed', comments: [],

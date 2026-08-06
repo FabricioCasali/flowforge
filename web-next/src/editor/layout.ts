@@ -16,7 +16,7 @@
 // ============================================================================
 
 import ELK from 'elkjs/lib/elk.bundled.js'
-import type { Diagram, DNode, Side } from '../types.js'
+import type { Diagram, DNode, Pt, Side } from '../types.js'
 import { EVENT_SIZE, GATE_SIZE, shapeOf } from './shapes.js'
 
 const elk = new ELK()
@@ -36,7 +36,7 @@ export interface LayoutResult {
   noLanes?: boolean
 }
 
-export type Pt = { x: number; y: number }
+export type { Pt }
 type Size = { width: number; height: number }
 
 /**
@@ -239,6 +239,201 @@ export function orthRoute(sp: Pt, ss: Size, tp: Pt, ts: Size, sourceSide?: Side,
   return [sa, { x: mx, y: sa.y }, { x: mx, y: ta.y }, ta]
 }
 
+// ---------------------------------------------------------------------------
+// Desvio de obstáculo (FF-011) — porte do `routeOrthogonal` de `app.js:196`.
+//
+// O L/Z acima é barato e resolve a maioria dos casos, mas atravessa qualquer nó
+// que esteja no caminho. Aqui a aresta CONTORNA: monta uma grade de visibilidade
+// com as bordas dos nós e roda um A* ortogonal por cima, penalizando curva pra
+// o traço sair com o menor número de dobras.
+//
+// Só é chamado quando o L/Z não serve — desviar custa caro e a maioria das
+// arestas não precisa.
+// ---------------------------------------------------------------------------
+
+export interface Rect {
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+  cx: number
+  cy: number
+}
+
+export function toRect(p: Pt, s: Size, inflar = 0): Rect {
+  return {
+    x1: p.x - inflar,
+    y1: p.y - inflar,
+    x2: p.x + s.width + inflar,
+    y2: p.y + s.height + inflar,
+    cx: p.x + s.width / 2,
+    cy: p.y + s.height / 2
+  }
+}
+
+const EPS = 1e-6
+/** Limite da grade: acima disso o A* não paga o que custa (o antigo usa o mesmo). */
+const MAX_CELULAS = 2600
+
+function bloqueado(x1: number, y1: number, x2: number, y2: number, obs: Rect[]): boolean {
+  for (const o of obs) {
+    if (Math.abs(y1 - y2) < EPS) {
+      const y = y1
+      if (y > o.y1 + EPS && y < o.y2 - EPS) {
+        const a = Math.min(x1, x2)
+        const b = Math.max(x1, x2)
+        if (a < o.x2 - EPS && b > o.x1 + EPS) return true
+      }
+    } else if (Math.abs(x1 - x2) < EPS) {
+      const x = x1
+      if (x > o.x1 + EPS && x < o.x2 - EPS) {
+        const a = Math.min(y1, y2)
+        const b = Math.max(y1, y2)
+        if (a < o.y2 - EPS && b > o.y1 + EPS) return true
+      }
+    }
+  }
+  return false
+}
+
+function dentro(px: number, py: number, obs: Rect[]): boolean {
+  for (const o of obs) if (px > o.x1 + EPS && px < o.x2 - EPS && py > o.y1 + EPS && py < o.y2 - EPS) return true
+  return false
+}
+
+function unicos(arr: number[]): number[] {
+  const s = [...arr].sort((a, b) => a - b)
+  const r: number[] = []
+  for (const v of s) if (!r.length || v - r[r.length - 1]! > 1) r.push(v)
+  return r
+}
+
+/**
+ * Caminho ortogonal de `s` até `t` desviando de `obs`.
+ * Devolve o traço COMPLETO (com as duas pontas) ou `null` se não valeu a pena —
+ * aí quem chamou usa o L/Z.
+ */
+export function routeAvoiding(sa: Pt, ta: Pt, s: Rect, t: Rect, obs: Rect[]): Pt[] | null {
+  if (!obs.length) return null
+  // O L/Z já resolve? Então nem monta grade.
+  const lA = { x: sa.x, y: ta.y }
+  const lB = { x: ta.x, y: sa.y }
+  const okA = !bloqueado(sa.x, sa.y, lA.x, lA.y, obs) && !bloqueado(lA.x, lA.y, ta.x, ta.y, obs)
+  const okB = !bloqueado(sa.x, sa.y, lB.x, lB.y, obs) && !bloqueado(lB.x, lB.y, ta.x, ta.y, obs)
+  if (okA || okB) return null
+
+  let xs = [s.x1, s.x2, s.cx, t.x1, t.x2, t.cx, sa.x, ta.x]
+  let ys = [s.y1, s.y2, s.cy, t.y1, t.y2, t.cy, sa.y, ta.y]
+  for (const o of obs) {
+    xs.push(o.x1, o.x2)
+    ys.push(o.y1, o.y2)
+  }
+  xs = unicos(xs)
+  ys = unicos(ys)
+  if (xs.length * ys.length > MAX_CELULAS) return null
+
+  const bloq = xs.map((x) => ys.map((y) => dentro(x, y, obs)))
+  const encaixa = (px: number, py: number): { i: number; j: number } => {
+    let melhor = Infinity
+    let bi = 0
+    let bj = 0
+    for (let i = 0; i < xs.length; i++) {
+      for (let j = 0; j < ys.length; j++) {
+        if (bloq[i]![j]) continue
+        const d = Math.abs(xs[i]! - px) + Math.abs(ys[j]! - py)
+        if (d < melhor) {
+          melhor = d
+          bi = i
+          bj = j
+        }
+      }
+    }
+    return { i: bi, j: bj }
+  }
+
+  const ini = encaixa(sa.x, sa.y)
+  const fim = encaixa(ta.x, ta.y)
+  const chave = (i: number, j: number): string => i + ',' + j
+  const aberto = new Set([chave(ini.i, ini.j)])
+  const veio = new Map<string, string>()
+  const g = new Map<string, number>([[chave(ini.i, ini.j), 0]])
+  const f = new Map<string, number>([[chave(ini.i, ini.j), 0]])
+  const dirs = [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1]
+  ]
+  const alvo = chave(fim.i, fim.j)
+  let achou = false
+
+  while (aberto.size) {
+    let atual = ''
+    let bf = Infinity
+    for (const k of aberto) {
+      const v = f.get(k) ?? Infinity
+      if (v < bf) {
+        bf = v
+        atual = k
+      }
+    }
+    if (atual === alvo) {
+      achou = true
+      break
+    }
+    aberto.delete(atual)
+    const [ci, cj] = atual.split(',').map(Number) as [number, number]
+    const ant = veio.get(atual)
+    for (const [di, dj] of dirs) {
+      const ni = ci + di!
+      const nj = cj + dj!
+      if (ni < 0 || nj < 0 || ni >= xs.length || nj >= ys.length || bloq[ni]![nj]) continue
+      if (bloqueado(xs[ci]!, ys[cj]!, xs[ni]!, ys[nj]!, obs)) continue
+      const nk = chave(ni, nj)
+      // penaliza DOBRA: entre dois caminhos de mesmo comprimento, o com menos
+      // curvas é o que parece desenhado por gente
+      let curva = 0
+      if (ant) {
+        const [pi, pj] = ant.split(',').map(Number) as [number, number]
+        if (ci - pi !== di || cj - pj !== dj) curva = 12
+      }
+      const ng = (g.get(atual) ?? 0) + Math.abs(xs[ni]! - xs[ci]!) + Math.abs(ys[nj]! - ys[cj]!) + curva
+      if (ng < (g.get(nk) ?? Infinity)) {
+        veio.set(nk, atual)
+        g.set(nk, ng)
+        f.set(nk, ng + Math.abs(xs[ni]! - xs[fim.i]!) + Math.abs(ys[nj]! - ys[fim.j]!))
+        aberto.add(nk)
+      }
+    }
+  }
+  if (!achou) return null
+
+  const caminho: Pt[] = []
+  let k = alvo
+  while (k !== chave(ini.i, ini.j)) {
+    const [i, j] = k.split(',').map(Number) as [number, number]
+    caminho.unshift({ x: xs[i]!, y: ys[j]! })
+    const p = veio.get(k)
+    if (p === undefined) return null
+    k = p
+  }
+  caminho.unshift({ x: xs[ini.i]!, y: ys[ini.j]! })
+
+  // tira os colineares e costura as pontas reais
+  const limpo: Pt[] = []
+  for (let i = 0; i < caminho.length; i++) {
+    if (i === 0 || i === caminho.length - 1) {
+      limpo.push(caminho[i]!)
+      continue
+    }
+    const a = caminho[i - 1]!
+    const b = caminho[i]!
+    const c = caminho[i + 1]!
+    if (!((a.x === b.x && b.x === c.x) || (a.y === b.y && b.y === c.y))) limpo.push(b)
+  }
+  return dedup([sa, ...limpo, ta])
+}
+
 /** Quanto a aresta anda reto ao sair da borda antes de dobrar. */
 const STUB = 18
 
@@ -289,13 +484,73 @@ function dedup(pts: Pt[]): Pt[] {
 }
 
 /** Re-roteia TODAS as arestas — usado sempre que as posições não são as do elk. */
+/** Ponto na borda do retângulo virado para `alvo` — a saída natural da aresta. */
+export function anchorTowards(p: Pt, s: Size, alvo: Pt): Pt {
+  const cx = p.x + s.width / 2
+  const cy = p.y + s.height / 2
+  const dx = alvo.x - cx
+  const dy = alvo.y - cy
+  if (Math.abs(dx) >= Math.abs(dy)) return dx > 0 ? { x: p.x + s.width, y: cy } : { x: p.x, y: cy }
+  return dy > 0 ? { x: cx, y: p.y + s.height } : { x: cx, y: p.y }
+}
+
+/** Algum trecho do traço atravessa o interior de um obstáculo? */
+function caminhoCruza(pts: Pt[], obs: Rect[]): boolean {
+  for (let i = 1; i < pts.length; i++) {
+    if (bloqueado(pts[i - 1]!.x, pts[i - 1]!.y, pts[i]!.x, pts[i]!.y, obs)) return true
+  }
+  return false
+}
+
+/** Folga em volta do nó pra a aresta não passar raspando na borda. */
+const FOLGA_OBSTACULO = 10
+
+/**
+ * Traça TODAS as arestas. A ordem de precedência é a regra do FF-011:
+ *   1. quebras manuais (`waypoints`) — quem desenhou na mão manda, ponto final
+ *   2. L/Z limpo, se não cruzar ninguém — é o traço mais legível e o mais barato
+ *   3. desvio A*, só quando o L/Z passaria por cima de um nó
+ */
 function routeAll(diagram: Diagram, positions: Record<string, Pt>, sizes: Record<string, Size>): Record<string, Pt[]> {
   const out: Record<string, Pt[]> = {}
+  const rects: Record<string, Rect> = {}
+  for (const n of diagram.nodes) {
+    const p = positions[n.id]
+    const s = sizes[n.id]
+    if (p && s) rects[n.id] = toRect(p, s, FOLGA_OBSTACULO)
+  }
+
   for (const e of diagram.edges) {
     const s = positions[e.source]
     const t = positions[e.target]
     if (!s || !t) continue
-    out[e.id] = orthRoute(s, sizes[e.source]!, t, sizes[e.target]!, e.sourceSide, e.targetSide)
+    const ss = sizes[e.source]!
+    const ts = sizes[e.target]!
+
+    // 1) quebra manual manda
+    if (e.waypoints?.length) {
+      const sa = anchorTowards(s, ss, e.waypoints[0]!)
+      const ta = anchorTowards(t, ts, e.waypoints[e.waypoints.length - 1]!)
+      out[e.id] = dedup([sa, ...e.waypoints, ta])
+      continue
+    }
+
+    const base = orthRoute(s, ss, t, ts, e.sourceSide, e.targetSide)
+    const obs: Rect[] = []
+    for (const n of diagram.nodes) {
+      if (n.id === e.source || n.id === e.target) continue
+      const r = rects[n.id]
+      if (r) obs.push(r)
+    }
+
+    // 2) o traço limpo já serve?
+    if (!caminhoCruza(base, obs)) {
+      out[e.id] = base
+      continue
+    }
+    // 3) contorna
+    const desvio = routeAvoiding(base[0]!, base[base.length - 1]!, rects[e.source]!, rects[e.target]!, obs)
+    out[e.id] = desvio ?? base
   }
   return out
 }

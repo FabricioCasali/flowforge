@@ -1,7 +1,8 @@
 import { BaseEdge, EdgeLabelRenderer, type EdgeProps } from '@xyflow/react'
-import type { DEdge, NodeStatus } from '../types.js'
+import type { DEdge, NodeStatus, Pt } from '../types.js'
 import { SC } from './status.js'
 import { EdgeCard } from './EdgeCard.js'
+import { BendHandles } from './BendHandles.js'
 
 export interface OrthEdgeData {
   points?: { x: number; y: number }[]
@@ -12,6 +13,7 @@ export interface OrthEdgeData {
   busy?: boolean
   onEdgeEdit?: (id: string, patch: Partial<DEdge>) => void
   onEdgeDelete?: (id: string) => void
+  onEdgeWaypoints?: (id: string, wps: Pt[]) => void
   [key: string]: unknown
 }
 
@@ -43,6 +45,9 @@ export function OrthEdge(props: EdgeProps): JSX.Element {
         <text className="orth-label" x={mid.x} y={mid.y - 5} textAnchor="middle">
           {data.label}
         </text>
+      )}
+      {selected && data?.edge && data.onEdgeWaypoints && (
+        <BendHandles edge={data.edge} pts={pts} busy={data.busy} onWaypoints={data.onEdgeWaypoints} />
       )}
       {selected && data?.edge && data.onEdgeEdit && data.onEdgeDelete && mid && (
         <EdgeLabelRenderer>

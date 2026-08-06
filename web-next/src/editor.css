@@ -699,6 +699,41 @@
   outline-offset: 1px;
 }
 
+/* ---------- quebras arrastáveis da aresta (FF-011) ---------- */
+.bend {
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  margin: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--bg);
+  box-shadow: 0 0 8px color-mix(in oklch, var(--accent) 70%, transparent);
+  cursor: grab;
+  pointer-events: all;
+  z-index: 31;
+  touch-action: none;
+}
+.bend:active {
+  cursor: grabbing;
+}
+/* a alça FANTASMA (meio do trecho) só se anuncia no hover — senão a aresta
+   selecionada vira um colar de bolinhas e não dá pra ver o traço */
+.bend.fantasma {
+  width: 9px;
+  height: 9px;
+  background: transparent;
+  border: 1.5px dashed color-mix(in oklch, var(--accent) 70%, transparent);
+  box-shadow: none;
+  opacity: 0.45;
+}
+.bend.fantasma:hover,
+.bend.fantasma.on {
+  opacity: 1;
+  background: color-mix(in oklch, var(--accent) 45%, transparent);
+  border-style: solid;
+}
+
 /* ==========================================================================
    LanesPanel — raias (atores) da Swimlane. Metadado do diagrama, não nó.
    ========================================================================== */
@@ -798,6 +833,26 @@
      passa da tela e o veredito fica inalcançável */
   max-height: 64vh;
   overflow-y: auto;
+}
+/* FF-012 — o card abre à direita por padrão, mas num nó colado na borda direita
+   ele nasceria fora da tela. O componente mede e vira o lado; se não couber de
+   nenhum dos dois, desce pra baixo do nó. */
+.fpanel.esq {
+  left: auto;
+  right: calc(100% + 16px);
+}
+.fpanel.abaixo {
+  left: 0;
+  right: auto;
+  top: calc(100% + 14px);
+}
+.fpanel.esq .fpanel-caret {
+  left: auto;
+  right: -6px;
+  transform: rotate(180deg);
+}
+.fpanel.abaixo .fpanel-caret {
+  display: none;
 }
 .fpanel-caret {
   position: absolute;

@@ -17,7 +17,7 @@
 // A garantia dura continua no transporte (`ws.ts`), isto aqui é a cortesia.
 // ============================================================================
 
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Comment, DNode, ErField, Lane, NodeStatus } from '../types.js'
 import { GRUPO_FLUXO, KIND_LABEL, KINDS } from './shapes.js'
 import { STLBL } from './status.js'
@@ -75,10 +75,39 @@ export function NodeCard({ node, busy = false, lanes = [], onVerdict, onEdit }: 
     if (desc !== (node.description ?? '')) onEdit(node.id, { description: desc })
   }
 
+  /**
+   * FF-012 — de que lado o card cabe.
+   *
+   * Ele abre à direita do nó por padrão. Num nó colado na borda direita da
+   * viewport isso o punha fora da tela: o card existia e era inalcançável.
+   * Aqui ele mede a si mesmo depois de montado e vira pro lado que couber; se
+   * não couber de nenhum, desce pra baixo do nó (que sempre sobra).
+   *
+   * Medir > adivinhar: a largura do card e o zoom do canvas mudam, e regra de
+   * CSS pura não enxerga nem um nem outro.
+   */
+  const caixa = useRef<HTMLDivElement>(null)
+  const [lado, setLado] = useState('')
+  useLayoutEffect(() => {
+    const el = caixa.current
+    if (!el) return
+    setLado('') // mede sempre a partir do padrão, senão a decisão vira histerese
+    const id = requestAnimationFrame(() => {
+      const r = el.getBoundingClientRect()
+      const folga = 12
+      if (r.right <= window.innerWidth - folga) return
+      // não cabe à direita: tenta a esquerda medindo o espaço que sobra lá
+      const larguraCard = r.width
+      const espacoEsq = r.left - larguraCard - 32
+      setLado(espacoEsq > folga ? 'esq' : 'abaixo')
+    })
+    return () => cancelAnimationFrame(id)
+  }, [node.id, tab])
+
   const notas = node.comments?.length ?? 0
 
   return (
-    <div className="fpanel nodrag nowheel" onClick={(e) => e.stopPropagation()}>
+    <div className={'fpanel nodrag nowheel ' + lado} ref={caixa} onClick={(e) => e.stopPropagation()}>
       <div className="fpanel-caret" />
       <div className="fpanel-head">
         <span className="fpanel-kind neon-mono">{KIND_LABEL[node.kind] ?? node.kind}</span>

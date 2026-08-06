@@ -31,7 +31,7 @@ import {
   type NodeChange,
   type ReactFlowInstance
 } from '@xyflow/react'
-import type { DEdge, Diagram, DNode, Lane, ModelKey, NodeStatus, SeqModel, Workspace } from '../types.js'
+import type { DEdge, Diagram, DNode, Lane, ModelKey, NodeStatus, Pt, SeqModel, Workspace } from '../types.js'
 import { FlowNode, sideOfHandle } from './FlowNode.js'
 import { Palette } from './Palette.js'
 import { LanesPanel } from './LanesPanel.js'
@@ -66,8 +66,6 @@ const STATUS_COLOR: Record<NodeStatus, string> = {
 }
 const nodeTypes = { flow: FlowNode, entity: EntityNode, mind: MindNode, lane: LaneNode }
 const edgeTypes = { orth: OrthEdge, er: ErEdge, mind: MindEdge }
-
-type Pt = { x: number; y: number }
 
 export interface EditorViewProps {
   /** O arquivo-verdade (`workspace.json`) já normalizado, vindo do WS. */
@@ -407,6 +405,34 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
     [lensDef.model, writeModel]
   )
 
+  /**
+   * Quebras manuais da aresta (FF-011). Grava `routing:'segments'` junto, como o
+   * editor antigo — e LIMPA os dois quando a última quebra sai, senão sobraria
+   * um `routing` órfão dizendo que há quebras que não existem mais.
+   */
+  const onEdgeWaypoints = useCallback(
+    (id: string, wps: Pt[]) => {
+      const model = lensDef.model
+      if (busy || model === 'seq') return
+      writeModel(model, (dia) => ({
+        ...dia,
+        edges: dia.edges.map((e) => {
+          if (e.id !== id) return e
+          const next = { ...e }
+          if (wps.length) {
+            next.waypoints = wps
+            next.routing = 'segments'
+          } else {
+            delete next.waypoints
+            delete next.routing
+          }
+          return next
+        })
+      }))
+    },
+    [busy, lensDef.model, writeModel]
+  )
+
   const onEdgeDeleteOne = useCallback(
     (id: string) => {
       const model = lensDef.model
@@ -608,7 +634,8 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
           edge: e,
           busy,
           onEdgeEdit,
-          onEdgeDelete: onEdgeDeleteOne
+          onEdgeDelete: onEdgeDeleteOne,
+          onEdgeWaypoints
         } as Record<string, unknown>
       }
       if (lensDef.edgeType === 'orth') return { ...base, markerEnd: `url(#neon-arrow-${e.status})` }
@@ -616,7 +643,7 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
       if (lensDef.edgeType === 'mind') return { ...base, data: { points, branch: branch[e.target] ?? 0 } }
       return base
     })
-  }, [layout, activeDiagram, lensDef.edgeType, branch, posOf, posOverride, busy, onEdgeEdit, onEdgeDeleteOne, sel.edges])
+  }, [layout, activeDiagram, lensDef.edgeType, branch, posOf, posOverride, busy, onEdgeEdit, onEdgeDeleteOne, onEdgeWaypoints, sel.edges])
 
   // ------------------------------------------------------------------------
   // FERRAMENTAS (FF-007)

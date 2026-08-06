@@ -282,6 +282,73 @@ async function testaPropagacao(M) {
  * fato de os arranjos posicionarem todo mundo IGNORANDO o desenho salvo, e a
  * regra do diff (conteudo conta, posicao nao).
  */
+/**
+ * FF-011 — desvio de obstaculo e quebras manuais.
+ *
+ * A checagem de cruzamento aqui e ESCRITA DE NOVO, de proposito: se ela usasse o
+ * mesmo helper do layout.ts, um bug no helper faria o teste concordar com o bug.
+ */
+function segmentoDentro(a, b, r) {
+  const EPS = 0.5;
+  if (Math.abs(a.y - b.y) < EPS) { // horizontal
+    if (a.y <= r.y1 + EPS || a.y >= r.y2 - EPS) return false;
+    return Math.min(a.x, b.x) < r.x2 - EPS && Math.max(a.x, b.x) > r.x1 + EPS;
+  }
+  if (Math.abs(a.x - b.x) < EPS) { // vertical
+    if (a.x <= r.x1 + EPS || a.x >= r.x2 - EPS) return false;
+    return Math.min(a.y, b.y) < r.y2 - EPS && Math.max(a.y, b.y) > r.y1 + EPS;
+  }
+  return false;
+}
+function trajetoCruza(pts, r) {
+  for (let i = 1; i < pts.length; i++) if (segmentoDentro(pts[i - 1], pts[i], r)) return true;
+  return false;
+}
+
+async function testaRoteamento(L) {
+  const casos = [];
+  // A em cima, B embaixo e C EXATAMENTE no meio: o L/Z reto passa por dentro de C
+  const d = {
+    type: 'flowchart', title: 'T', rev: 0, updatedBy: 'user', lanes: [],
+    nodes: [
+      { id: 'a', label: 'A', kind: 'task', status: 'proposed', comments: [], x: 400, y: 100 },
+      { id: 'c', label: 'C no meio', kind: 'task', status: 'proposed', comments: [], x: 400, y: 300 },
+      { id: 'b', label: 'B', kind: 'task', status: 'proposed', comments: [], x: 400, y: 500 },
+    ],
+    edges: [{ id: 'e1', source: 'a', target: 'b', label: '', status: 'proposed' }],
+  };
+  const r = await L.layoutDiagram(d, 'DOWN', 70);
+  const pc = r.positions.c, sc = r.sizes.c;
+  const rc = { x1: pc.x, y1: pc.y, x2: pc.x + sc.width, y2: pc.y + sc.height };
+  casos.push(['aresta CONTORNA o no que estava no caminho', !trajetoCruza(r.edgePoints.e1, rc)]);
+  casos.push(['o desvio ainda comeca e termina nas pontas certas', r.edgePoints.e1.length >= 2]);
+
+  // sem obstaculo no meio, o traco continua simples (o A* nao pode virar padrao)
+  const d2 = JSON.parse(JSON.stringify(d));
+  d2.nodes = d2.nodes.filter((n) => n.id !== 'c');
+  const r2 = await L.layoutDiagram(d2, 'DOWN', 70);
+  casos.push(['sem obstaculo, o traco continua o L/Z simples', r2.edgePoints.e1.length <= 4]);
+
+  // quebra MANUAL manda: o traco tem de passar pelo ponto pedido
+  const d3 = JSON.parse(JSON.stringify(d));
+  d3.edges[0].waypoints = [{ x: 900, y: 300 }];
+  d3.edges[0].routing = 'segments';
+  const r3 = await L.layoutDiagram(d3, 'DOWN', 70);
+  const passou = r3.edgePoints.e1.some((p) => Math.abs(p.x - 900) < 0.5 && Math.abs(p.y - 300) < 0.5);
+  casos.push(['quebra manual entra no traco', passou]);
+  casos.push(['quebra manual vence o roteador automatico', JSON.stringify(r3.edgePoints.e1) !== JSON.stringify(r.edgePoints.e1)]);
+
+  // duas quebras, na ordem em que foram postas
+  const d4 = JSON.parse(JSON.stringify(d));
+  d4.edges[0].waypoints = [{ x: 900, y: 200 }, { x: 900, y: 420 }];
+  const r4 = await L.layoutDiagram(d4, 'DOWN', 70);
+  const idx1 = r4.edgePoints.e1.findIndex((p) => Math.abs(p.y - 200) < 0.5);
+  const idx2 = r4.edgePoints.e1.findIndex((p) => Math.abs(p.y - 420) < 0.5);
+  casos.push(['duas quebras saem na ordem gravada', idx1 > 0 && idx2 > idx1]);
+
+  return casos;
+}
+
 async function testaFerramentas(L, M, X, base) {
   const casos = [];
 
@@ -481,6 +548,8 @@ async function autoteste(L, M, X) {
   casos.push(...(await testaPropagacao(M)));
   // FF-007: ferramentas
   casos.push(...(await testaFerramentas(L, M, X, base)));
+  // FF-011: desvio de obstaculo e quebras manuais
+  casos.push(...(await testaRoteamento(L)));
 
   let falhas = 0;
   for (const [nome, ok] of casos) {

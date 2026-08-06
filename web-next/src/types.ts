@@ -54,6 +54,11 @@ export interface DNode {
   lane?: string // swimlane-only
 }
 
+export interface Pt {
+  x: number
+  y: number
+}
+
 export interface DEdge {
   id: string
   source: NodeId
@@ -64,6 +69,15 @@ export interface DEdge {
   targetSide?: Side
   sourceCard?: '1' | 'N' // cardinalidade ER
   targetCard?: '1' | 'N'
+  /**
+   * Quebras MANUAIS, em coordenadas do canvas. Quem tem waypoints manda: o
+   * roteador automático não é consultado. Mesmo formato do editor antigo, que
+   * grava `routing:'segments'` junto — decisão do Fabricio em 06/08/2026, pela
+   * paridade com o `web/`.
+   */
+  waypoints?: Pt[]
+  /** `segments` = respeita os waypoints; ausente = deixa o roteador decidir. */
+  routing?: 'segments' | 'bezier'
 }
 
 export interface Lane {
@@ -279,6 +293,14 @@ export function coerceDiagram(raw: unknown): Diagram | null {
     if (e.targetSide === 'top' || e.targetSide === 'right' || e.targetSide === 'bottom' || e.targetSide === 'left') edge.targetSide = e.targetSide
     if (e.sourceCard === '1' || e.sourceCard === 'N') edge.sourceCard = e.sourceCard
     if (e.targetCard === '1' || e.targetCard === 'N') edge.targetCard = e.targetCard
+    // quebras manuais: só entram se forem pontos numéricos de verdade
+    if (Array.isArray(e.waypoints)) {
+      const wp = (e.waypoints as unknown[])
+        .filter((p): p is Pt => !!p && typeof p === 'object' && Number.isFinite((p as Pt).x) && Number.isFinite((p as Pt).y))
+        .map((p) => ({ x: p.x, y: p.y }))
+      if (wp.length) edge.waypoints = wp
+    }
+    if (e.routing === 'segments' || e.routing === 'bezier') edge.routing = e.routing
     edges.push(edge)
   })
 

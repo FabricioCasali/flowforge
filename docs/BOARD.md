@@ -70,10 +70,29 @@ Classe: **importante** · **melhoria**
   na topbar, e o destaque do que o Claude mudou com toast "ver ↷". · `[porte/fase-2]` · M ·
   importante
 
+- **FF-011** **Quebras e roteamento de aresta** — o `orthRoute` ganhou **desvio de
+  obstáculo** (A* sobre grade de visibilidade, portado de `app.js:196`): o L/Z continua
+  sendo o traço padrão e o A* só entra quando o caminho cruzaria um nó. E as **quebras
+  manuais** voltaram — `waypoints` + `routing` entraram em `types.ts` (lei 3), com alças
+  arrastáveis na aresta selecionada: cheia move, duplo-clique remove, fantasma no meio do
+  trecho cria. Precedência: quebra manual > L/Z limpo > desvio. Paridade total com o editor
+  antigo, escolhida pelo Fabricio em 06/08/2026 mesmo com 0 de 143 arestas usando quebra. ·
+  `[porte]` · M · melhoria
+
+- **FF-012** **Card do nó em diagrama denso** — o card mede a si mesmo depois de montado e
+  escolhe o lado: direita por padrão, esquerda se não couber, abaixo se não couber de nenhum
+  dos dois. Medir em vez de adivinhar, porque a largura do card e o zoom do canvas mudam e
+  regra de CSS pura não enxerga nem um nem outro. · `[porte]` · P · melhoria
+
+- **FF-013** **A topbar não distinguia as duas conexões** — o pill "conectado" é do browser
+  com o servidor; o Claude é outra conexão. Saiu um segundo pill ("claude ouvindo/offline",
+  âmbar quando offline porque não é falha) e o botão Analisar avisa antes do clique que o
+  pedido vai pro inbox. Protocolo: `state.claudeOnline` + evento `{type:'claude'}`. ·
+  `[porte]` · P · importante
+
 ## 📋 A fazer
 
-_(fases 1 e 2 fechadas. O `/v2` edita tudo o que o `web/` antigo edita — falta a validação
-do Fabricio na tela antes de encostar no FF-008, que é irreversível.)_
+_(FF-008 é o próximo, e é irreversível: só com o aval do Fabricio.)_
 
 ## 🗂️ Backlog
 
@@ -88,15 +107,3 @@ do Fabricio na tela antes de encostar no FF-008, que é irreversível.)_
 
 - **FF-010** **Bundle de 1,8 MB** — o elkjs vai inteiro no chunk principal. Candidato a
   import dinâmico quando incomodar. · `[porte]` · P · melhoria
-
-- **FF-011** **Quebras e roteamento de aresta** — as bend handles arrastáveis e o roteador
-  ortogonal com desvio de obstáculos (A\*) do editor antigo (`app.js:196`, `app.js:1124-1236`)
-  não têm equivalente no novo. **Confirmado na validação de 06/08/2026**: o Fabricio viu
-  linhas voltando pelo próprio eixo e cruzando por baixo de cards. Ele classificou como "não
-  grave, já tínhamos antes" — mas é o argumento a favor de trazer o desvio de volta. Decidir
-  antes de FF-008. · `[porte]` · M · melhoria
-
-- **FF-012** **Card do nó em diagrama denso** — o `.fpanel` abre sempre à direita do nó
-  (`left: calc(100% + 16px)`). Num nó colado na borda direita da viewport ele nasce fora da
-  tela. Precisa escolher o lado (ou virar popover com colisão). Saiu da validação de
-  06/08/2026. · `[porte]` · P · melhoria
