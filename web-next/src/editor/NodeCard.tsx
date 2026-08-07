@@ -90,6 +90,25 @@ export function NodeCard({ node, busy = false, lanes = [], onVerdict, onEdit }: 
    *
    * Medir > adivinhar: a largura do card e o zoom do canvas mudam, e regra de
    * CSS pura não enxerga nem um nem outro.
+   *
+   * FF-018 — a fronteira é a ÁREA DE DESENHO, não a janela. `window.innerWidth`
+   * mede até a borda do browser, mas o desenho acaba antes: o painel de conversa
+   * ocupa a faixa da direita. Entre as duas fronteiras havia uma faixa onde o
+   * card "cabia" na conta e abria fora da vista — o mesmo defeito que este bloco
+   * existe pra evitar. Medido em 07/08/2026: nó com a borda em 3003 numa janela
+   * de 3440 abria o card em 3012→3332, 231px além do canvas.
+   *
+   * E a área útil é a INTERSEÇÃO de dois retângulos, porque nenhum dos dois
+   * basta sozinho (medido nesta árvore, janela de 1135):
+   *
+   *   sem guia   .react-flow    0 ──────── 795   .neon-editor  0 ──────── 795
+   *   com guia   .react-flow  306 ──────────── 1101   .neon-editor  0 ── 795
+   *
+   * O `.react-flow` responde pela ESQUERDA — é ele que o CSS recua quando o guia
+   * abre (`.neon-editor.com-guia .react-flow`) — mas à direita ele TRANSBORDA o
+   * pai e vai parar debaixo da conversa. O `.neon-editor` responde pela DIREITA,
+   * que é onde a conversa começa, mas ignora o recuo do guia. Um `min`/`max` nos
+   * dois dá a área que o olho vê.
    */
   const caixa = useRef<HTMLDivElement>(null)
   const [lado, setLado] = useState('')
@@ -100,10 +119,16 @@ export function NodeCard({ node, busy = false, lanes = [], onVerdict, onEdit }: 
     const id = requestAnimationFrame(() => {
       const r = el.getBoundingClientRect()
       const folga = 12
-      if (r.right <= window.innerWidth - folga) return
+      // Sem os containers (teste em jsdom, por exemplo) cai na janela, que é o
+      // comportamento antigo — pior fronteira, mas nunca pior que não decidir.
+      const flow = el.closest('.react-flow')?.getBoundingClientRect()
+      const shell = el.closest('.neon-editor')?.getBoundingClientRect()
+      const bordaDir = Math.min(flow?.right ?? window.innerWidth, shell?.right ?? window.innerWidth)
+      const bordaEsq = Math.max(flow?.left ?? 0, shell?.left ?? 0)
+      if (r.right <= bordaDir - folga) return
       // não cabe à direita: tenta a esquerda medindo o espaço que sobra lá
       const larguraCard = r.width
-      const espacoEsq = r.left - larguraCard - 32
+      const espacoEsq = r.left - larguraCard - 32 - bordaEsq
       setLado(espacoEsq > folga ? 'esq' : 'abaixo')
     })
     return () => cancelAnimationFrame(id)
