@@ -132,19 +132,29 @@ Classe: **importante** · **melhoria**
   de duas colunas — identidade à esquerda, texto à direita numa caixa alta — e o card foi a
   468px. O veredito virou `position: sticky` no rodapé com degradê. · `[uso]` · P · melhoria
 
+- **FF-018** **O card media contra a janela, não contra a área de desenho** — o FF-012 decidia
+  o lado com `r.right <= window.innerWidth - 12`, mas o desenho acaba onde a conversa começa.
+  Entre as duas fronteiras havia uma faixa em que o card "cabia" na conta e abria fora da
+  vista — o mesmo defeito que o FF-012 existe para evitar ("o card existia e era
+  inalcançável"), com a fronteira errada. O FF-017 alargou a faixa: ela é proporcional à
+  largura do card, que cresceu 75%.
+
+  A área útil acabou sendo a **interseção de dois retângulos**, porque nenhum basta sozinho:
+  o `.react-flow` responde pela **esquerda** (o modo guiado o recua 306px) mas transborda o
+  pai à direita, indo parar debaixo da conversa; o `.neon-editor` responde pela **direita**
+  mas ignora o recuo do guia. Um `min`/`max` nos dois dá o que o olho vê.
+
+  Prova (janela de 1135, modo guiado, área útil 306→795): pela regra antiga, **6 nós
+  visíveis** — `n3`, `n4`, `n5`, `n7`, `n10`, `a1` — abriam card fora da área; pela nova,
+  **nenhum**. Dos 21 nós, 18 ficam inteiramente dentro e os 3 que sobram têm o **próprio nó**
+  fora da área visível, onde card nenhum caberia. · `[uso]` · P · importante
+
+  _Sem verificador: é geometria de DOM, e cobri-la exigiria jsdom — dependência nova que a
+  lei 9 não autoriza por isto. Foi medida no browser._
+
 ## 📋 A fazer
 
-- **FF-018** **O card mede contra a janela, não contra o canvas** — o FF-012 decide o lado
-  com `r.right <= window.innerWidth - 12` (`NodeCard.tsx:103`), mas a área de desenho termina
-  onde começa o painel de conversa. Entre as duas fronteiras há uma faixa em que o card
-  "cabe" na conta e mesmo assim abre **por baixo da conversa**, que o pinta por cima — o
-  mesmo defeito que o FF-012 existe para evitar ("o card existia e era inalcançável"), só que
-  com a fronteira errada. Medido em 07/08/2026 no diagrama `arquitetura-flowforge`, viewport
-  de 3440px: com a borda direita do nó em 3003 o card abriu em 3012→3332 e **invadiu o painel
-  em 231px** (~70% dele), com `elementFromPoint` devolvendo `ff-msg claude` na ponta. O FF-017
-  piorou o caso: a faixa é proporcional à largura do card, e ele cresceu 75%. Conserto
-  provável: medir contra o retângulo do container do React Flow em vez da janela. ·
-  `[uso]` · P · importante
+_(vazio — o que sobra está no backlog.)_
 
 ## 🗂️ Backlog
 
