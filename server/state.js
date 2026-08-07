@@ -1,7 +1,15 @@
 'use strict';
-// Estado da sessao em arquivos: diagram.json + thread.json + inbox.jsonl.
+// Estado da sessao em arquivos: workspace.json + diagram.json + thread.json + inbox.jsonl.
 // Arquivos sao a fonte da verdade. O Claude edita esses arquivos diretamente;
 // o servidor (index.js) apenas espelha arquivo <-> browser.
+//
+// Dois arquivos-verdade convivem durante o porte:
+//   diagram.json   — UM diagrama de UM tipo. E o que o editor antigo (web/, servido em /)
+//                    le e escreve. Lei 1: ele nao pode parar; ninguem mexe nele por aqui.
+//   workspace.json — o novo (lei 4): os 5 modelos coexistindo num arquivo so
+//                    { process, state, er, mind, seq, rev, updatedBy }. E o que o editor
+//                    novo (web-next/, servido em /v2) le e escreve, por lente.
+// A ponte entre os dois e a migracao LAZY e NAO DESTRUTIVA do ensureSession (lei 5).
 
 const fs = require('fs');
 const path = require('path');
@@ -23,6 +31,7 @@ function slugify(s) {
 
 function sessionDir(slug) { return path.join(ROOT, slug); }
 function diagramPath(slug) { return path.join(sessionDir(slug), 'diagram.json'); }
+function workspacePath(slug) { return path.join(sessionDir(slug), 'workspace.json'); }
 function threadPath(slug) { return path.join(sessionDir(slug), 'thread.json'); }
 function inboxPath(slug) { return path.join(sessionDir(slug), 'inbox.jsonl'); }
 
@@ -50,9 +59,208 @@ function writeJson(p, obj) {
   fs.renameSync(tmp, p);
 }
 
+// ===========================================================================
+// WORKSPACE — o novo arquivo-verdade (lei 4)
+// Os 5 modelos coexistem: { process, state, er, mind, seq, rev, updatedBy }.
+// As 6 lentes leem esses 5 modelos: 'process' serve Fluxograma E Swimlane (mesmo
+// grafo, layout diferente) — por isso o 'type' de dentro do Diagram continua vivo,
+// e e ele que mantem as formas BPM e as raias.
+// 'seq' NAO e um Diagram: e um modelo dedicado { participants, messages }.
+// ===========================================================================
+
+const MODEL_KEYS = ['process', 'state', 'er', 'mind', 'seq'];
+function isModelKey(k) { return MODEL_KEYS.indexOf(String(k)) >= 0; }
+
+// Mapa da migracao: o 'type' do diagram.json antigo -> em qual modelo ele vira.
+// flowchart/bpm/swimlane sao o MESMO grafo visto de jeitos diferentes -> 'process'.
+const TYPE_TO_MODEL = {
+  flowchart: 'process',
+  bpm: 'process',
+  swimlane: 'process',
+  er: 'er',
+  mindmap: 'mind',
+};
+
+// Espelha o emptyDiagram() de web-next/src/types.ts (o contrato manda: updatedBy 'user').
+// Nao confundir com o emptyDiagram() daqui de cima, que e do arquivo antigo e usa 'claude'.
+function emptyModel(title, type) {
+  return {
+    type: type,
+    title: title || 'Novo diagrama',
+    rev: 0,
+    updatedBy: 'user',
+    lanes: [],
+    nodes: [],
+    edges: [],
+  };
+}
+
+function emptySeq() { return { participants: [], messages: [] }; }
+
+// Workspace zerado. Todo modelo nasce com o MESMO titulo: um workspace e UM assunto
+// visto por 6 lentes — o titulo pertence a sessao, nao a lente.
+function emptyWorkspace(title) {
+  const t = title || 'Novo diagrama';
+  return {
+    process: emptyModel(t, 'flowchart'),
+    state: emptyModel(t, 'flowchart'),
+    er: emptyModel(t, 'er'),
+    mind: emptyModel(t, 'mindmap'),
+    seq: emptySeq(),
+    rev: 0,
+    updatedBy: 'user',
+  };
+}
+
+// Normaliza sem PODAR: espalha o objeto original e so preenche o que falta.
+// Campo desconhecido (do Claude, de uma versao futura) sobrevive intacto.
+function normalizeModel(raw, title, type) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return emptyModel(title, type);
+  const d = Object.assign({}, raw);
+  if (typeof d.type !== 'string' || !d.type) d.type = type || 'flowchart';
+  if (typeof d.title !== 'string') d.title = title || 'Novo diagrama';
+  if (typeof d.rev !== 'number') d.rev = 0;
+  if (d.updatedBy !== 'user' && d.updatedBy !== 'claude') d.updatedBy = 'user';
+  if (!Array.isArray(d.lanes)) d.lanes = [];
+  if (!Array.isArray(d.nodes)) d.nodes = [];
+  if (!Array.isArray(d.edges)) d.edges = [];
+  return d;
+}
+
+function normalizeSeq(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return emptySeq();
+  const s = Object.assign({}, raw);
+  if (!Array.isArray(s.participants)) s.participants = [];
+  if (!Array.isArray(s.messages)) s.messages = [];
+  return s;
+}
+
+// Garante os 5 modelos + rev + updatedBy num objeto que veio do disco ou do browser.
+// Nunca escreve: e so leitura defensiva (arquivo editado a mao nao derruba o canvas).
+function normalizeWorkspace(raw, title) {
+  const base = (raw && typeof raw === 'object' && !Array.isArray(raw)) ? raw : {};
+  const t = title || (base.process && typeof base.process.title === 'string' && base.process.title) || 'Novo diagrama';
+  const ws = Object.assign({}, base);
+  ws.process = normalizeModel(base.process, t, 'flowchart');
+  ws.state = normalizeModel(base.state, t, 'flowchart');
+  ws.er = normalizeModel(base.er, t, 'er');
+  ws.mind = normalizeModel(base.mind, t, 'mindmap');
+  ws.seq = normalizeSeq(base.seq);
+  ws.rev = Number(base.rev) || 0;
+  ws.updatedBy = base.updatedBy === 'claude' ? 'claude' : 'user';
+  return ws;
+}
+
+// Titulo da sessao vindo do workspace. O workspace nao tem campo 'title' proprio
+// (o contrato sao os 5 modelos + rev + updatedBy); o titulo mora nos modelos.
+function workspaceTitle(ws) {
+  const order = ['process', 'state', 'er', 'mind'];
+  for (let i = 0; i < order.length; i++) {
+    const m = ws && ws[order[i]];
+    if (m && typeof m.title === 'string' && m.title) return m.title;
+  }
+  return 'Novo diagrama';
+}
+
+// ---- migracao LAZY e NAO DESTRUTIVA (lei 5) -------------------------------
+// Converte um diagram.json antigo num workspace. O diagram.json PERMANECE em
+// disco, intocado — ele continua sendo o arquivo do editor antigo (lei 1) e o
+// backup natural desta conversao.
+//
+// Preservacao por COPIA INTEGRAL, nao por field-mapping: o diagrama inteiro e
+// copiado pra dentro do modelo de destino. Assim x, y, comments, description,
+// fields, lanes, lane, sourceSide, targetSide, sourceCard, targetCard — e
+// qualquer campo que eu nem saiba que existe — chegam do outro lado.
+function workspaceFromDiagram(diagram) {
+  const d = (diagram && typeof diagram === 'object' && !Array.isArray(diagram)) ? diagram : {};
+  const title = (typeof d.title === 'string' && d.title) ? d.title : 'Novo diagrama';
+  const ws = emptyWorkspace(title);
+
+  const key = TYPE_TO_MODEL[String(d.type || 'flowchart')] || 'process';
+  const copy = JSON.parse(JSON.stringify(d)); // copia profunda: nada compartilha referencia
+  // o 'type' de dentro vai junto (swimlane continua swimlane, bpm continua bpm):
+  // e ele que mantem as raias e as formas BPM depois da migracao.
+  ws[key] = normalizeModel(copy, title, copy.type || 'flowchart');
+
+  // continuidade do rev: o workspace nasce no rev em que o diagrama parou, pra
+  // nao voltar no tempo pra quem ja estava com a sessao aberta.
+  ws.rev = Number(d.rev) || 0;
+  ws.updatedBy = d.updatedBy === 'claude' ? 'claude' : 'user';
+  return ws;
+}
+
+function readWorkspace(slug) {
+  return normalizeWorkspace(readJson(workspacePath(slug), null));
+}
+
+// Grava o workspace inteiro. O servidor e a AUTORIDADE do rev (lei 6):
+// incrementa a cada escrita que passa por aqui (origem-usuario, via browser).
+// O Claude escreve o arquivo direto, com rev+1 e updatedBy:'claude' — nao passa aqui.
+function writeWorkspace(slug, ws, by) {
+  const prev = readJson(workspacePath(slug), null);
+  const next = normalizeWorkspace(ws, ws && ws.process && ws.process.title);
+  next.rev = (Number(prev && prev.rev) || 0) + 1;
+  next.updatedBy = by === 'claude' ? 'claude' : 'user';
+  writeJson(workspacePath(slug), next);
+  return next;
+}
+
+// Grava UMA lente dentro do workspace (o patch lens-aware do editor novo).
+// Le o workspace do disco, troca so aquele modelo e sobe o rev do WORKSPACE —
+// as outras 4 lentes ficam exatamente como estavam.
+// Para lens 'seq' o payload e um SeqModel { participants, messages }, nao um Diagram.
+function writeWorkspaceLens(slug, lens, model, by) {
+  if (!isModelKey(lens)) return null;
+  const ws = readWorkspace(slug);
+  const rev = (Number(ws.rev) || 0) + 1;
+  const updatedBy = by === 'claude' ? 'claude' : 'user';
+
+  if (lens === 'seq') {
+    ws.seq = normalizeSeq(model);
+  } else {
+    const prev = ws[lens];
+    ws[lens] = normalizeModel(model, prev.title, prev.type);
+    // espelha o rev do workspace no modelo tocado: quem olhar so a lente ve em
+    // que rev ela mexeu pela ultima vez. A autoridade continua sendo ws.rev.
+    ws[lens].rev = rev;
+    ws[lens].updatedBy = updatedBy;
+  }
+
+  ws.rev = rev;
+  ws.updatedBy = updatedBy;
+  writeJson(workspacePath(slug), ws);
+  return ws;
+}
+
+// ---------------------------------------------------------------------------
+
 function ensureSession(slug, title) {
   fs.mkdirSync(sessionDir(slug), { recursive: true });
-  if (!fs.existsSync(diagramPath(slug))) writeJson(diagramPath(slug), emptyDiagram(title));
+
+  // Migracao LAZY (lei 5): so acontece se ja existe diagram.json e ainda nao
+  // existe workspace.json. Acontece UMA vez, na primeira abertura da sessao.
+  // O diagram.json NAO e apagado, movido nem reescrito.
+  if (!fs.existsSync(workspacePath(slug))) {
+    if (fs.existsSync(diagramPath(slug))) {
+      const legado = readJson(diagramPath(slug), null);
+      if (legado) {
+        writeJson(workspacePath(slug), workspaceFromDiagram(legado));
+        console.log('[migracao] ' + slug + ': diagram.json (' + (legado.type || 'flowchart') + ') -> workspace.json (diagram.json preservado)');
+      } else {
+        // diagram.json existe mas nao parseia: ou esta corrompido, ou pegamos ele
+        // no meio de um rename. NAO criar workspace vazio aqui — a migracao e
+        // one-shot, entao um vazio agora congelaria a perda pra sempre. Adia:
+        // a proxima abertura da sessao tenta de novo.
+        console.error('[migracao] ' + slug + ': diagram.json ilegivel — migracao ADIADA (nada foi criado)');
+      }
+    } else {
+      writeJson(workspacePath(slug), emptyWorkspace(title));
+    }
+  }
+
+  // Sessao NOVA nao ganha mais diagram.json: ele existia pro editor antigo, que
+  // saiu no FF-008. A MIGRACAO acima continua — sessao antiga tem o arquivo e
+  // precisa dele pra virar workspace, e ele segue preservado como backup (lei 5).
   if (!fs.existsSync(threadPath(slug))) writeJson(threadPath(slug), { messages: [] });
 }
 
@@ -66,7 +274,9 @@ function listSessions() {
 
 function readDiagram(slug) { return readJson(diagramPath(slug), emptyDiagram()); }
 function readThread(slug) { return readJson(threadPath(slug), { messages: [] }); }
-function readState(slug) { return { diagram: readDiagram(slug), thread: readThread(slug) }; }
+function readState(slug) {
+  return { diagram: readDiagram(slug), workspace: readWorkspace(slug), thread: readThread(slug) };
+}
 
 // Grava o diagrama vindo do browser. O servidor eh a autoridade do rev:
 // incrementa a cada escrita de origem-usuario.
@@ -96,9 +306,14 @@ function appendInbox(slug, entry) {
 }
 
 module.exports = {
-  setDataDir, getRoot, slugify, sessionDir, diagramPath, threadPath, inboxPath,
-  emptyDiagram, ensureSession, listSessions,
-  readDiagram, readThread, readState,
-  writeDiagram, appendThread, appendInbox,
-  readJson, writeJson,
+  setDataDir, getRoot, slugify, sessionDir, inboxPath, listSessions,
+  // arquivo-verdade antigo (editor web/, rota /) — lei 1: intocado
+  diagramPath, emptyDiagram, readDiagram, writeDiagram,
+  // arquivo-verdade novo (editor web-next/, rota /v2) — lei 4
+  workspacePath, MODEL_KEYS, isModelKey, emptyWorkspace, emptySeq, emptyModel,
+  normalizeWorkspace, normalizeSeq, normalizeModel, workspaceTitle,
+  workspaceFromDiagram, readWorkspace, writeWorkspace, writeWorkspaceLens,
+  // comuns
+  ensureSession, readThread, readState, appendThread, appendInbox,
+  threadPath, readJson, writeJson,
 };

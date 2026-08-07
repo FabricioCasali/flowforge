@@ -1,0 +1,131 @@
+/* ============================================================================
+   PELE NEON — tokens do design system. CÓPIA LOCAL, sem dependência de repo.
+   Portada de `@neon/shared/skin/neon.css` (Context Builder). Regra-mãe:
+   O BRILHO É SEMÂNTICO — só brilha o que está vivo. Superfície parada = grafite fosco.
+   Padrão universal: cada componente seta --sc (state color) e alterna .live/.needs;
+   todo glow deriva por color-mix(in oklch, var(--sc) N%, transparent).
+
+   Aqui moram as variáveis que os nós do editor consomem:
+   --s-proposed / --s-approved / --s-questioned / --s-rejected (co-decisão),
+   --br-a..--br-d (ramos do mind map), --surface/--border/--fg/--muted/--faint,
+   --r-* (raios), --glow-* e --shadow-* (sombras).
+
+   FONTES: no NEON são auto-hospedadas via @fontsource. Aqui NÃO trouxemos essa
+   dependência (stack travado) — `--display`/`--mono` caem no fallback do
+   sistema. Se a tipografia virar requisito, adicionar @fontsource é o caminho.
+   ============================================================================ */
+
+:root {
+  /* --- base fria (idêntica nos dois protótipos) --- */
+  --bg: oklch(0.15 0.022 258);
+  --bg-2: oklch(0.18 0.026 258);
+  --surface: oklch(0.215 0.03 258);
+  --surface-2: oklch(0.255 0.034 258);
+  --border: oklch(0.34 0.03 258);
+  --border-2: oklch(0.43 0.035 258);
+  --fg: oklch(0.95 0.008 250);
+  --muted: oklch(0.66 0.02 255);
+  --faint: oklch(0.52 0.02 255);
+
+  /* --- accent: a "corrente" ciano-elétrica do sistema --- */
+  --accent: oklch(0.82 0.15 205);
+  --accent-dim: oklch(0.62 0.1 205);
+
+  /* --- EIXO 1: co-decisão (design-time) — Proposta→cravar --- */
+  --s-proposed: oklch(0.58 0.02 258);
+  --s-approved: oklch(0.8 0.16 162);
+  --s-questioned: oklch(0.84 0.15 78);
+  --s-rejected: oklch(0.7 0.19 22);
+
+  /* --- EIXO 2: execução (runtime) — painel vivo --- */
+  --s-idle: oklch(0.55 0.015 258);
+  --s-think: oklch(0.82 0.15 205); /* = accent */
+  --s-act: oklch(0.8 0.16 165);
+  --s-wait: oklch(0.84 0.15 78); /* âmbar de aprovação */
+  --s-done: oklch(0.8 0.16 160);
+  --s-error: oklch(0.7 0.2 22);
+  --s-pause: oklch(0.72 0.09 250);
+
+  /* --- fase 'analise' (ramo 1: leitura terminal) — tinta fria, calma, EM REPOUSO.
+     Baixa croma DE PROPÓSITO: não compete com os semânticos-vivos (ciano/verde/âmbar);
+     lê como "nota/carta/leitura", nunca como "trabalhando". Sem breathe/ring/glow. --- */
+  --s-analise: oklch(0.7 0.06 275);
+
+  /* --- cores de ramo do mind map (editor) --- */
+  --br-a: oklch(0.8 0.13 205);
+  --br-b: oklch(0.8 0.15 150);
+  --br-c: oklch(0.76 0.14 300);
+  --br-d: oklch(0.82 0.13 62);
+
+  /* --- raios (promovidos a token) --- */
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 14px;
+  --r-pill: 999px;
+
+  /* --- tipografia --- */
+  --display: 'Space Grotesk', system-ui, sans-serif;
+  --body: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', monospace;
+
+  /* --- helpers de glow (derivam de --sc no escopo do componente) --- */
+  --glow-sc-soft: 0 0 18px -7px color-mix(in oklch, var(--sc, var(--s-idle)) 42%, transparent);
+  --glow-sc: 0 0 24px -2px color-mix(in oklch, var(--sc, var(--s-idle)) 40%, transparent);
+  --glow-sc-strong: 0 0 34px 4px color-mix(in oklch, var(--sc, var(--s-idle)) 46%, transparent);
+  --shadow-1: 0 3px 12px oklch(0 0 0 / 0.3);
+  --shadow-2: 0 14px 40px oklch(0 0 0 / 0.44);
+}
+
+/* --- reset mínimo + fundo do plano --- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--body);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+/* fundo "plano infinito" — dois halos frios sutis, sem gradiente arco-íris */
+.neon-plane {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background:
+    radial-gradient(1100px 700px at 30% 10%, oklch(0.2 0.04 240 / 0.5), transparent 60%),
+    radial-gradient(900px 800px at 85% 90%, oklch(0.18 0.035 265 / 0.45), transparent 60%),
+    var(--bg);
+}
+
+/* --- utilitário mono (o "terminal vivo" ganha o glow ciano) --- */
+.neon-mono {
+  font-family: var(--mono);
+}
+
+/* --- vinheta de ambiente (o fundo respira quando algo precisa de você / dá erro) --- */
+.neon-ambient {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 60;
+  transition: box-shadow 0.6s ease;
+  box-shadow: inset 0 0 0 0 transparent;
+}
+.neon-ambient.needs {
+  box-shadow: inset 0 0 220px 10px color-mix(in oklch, var(--s-wait) 26%, transparent);
+}
+.neon-ambient.err {
+  box-shadow: inset 0 0 220px 10px color-mix(in oklch, var(--s-error) 24%, transparent);
+}

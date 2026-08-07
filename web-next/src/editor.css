@@ -1,0 +1,1868 @@
+/* ============================================================================
+   PELE DO EDITOR — cópia local do bloco de editor do `canvas.css` do NEON
+   (`app/packages/canvas/src/canvas.css`, faixa do editor). Porte MECÂNICO:
+   nada foi redesenhado. Depende dos tokens de `skin.css` (carregar skin ANTES).
+
+   Cobre as classes usadas pelos componentes portados:
+     · FlowNode      → .fnode + .shape-* (rect, subprocess, pill, diamond, gate,
+                       event, idea, data, annotation) + .kind-* para a tinta de
+                       cada kind; .fnode-di (losango), .mk/.mk-gate/.mk-sub
+                       (marcadores ✕ ✛ [+]), .nn-head, .nn-label, .nn-body,
+                       .nn-center, .nn-out (rótulo fora), .dot, .badge
+     · NodeCard      → .fpanel* (caret/head/kind/badge/thread/cmt/verdict/reason)
+                       + .fcard-* (tabs/pane/lbl/input/area/vazio/nota)
+     · EntityNode    → .ent, .ent-head, .ent-row, .ent-key(.pk/.fk), .ent-name, .ent-type
+     · ErEdge        → .er-card, .orth-label
+     · MindNode/Edge → .mind, .mind.root, .mind-dot, .mind-label, .mind-h
+     · LaneNode      → .lane-band, .lane-label
+     · SequenceView  → .seqview, .seq-lifeline, .seq-actor(-t), .seq-line,
+                       .seq-arrow, .seq-msg.return/.async, .seq-label
+     · handles/React Flow → .react-flow__handle.fh, controls, minimap
+
+   POSICIONAMENTO: este arquivo NÃO conhece a topbar de ninguém. O `.neon-editor`
+   preenche o container (`inset: 0`) e quem o recua é o shell — antes daqui saía
+   um `inset: 52px` que era a altura da barra do NEON, e o `shell.css` precisava
+   de uma regra só pra desfazer. O que ainda mora aqui são as medidas INTERNAS do
+   editor, e elas são tokens (`--lensbar-*`) justamente pra o `.seqview` seguir a
+   barra de lentes sozinho em vez de repetir o número na mão.
+   ============================================================================ */
+
+/* ---------- editor (React Flow + elk) ---------- */
+.neon-editor {
+  /* o FlowForge não tem o botão "← constelação" do NEON, então a barra de lentes
+     encosta no topo; o shell não precisa mais mexer nisso. */
+  --lensbar-top: 12px;
+  --lensbar-h: 32px;
+  position: absolute;
+  inset: 0;
+}
+.neon-editor .react-flow {
+  background:
+    radial-gradient(1100px 700px at 30% 10%, oklch(0.2 0.04 240 / 0.4), transparent 60%),
+    radial-gradient(900px 800px at 85% 90%, oklch(0.18 0.035 265 / 0.4), transparent 60%), var(--bg);
+}
+.react-flow__attribution {
+  display: none;
+}
+/* Nozinhos de conexão dos 4 lados (FF-005). Como no editor antigo, eles só
+   APARECEM quando o mouse passa no nó — um canvas com 22 nós e 88 bolinhas
+   permanentes é ilegível. Invisível ≠ inerte: continuam clicáveis num raio
+   pequeno, senão acertar o nó certo vira perícia. */
+/* nó selecionado sobe: o card dele não pode ficar atrás do vizinho */
+.react-flow__node.selected {
+  z-index: 20 !important;
+}
+.react-flow__handle.fh {
+  width: 10px;
+  height: 10px;
+  background: var(--accent);
+  border: 2px solid var(--bg);
+  box-shadow: 0 0 10px color-mix(in oklch, var(--accent) 70%, transparent);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.fnode:hover .react-flow__handle.fh,
+.fnode.sel .react-flow__handle.fh,
+.react-flow__handle.fh:hover,
+.react-flow.dragging .react-flow__handle.fh {
+  opacity: 1;
+}
+/* o de SAÍDA fica por cima: arrastar de um lado começa uma seta a partir dele */
+.react-flow__handle.fh-s {
+  z-index: 2;
+}
+.react-flow__handle.fh-t {
+  z-index: 1;
+}
+/* modo leitura (lei 7): sem nozinho nenhum */
+.neon-editor.ro .react-flow__handle.fh {
+  opacity: 0 !important;
+  pointer-events: none;
+}
+.react-flow__controls button {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  color: var(--fg);
+  fill: var(--fg);
+}
+.react-flow__minimap {
+  background: var(--surface);
+  border-radius: var(--r-md);
+}
+.orth-label {
+  fill: var(--muted);
+  font-family: var(--mono);
+  font-size: 10px;
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 3px;
+}
+
+/* ---------- nó de co-decisão: FACE = template do hello-react-flow ---------- */
+.fnode {
+  --sc: var(--s-proposed);
+  width: 100%;
+  height: 100%;
+  position: relative;
+  box-sizing: border-box;
+  font-family: var(--display);
+}
+
+/* RETÂNGULO (task/subprocess): cabeçalho (dot+título+badge) + corpo mono */
+.fnode:is(.shape-rect, .shape-subprocess) {
+  background: var(--surface);
+  border: 1px solid color-mix(in oklch, var(--sc) 34%, var(--border));
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-1);
+  transition: box-shadow 0.2s, border-color 0.2s;
+  /* NADA de `overflow: hidden` aqui: o NodeCard é filho do nó e mora FORA dele
+     (`left: calc(100% + 16px)`), então o clip do pai o comia inteiro — e como
+     task/subprocess/state são a maioria dos nós, o card praticamente não abria.
+
+     Em troca, o conteúdo passa a se conter SOZINHO, por flex: o cabeçalho tem o
+     tamanho que precisa (o rótulo pode quebrar em duas linhas) e o corpo fica
+     com o que sobrar, cortando o próprio texto. Sem isso, título comprido
+     empurrava a descrição pra fora da caixa — que foi o que apareceu quando o
+     clip do pai saiu. */
+  display: flex;
+  flex-direction: column;
+}
+.fnode:is(.shape-rect, .shape-subprocess) .nn-head {
+  flex: 0 0 auto;
+}
+.fnode:is(.shape-rect, .shape-subprocess) .nn-body {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.fnode:is(.shape-rect, .shape-subprocess).live {
+  border-color: color-mix(in oklch, var(--sc) 50%, transparent);
+  box-shadow: var(--shadow-1), var(--glow-sc-soft);
+}
+.fnode:is(.shape-rect, .shape-subprocess).sel {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-1), 0 0 0 1px var(--accent), 0 0 22px -6px var(--accent);
+}
+.nn-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  font-weight: 600;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border);
+}
+.nn-label {
+  line-height: 1.2;
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--sc);
+  box-shadow: 0 0 8px var(--sc);
+  flex: none;
+}
+.badge {
+  margin-left: auto;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--sc);
+  border: 1px solid color-mix(in oklch, var(--sc) 45%, transparent);
+  border-radius: var(--r-sm);
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+.nn-body {
+  padding: 9px 12px;
+  font-size: 10.5px;
+  color: var(--muted);
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* label centralizado (pílula e losango) */
+.nn-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 100%;
+  font-weight: 600;
+  font-size: 12.5px;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+/* PÍLULA (início/fim/eventos) */
+.fnode.shape-pill {
+  background: var(--surface);
+  border: 1px solid color-mix(in oklch, var(--sc) 40%, var(--border));
+  border-radius: 999px;
+  box-shadow: var(--shadow-1);
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+.fnode.shape-pill.live {
+  box-shadow: var(--shadow-1), var(--glow-sc-soft);
+}
+.fnode.shape-pill.sel {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-1), 0 0 0 1px var(--accent), 0 0 22px -6px var(--accent);
+}
+.fnode.shape-pill .nn-center {
+  padding: 0 18px;
+}
+
+/* LOSANGO (decisão / gateway) */
+.fnode.shape-diamond .nn-center {
+  position: relative;
+  z-index: 1;
+  padding: 0 22px;
+  font-size: 12px;
+}
+.fnode-di {
+  position: absolute;
+  inset: 0;
+  background: color-mix(in oklch, var(--sc) 42%, var(--border));
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+}
+.fnode-di::after {
+  content: '';
+  position: absolute;
+  inset: 1.6px;
+  background: var(--surface);
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+}
+.fnode:is(.shape-diamond, .shape-gate).live .fnode-di {
+  background: color-mix(in oklch, var(--sc) 60%, transparent);
+  filter: drop-shadow(0 0 10px color-mix(in oklch, var(--sc) 40%, transparent));
+}
+.fnode:is(.shape-diamond, .shape-gate).sel .fnode-di {
+  background: var(--accent);
+}
+
+/* ==========================================================================
+   LEI 8 — as formas por `kind`. Referência: web/app.js:60-74.
+   Regra que atravessa tudo aqui: FUNDO/CONTORNO diz o que a coisa É (kind),
+   BORDA/GLOW diz o veredito (status). Por isso as tintas de kind abaixo são
+   discretas — quem grita é o status.
+   ========================================================================== */
+
+/* ---------- rótulo FORA da forma (evento e gateway) ---------- */
+.nn-out {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 132px;
+  text-align: center;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--fg);
+  pointer-events: none;
+}
+
+/* ---------- marcadores SVG (✕ ✛ e o [+] do subprocesso) ---------- */
+.mk {
+  position: absolute;
+  fill: none;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+.mk-gate {
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 42%;
+  height: 42%;
+  z-index: 1;
+  stroke: var(--fg);
+  stroke-width: 3.2;
+}
+.fnode.kind-gateway-parallel .mk-gate {
+  width: 46%;
+  height: 46%;
+}
+.mk-sub {
+  left: 50%;
+  bottom: 2px;
+  transform: translateX(-50%);
+  width: 15px;
+  height: 15px;
+  z-index: 1;
+  stroke: var(--muted);
+  stroke-width: 2;
+}
+
+/* ---------- GATEWAY (losango 92px, marca no meio, rótulo embaixo) ---------- */
+.fnode.shape-gate {
+  filter: drop-shadow(0 2px 6px oklch(0 0 0 / 0.35));
+}
+
+/* ---------- EVENTO BPM (círculo 62px, rótulo embaixo) ---------- */
+.fnode.shape-event {
+  background: var(--surface);
+  border: 3px solid color-mix(in oklch, var(--sc) 45%, var(--border));
+  border-radius: 50%;
+  box-shadow: var(--shadow-1);
+  transition: box-shadow 0.2s, border-color 0.2s, border-width 0.2s;
+}
+.fnode.shape-event.live {
+  box-shadow: var(--shadow-1), var(--glow-sc-soft);
+}
+.fnode.shape-event.sel {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-1), 0 0 0 1px var(--accent), 0 0 22px -6px var(--accent);
+}
+/* início: tinta verde discreta (o verde FORTE é do status aprovado) */
+.fnode.kind-event-start {
+  background: color-mix(in oklch, var(--s-approved) 12%, var(--surface));
+}
+/* fim: borda grossa, que é como o BPM marca o evento terminal */
+.fnode.kind-event-end {
+  border-width: 6px;
+  background: color-mix(in oklch, var(--s-rejected) 12%, var(--surface));
+}
+/* intermediário: borda DUPLA */
+.fnode.kind-event-intermediate {
+  border-style: double;
+  border-width: 6px;
+}
+
+/* ---------- IDEIA (elipse) ---------- */
+.fnode.shape-idea {
+  background: var(--surface);
+  border: 1px solid color-mix(in oklch, var(--sc) 38%, var(--border));
+  border-radius: 50%;
+  box-shadow: var(--shadow-1);
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+.fnode.shape-idea.live {
+  box-shadow: var(--shadow-1), var(--glow-sc-soft);
+}
+.fnode.shape-idea.sel {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-1), 0 0 0 1px var(--accent), 0 0 22px -6px var(--accent);
+}
+.fnode.shape-idea .nn-center {
+  padding: 0 14px;
+  font-size: 12px;
+}
+
+/* ---------- OBJETO DE DADOS (canto cortado) ----------
+   O clip-path come a borda, então o contorno é feito com dois planos: o fundo é
+   a "borda" e o ::after, 1.5px pra dentro, é a superfície. Mesmo truque do
+   losango logo acima. */
+.fnode.shape-data {
+  --cut: 11px;
+  background: color-mix(in oklch, var(--sc) 42%, var(--border));
+  clip-path: polygon(
+    var(--cut) 0,
+    calc(100% - var(--cut)) 0,
+    100% var(--cut),
+    100% calc(100% - var(--cut)),
+    calc(100% - var(--cut)) 100%,
+    var(--cut) 100%,
+    0 calc(100% - var(--cut)),
+    0 var(--cut)
+  );
+  transition: background 0.2s;
+}
+.fnode.shape-data::after {
+  content: '';
+  position: absolute;
+  inset: 1.5px;
+  background: var(--surface);
+  clip-path: inherit;
+}
+.fnode.shape-data.live {
+  background: color-mix(in oklch, var(--sc) 60%, transparent);
+  filter: drop-shadow(0 0 10px color-mix(in oklch, var(--sc) 35%, transparent));
+}
+.fnode.shape-data.sel {
+  background: var(--accent);
+}
+.fnode.shape-data .nn-center {
+  position: relative;
+  z-index: 1;
+  padding: 0 14px;
+  font-size: 12px;
+}
+
+/* ---------- ANOTAÇÃO (tracejada, esmaecida) ----------
+   2º kind mais usado nos diagramas reais (21 nós). Tem de ler como NOTA à
+   margem, nunca como etapa do fluxo — daí o tracejado, o fundo quase ausente e
+   o texto em tom de comentário. */
+.fnode.shape-annotation {
+  background: color-mix(in oklch, var(--surface) 34%, transparent);
+  border: 2px dashed color-mix(in oklch, var(--sc) 30%, var(--border));
+  border-radius: var(--r-md);
+  transition: border-color 0.2s, background 0.2s;
+}
+.fnode.shape-annotation.live {
+  border-color: color-mix(in oklch, var(--sc) 48%, transparent);
+}
+.fnode.shape-annotation.sel {
+  border-color: var(--accent);
+  background: color-mix(in oklch, var(--surface) 62%, transparent);
+}
+.fnode.shape-annotation .nn-center {
+  padding: 7px 12px;
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--muted);
+  text-align: left;
+  justify-content: flex-start;
+}
+.fnode.shape-annotation .nn-label {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ---------- tinta de kind da pílula (início / fim) ---------- */
+.fnode.shape-pill.kind-start {
+  background: color-mix(in oklch, var(--s-approved) 11%, var(--surface));
+}
+.fnode.shape-pill.kind-end {
+  background: color-mix(in oklch, var(--s-rejected) 11%, var(--surface));
+}
+
+/* ==========================================================================
+   NodeCard — os campos editáveis do nó (FF-004). Abas descrição/notas dentro do
+   mesmo painel efêmero do veredito, como no `#node-card` do editor antigo.
+   ========================================================================== */
+.fcard-tabs {
+  display: flex;
+  gap: 2px;
+  margin: 8px 0 10px;
+  padding: 3px;
+  background: color-mix(in oklch, var(--bg) 60%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+.fcard-tabs button {
+  flex: 1;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--r-sm);
+  padding: 5px 6px;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+.fcard-tabs button:hover {
+  color: var(--fg);
+}
+.fcard-tabs button.on {
+  color: var(--bg);
+  background: var(--accent);
+}
+
+.fcard-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Duas colunas na aba "prática": identidade à esquerda (campos curtos), texto à
+   direita (o campo longo). Empilhado, a descrição — que é o campo mais LIDO —
+   nascia num textarea de 3 linhas espremido no fim do card. */
+.fcard-2col {
+  display: grid;
+  grid-template-columns: minmax(0, 168px) minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+.fcard-col {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.fcard-col-texto {
+  height: 100%;
+}
+.fcard-area-alta {
+  min-height: 168px;
+  height: 100%;
+  line-height: 1.55;
+}
+.fcard-lbl {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--faint);
+  margin-top: 4px;
+}
+.fcard-input {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: var(--body);
+  font-size: 12px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 6px 8px;
+  transition: border-color 0.15s;
+}
+.fcard-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.fcard-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.fcard-area {
+  font-size: 11px;
+  line-height: 1.45;
+  resize: vertical;
+  min-height: 54px;
+}
+.fcard-vazio {
+  margin: 2px 0 8px;
+  font-size: 11px;
+  color: var(--faint);
+  font-style: italic;
+}
+.fcard-nota {
+  display: flex;
+  gap: 4px;
+  margin-top: 8px;
+}
+.fcard-nota input {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--body);
+  font-size: 11px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 5px 8px;
+}
+.fcard-nota input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.fcard-nota button {
+  width: 26px;
+  font-size: 13px;
+  color: var(--muted);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.fcard-nota button:hover:not(:disabled) {
+  color: var(--fg);
+  border-color: var(--accent);
+}
+.fcard-nota button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.fpanel-verdict button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ---------- campos da entidade (ER) e listas editáveis ---------- */
+.erf-row {
+  display: grid;
+  grid-template-columns: 42px 1fr 62px 20px;
+  gap: 4px;
+  align-items: center;
+}
+.erf-row input,
+.erf-row select {
+  min-width: 0;
+  font-size: 11px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 4px 6px;
+}
+.erf-row input:focus,
+.erf-row select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.erf-key {
+  font-size: 9px !important;
+  padding: 4px 2px !important;
+}
+.erf-del,
+.lane-del {
+  background: transparent;
+  border: none;
+  color: var(--faint);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 2px;
+}
+.erf-del:hover:not(:disabled),
+.lane-del:hover:not(:disabled) {
+  color: var(--s-rejected);
+}
+.fcard-add {
+  margin-top: 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+  background: var(--surface-2);
+  border: 1px dashed var(--border-2);
+  border-radius: var(--r-sm);
+  padding: 6px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.fcard-add:hover:not(:disabled) {
+  color: var(--fg);
+  border-color: var(--accent);
+}
+.fcard-add:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ==========================================================================
+   EdgeCard — o card da seta (FF-006). Nasce no meio da aresta selecionada,
+   via EdgeLabelRenderer, pra não ter que caçar a seta num painel lateral.
+   ========================================================================== */
+.ecard-anchor {
+  position: absolute;
+  pointer-events: all;
+  z-index: 30;
+}
+.ecard {
+  width: 214px;
+  background: color-mix(in oklch, var(--surface) 96%, transparent);
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-2);
+  padding: 10px;
+  backdrop-filter: blur(8px);
+  cursor: default;
+}
+.ecard-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--faint);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 8px;
+}
+.ecard-badge {
+  margin-left: auto;
+  color: var(--muted);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.ecard-del {
+  background: transparent;
+  border: none;
+  color: var(--faint);
+  cursor: pointer;
+  padding: 0 2px;
+}
+.ecard-del:hover:not(:disabled) {
+  color: var(--s-rejected);
+}
+.ecard-input {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: var(--body);
+  font-size: 12px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 6px 8px;
+}
+.ecard-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.ecard-card-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+.ecard-card-row select {
+  flex: 1;
+  font-size: 11px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 4px 6px;
+}
+.ecard-card-row .sep {
+  color: var(--faint);
+}
+/* o status ATUAL da seta fica marcado — sem isso não dá pra saber o que está valendo */
+.fpanel-verdict .v.on {
+  outline: 1px solid currentColor;
+  outline-offset: 1px;
+}
+
+/* ==========================================================================
+   A SETA — direção e o tracejado que anda.
+   ========================================================================== */
+.orth-ponta {
+  pointer-events: none;
+}
+/* trilho de acerto: a linha desenhada tem 1.4px, clicar nela seria perícia */
+.orth-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 16;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+/* Aresta SELECIONADA: o traço vira tracejado que anda no sentido do fluxo —
+   source → target. É a leitura de direção que o Fabricio tinha no editor antigo
+   e sentiu falta: a ponta diz para onde vai, e o movimento confirma. */
+@keyframes ff-formigas {
+  to {
+    stroke-dashoffset: -28;
+  }
+}
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke-dasharray: 9 5;
+  animation: ff-formigas 0.55s linear infinite;
+}
+/* quem prefere a tela quieta (ou tem sensibilidade a movimento) mantém o
+   tracejado, que já mostra o sentido junto com a ponta, mas sem a animação */
+@media (prefers-reduced-motion: reduce) {
+  .react-flow__edge.selected .react-flow__edge-path {
+    animation: none;
+  }
+}
+
+/* ---------- quebras arrastáveis da aresta (FF-011) ---------- */
+.bend {
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  margin: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--bg);
+  box-shadow: 0 0 8px color-mix(in oklch, var(--accent) 70%, transparent);
+  cursor: grab;
+  pointer-events: all;
+  z-index: 31;
+  touch-action: none;
+}
+.bend:active {
+  cursor: grabbing;
+}
+/* a alça FANTASMA (meio do trecho) só se anuncia no hover — senão a aresta
+   selecionada vira um colar de bolinhas e não dá pra ver o traço */
+.bend.fantasma {
+  width: 9px;
+  height: 9px;
+  background: transparent;
+  border: 1.5px dashed color-mix(in oklch, var(--accent) 70%, transparent);
+  box-shadow: none;
+  opacity: 0.45;
+}
+.bend.fantasma:hover,
+.bend.fantasma.on {
+  opacity: 1;
+  background: color-mix(in oklch, var(--accent) 45%, transparent);
+  border-style: solid;
+}
+
+/* ==========================================================================
+   LanesPanel — raias (atores) da Swimlane. Metadado do diagrama, não nó.
+   ========================================================================== */
+.lanespanel {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: 10;
+  width: 216px;
+  background: color-mix(in oklch, var(--surface) 92%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  backdrop-filter: blur(8px);
+  overflow: hidden;
+}
+.lanespanel.ro {
+  opacity: 0.5;
+  pointer-events: none;
+}
+.lanes-head {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+.lanes-head .chev {
+  margin-left: auto;
+}
+.lanes-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 10px 10px;
+}
+.lane-row {
+  display: grid;
+  grid-template-columns: 16px 1fr 18px;
+  gap: 5px;
+  align-items: center;
+}
+.lane-ord {
+  display: flex;
+  flex-direction: column;
+}
+.lane-ord button {
+  font-size: 7px;
+  line-height: 1;
+  padding: 1px 0;
+  color: var(--faint);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+.lane-ord button:hover:not(:disabled) {
+  color: var(--accent);
+}
+.lane-ord button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.lane-row input {
+  min-width: 0;
+  font-size: 11px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 4px 6px;
+}
+.lane-row input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* ---------- painel de ações EFÊMERO (nasce ao selecionar o nó) ---------- */
+.fpanel {
+  position: absolute;
+  top: -6px;
+  left: calc(100% + 16px);
+  width: 468px;
+  background: color-mix(in oklch, var(--surface) 96%, transparent);
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-2);
+  padding: 12px;
+  z-index: 30;
+  backdrop-filter: blur(8px);
+  cursor: default;
+  /* nó com descrição longa + notas + campos ER dá um card alto; sem teto ele
+     passa da tela e o veredito fica inalcançável */
+  max-height: 64vh;
+  overflow-y: auto;
+}
+/* FF-012 — o card abre à direita por padrão, mas num nó colado na borda direita
+   ele nasceria fora da tela. O componente mede e vira o lado; se não couber de
+   nenhum dos dois, desce pra baixo do nó. */
+.fpanel.esq {
+  left: auto;
+  right: calc(100% + 16px);
+}
+.fpanel.abaixo {
+  left: 0;
+  right: auto;
+  top: calc(100% + 14px);
+}
+.fpanel.esq .fpanel-caret {
+  left: auto;
+  right: -6px;
+  transform: rotate(180deg);
+}
+.fpanel.abaixo .fpanel-caret {
+  display: none;
+}
+.fpanel-caret {
+  position: absolute;
+  top: 15px;
+  left: -6px;
+  width: 10px;
+  height: 10px;
+  background: var(--surface);
+  border-left: 1px solid var(--border-2);
+  border-bottom: 1px solid var(--border-2);
+  transform: rotate(45deg);
+}
+.fpanel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.fpanel-kind {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--faint);
+}
+.fpanel-badge {
+  margin-left: auto;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--sc);
+  border: 1px solid color-mix(in oklch, var(--sc) 50%, transparent);
+  border-radius: var(--r-sm);
+  padding: 1px 7px;
+}
+.fpanel-desc {
+  font-family: var(--body);
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.4;
+  margin-bottom: 10px;
+}
+.fpanel-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+  max-height: 150px;
+  overflow: auto;
+}
+.fpanel-cmt {
+  font-size: 11px;
+  color: var(--fg);
+  line-height: 1.4;
+  padding: 6px 8px;
+  border-left: 2px solid var(--border-2);
+  background: var(--bg);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+}
+.fpanel-cmt .who {
+  display: block;
+  font-size: 8.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--faint);
+  margin-bottom: 2px;
+}
+.fpanel-cmt.claude {
+  border-left-color: var(--accent);
+}
+.fpanel-cmt.reject {
+  border-left-color: var(--s-rejected);
+}
+.fpanel-cmt.question {
+  border-left-color: var(--s-questioned);
+}
+/* O veredito GRUDA no rodapé do card. É o gesto mais frequente e não pode
+   depender de rolar até o fim — no card alto ele saía da área visível, que foi
+   exatamente o que apareceu no uso. */
+.fpanel-verdict {
+  display: flex;
+  gap: 6px;
+  position: sticky;
+  bottom: -12px;
+  margin-top: 12px;
+  padding: 10px 0 2px;
+  background: linear-gradient(to bottom, transparent, var(--surface) 28%);
+}
+.fpanel-verdict .v {
+  flex: 1;
+  font-size: 14px;
+  padding: 7px 0;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  border: 1px solid var(--border-2);
+  background: transparent;
+  color: var(--muted);
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.fpanel-verdict .v.rs {
+  flex: 0 0 38px;
+}
+.fpanel-verdict .v.ok:hover {
+  color: var(--s-approved);
+  border-color: var(--s-approved);
+  background: color-mix(in oklch, var(--s-approved) 12%, transparent);
+}
+.fpanel-verdict .v.qu:hover {
+  color: var(--s-questioned);
+  border-color: var(--s-questioned);
+  background: color-mix(in oklch, var(--s-questioned) 12%, transparent);
+}
+.fpanel-verdict .v.no:hover {
+  color: var(--s-rejected);
+  border-color: var(--s-rejected);
+  background: color-mix(in oklch, var(--s-rejected) 12%, transparent);
+}
+.fpanel-verdict .v.rs:hover {
+  color: var(--fg);
+  border-color: var(--border-2);
+}
+.fpanel-reason {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.fpanel-reason input {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--body);
+  font-size: 11px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-sm);
+  padding: 6px 8px;
+}
+.fpanel-reason button {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--bg);
+  background: var(--accent);
+  border: none;
+  border-radius: var(--r-sm);
+  padding: 0 12px;
+  cursor: pointer;
+}
+
+/* HUD do editor */
+.neon-editor-hud {
+  position: absolute;
+  left: 16px;
+  bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 14px;
+  background: color-mix(in oklch, var(--surface) 90%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  font-size: 10.5px;
+  backdrop-filter: blur(8px);
+}
+.neon-editor-hud .t {
+  color: var(--fg);
+  font-weight: 600;
+}
+.neon-editor-hud .c {
+  color: var(--muted);
+}
+.neon-editor-hud .c.ap {
+  color: var(--s-approved);
+}
+.neon-editor-hud .c.qu {
+  color: var(--s-questioned);
+}
+.neon-editor-hud .c.no {
+  color: var(--s-rejected);
+}
+
+/* botão voltar do editor (dive numa tarefa-proposta) — acima da barra de lentes */
+.editor-back {
+  position: absolute;
+  top: 12px;
+  left: 16px;
+  z-index: 11;
+}
+/* ==========================================================================
+   MODO GUIADO (FF-015) — o percurso em cartões, à esquerda.
+   Ocupa coluna de verdade (não flutua): é pra LER, e ler sobreposto ao canvas
+   cansa. O canvas recua junto, então a paleta e o resto acompanham sozinhos.
+   ========================================================================== */
+.neon-editor {
+  --ff-guia-w: 306px;
+}
+.neon-editor.com-guia .react-flow {
+  left: var(--ff-guia-w);
+  width: calc(100% - var(--ff-guia-w));
+}
+.neon-editor.com-guia .lensbar,
+.neon-editor.com-guia .palette,
+.neon-editor.com-guia .neon-editor-hud {
+  left: calc(var(--ff-guia-w) + 16px);
+}
+
+.guia {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--ff-guia-w);
+  z-index: 12;
+  display: flex;
+  flex-direction: column;
+  background: color-mix(in oklch, var(--surface) 96%, transparent);
+  border-right: 1px solid var(--border);
+  backdrop-filter: blur(8px);
+}
+.guia-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+.guia-cont {
+  color: var(--faint);
+}
+.guia-x {
+  margin-left: auto;
+  background: transparent;
+  border: none;
+  color: var(--faint);
+  cursor: pointer;
+  padding: 2px 4px;
+}
+.guia-x:hover {
+  color: var(--fg);
+}
+.guia-vazio {
+  margin: 0;
+  padding: 12px 14px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+.guia-lista {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.guia-card {
+  --sc: var(--s-proposed);
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  /* a barra de status à esquerda é o que deixa o painel legível de relance:
+     dá pra varrer o percurso e ver onde estão os pontos reprovados */
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--sc);
+  border-radius: var(--r-md);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, transform 0.1s;
+}
+.guia-card:hover {
+  background: color-mix(in oklch, var(--accent) 8%, var(--surface-2));
+  border-color: color-mix(in oklch, var(--accent) 40%, var(--border));
+}
+.guia-card.on {
+  border-color: var(--accent);
+  border-left-color: var(--sc);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.guia-card.st-approved {
+  --sc: var(--s-approved);
+}
+.guia-card.st-questioned {
+  --sc: var(--s-questioned);
+}
+.guia-card.st-rejected {
+  --sc: var(--s-rejected);
+}
+/* anotação não é etapa do percurso: entra no fim, apagada e tracejada */
+.guia-card.nota {
+  border-style: dashed;
+  opacity: 0.72;
+}
+.guia-card-topo {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--faint);
+  margin-bottom: 5px;
+}
+.guia-num {
+  color: var(--accent);
+  font-weight: 700;
+}
+.guia-kind {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.guia-st {
+  margin-left: auto;
+  color: var(--sc);
+}
+.guia-titulo {
+  font-family: var(--display);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--fg);
+  line-height: 1.25;
+}
+.guia-teoria {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.guia-falta {
+  margin-top: 6px;
+  font-size: 9.5px;
+  color: var(--faint);
+  font-style: italic;
+}
+
+/* ---------- o botão do guiado, na barra de lentes ---------- */
+.lensbar-sep {
+  width: 1px;
+  height: 15px;
+  background: var(--border);
+  margin: 0 3px;
+}
+.lensbar-guia {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--r-sm);
+  padding: 5px 10px;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+.lensbar-guia:hover:not(:disabled) {
+  color: var(--fg);
+}
+.lensbar-guia.on {
+  color: var(--bg);
+  background: var(--accent);
+}
+.lensbar-guia:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* dica no rodapé de uma aba do card */
+.fcard-dica {
+  margin: 8px 0 0;
+  font-size: 9.5px;
+  line-height: 1.45;
+  color: var(--faint);
+}
+
+/* ==========================================================================
+   PALETA (FF-005) — flutua na borda esquerda. Mini-SVG da forma real, como o
+   Fabricio pediu na fase 3: escolhe-se pela silhueta, não pela leitura.
+   ========================================================================== */
+.palette {
+  position: absolute;
+  left: 16px;
+  top: calc(var(--lensbar-top, 12px) + var(--lensbar-h, 32px) + 14px);
+  z-index: 10;
+  width: 122px;
+  max-height: calc(100% - var(--lensbar-top, 12px) - var(--lensbar-h, 32px) - 46px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 8px;
+  background: color-mix(in oklch, var(--surface) 92%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  backdrop-filter: blur(8px);
+}
+.palette.ro {
+  opacity: 0.45;
+  pointer-events: none;
+}
+.pal-sec {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--faint);
+  padding: 4px 2px 6px;
+}
+.pal-sec + .pal-grid {
+  margin-bottom: 6px;
+}
+.pal-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 3px;
+}
+.pal-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 5px 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  cursor: grab;
+  text-align: left;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.pal-item:hover:not(:disabled) {
+  color: var(--fg);
+  background: color-mix(in oklch, var(--accent) 10%, transparent);
+  border-color: color-mix(in oklch, var(--accent) 40%, transparent);
+}
+.pal-item:active {
+  cursor: grabbing;
+}
+.pal-item:disabled {
+  cursor: not-allowed;
+}
+.pal-item svg {
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+/* uma linha só, e com reticências — cortar no meio da palavra ("subproce") é
+   pior que abreviar de propósito, que é o que o KIND_LABEL_CURTO faz */
+.pal-lbl {
+  font-size: 10px;
+  line-height: 1.15;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* ---------- barra de lentes ---------- */
+.lensbar {
+  position: absolute;
+  top: var(--lensbar-top, 12px);
+  left: 16px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  background: color-mix(in oklch, var(--surface) 92%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  backdrop-filter: blur(8px);
+}
+.lensbar-lbl {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--faint);
+  padding: 0 8px;
+}
+.lensbar button {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--r-sm);
+  padding: 5px 10px;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+.lensbar button:hover {
+  color: var(--fg);
+}
+.lensbar button.on {
+  color: var(--bg);
+  background: var(--accent);
+}
+
+/* ==========================================================================
+   TOOLBAR (FF-007) — desfazer/refazer, busca, arranjo e export.
+   Fica no topo, à esquerda do "Aprovar tudo".
+   ========================================================================== */
+.toolbar {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  z-index: 11;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  background: color-mix(in oklch, var(--surface) 92%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  backdrop-filter: blur(8px);
+}
+.tb-btn {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--r-sm);
+  padding: 5px 8px;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+.tb-btn:hover:not(:disabled) {
+  color: var(--fg);
+  background: color-mix(in oklch, var(--accent) 12%, transparent);
+}
+.tb-btn.on {
+  color: var(--bg);
+  background: var(--accent);
+}
+.tb-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.tb-sep {
+  width: 1px;
+  height: 16px;
+  background: var(--border);
+  margin: 0 2px;
+}
+.tb-busca {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.tb-busca input {
+  width: 118px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 5px 8px;
+}
+.tb-busca input:focus {
+  outline: none;
+  border-color: var(--accent);
+  width: 150px;
+}
+.tb-cont {
+  position: absolute;
+  right: 6px;
+  font-size: 9px;
+  color: var(--faint);
+  pointer-events: none;
+}
+.tb-menu-wrap {
+  position: relative;
+}
+.tb-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 132px;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-2);
+  z-index: 12;
+}
+.tb-menu button {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--r-sm);
+  padding: 6px 8px;
+  text-align: left;
+  cursor: pointer;
+}
+.tb-menu button:hover {
+  color: var(--fg);
+  background: color-mix(in oklch, var(--accent) 14%, transparent);
+}
+
+/* ---------- o que o Claude mudou: realce + toast ---------- */
+.react-flow__node.ff-changed::before {
+  content: '';
+  position: absolute;
+  inset: -7px;
+  border-radius: 14px;
+  background: color-mix(in oklch, var(--accent) 20%, transparent);
+  pointer-events: none;
+  z-index: -1;
+  animation: ff-pulso 1.6s ease-out 2;
+}
+@keyframes ff-pulso {
+  0% {
+    opacity: 0.15;
+  }
+  50% {
+    opacity: 0.55;
+  }
+  100% {
+    opacity: 0.2;
+  }
+}
+.change-toast {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 11px;
+  color: var(--fg);
+  background: color-mix(in oklch, var(--surface) 96%, transparent);
+  border: 1px solid color-mix(in oklch, var(--accent) 45%, transparent);
+  border-radius: 999px;
+  padding: 7px 8px 7px 14px;
+  box-shadow: var(--shadow-2);
+  backdrop-filter: blur(8px);
+}
+.ct-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+}
+/* o aviso de "afastei nós" é OUTRA coisa que o "o Claude mudou": é o editor
+   avisando que mexeu no desenho por conta própria, e some sozinho */
+.change-toast.afasta {
+  bottom: 62px;
+  color: var(--muted);
+  border-color: color-mix(in oklch, var(--s-questioned) 40%, transparent);
+}
+.change-toast.afasta .ct-dot {
+  background: var(--s-questioned);
+  box-shadow: 0 0 8px var(--s-questioned);
+}
+.ct-ir {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--bg);
+  background: var(--accent);
+  border: none;
+  border-radius: 999px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.ct-x {
+  color: var(--faint);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+.ct-x:hover {
+  color: var(--fg);
+}
+
+/* ---------- barra de ações (aprovar tudo + cravar) ---------- */
+/* logo ABAIXO da toolbar — os dois vivem no canto direito e a toolbar vem
+   primeiro, porque ela existe sempre e o "Aprovar tudo" só quando há proposta */
+.neon-editor-actions {
+  position: absolute;
+  top: 56px;
+  right: 16px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.neon-approveall {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--s-approved);
+  background: color-mix(in oklch, var(--s-approved) 12%, var(--surface));
+  border: 1px solid color-mix(in oklch, var(--s-approved) 45%, transparent);
+  border-radius: var(--r-md);
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: filter 0.15s, background 0.15s;
+}
+.neon-approveall:hover {
+  filter: brightness(1.1);
+  background: color-mix(in oklch, var(--s-approved) 20%, var(--surface));
+}
+
+/* ---------- Swimlane sem `lanes`: diz em voz alta em vez de fingir raia ---------- */
+.lanes-empty {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  font-size: 11px;
+  color: var(--s-questioned);
+  background: color-mix(in oklch, var(--s-questioned) 10%, var(--surface));
+  border: 1px dashed color-mix(in oklch, var(--s-questioned) 45%, transparent);
+  border-radius: var(--r-md);
+  padding: 7px 12px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.lanes-empty code {
+  font-family: var(--mono);
+  opacity: 0.85;
+}
+
+/* ---------- botão Cravar (gate design → runtime) ---------- */
+.neon-editor-actions .neon-crave {
+  position: static;
+  top: auto;
+  right: auto;
+}
+.neon-crave {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  z-index: 10;
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--bg);
+  background: var(--s-approved);
+  border: none;
+  border-radius: var(--r-md);
+  padding: 9px 16px;
+  cursor: pointer;
+  box-shadow: 0 0 22px -4px color-mix(in oklch, var(--s-approved) 60%, transparent);
+  transition: filter 0.15s, box-shadow 0.15s;
+}
+.neon-crave:hover:not(:disabled) {
+  filter: brightness(1.08);
+  box-shadow: 0 0 30px -2px color-mix(in oklch, var(--s-approved) 70%, transparent);
+}
+.neon-crave:disabled {
+  opacity: 0.45;
+  cursor: default;
+  background: var(--surface-2);
+  color: var(--muted);
+  box-shadow: none;
+}
+
+/* ---------- nó ER (entidade) ---------- */
+.ent {
+  --sc: var(--s-proposed);
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  background: var(--surface);
+  border: 1px solid color-mix(in oklch, var(--sc) 34%, var(--border));
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-1);
+  overflow: hidden;
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+.ent.live {
+  border-color: color-mix(in oklch, var(--sc) 50%, transparent);
+  box-shadow: var(--shadow-1), var(--glow-sc-soft);
+}
+.ent.sel {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-1), 0 0 0 1px var(--accent), 0 0 22px -6px var(--accent);
+}
+.ent-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--fg);
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in oklch, var(--sc) 10%, var(--surface));
+}
+.ent-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  font-size: 10.5px;
+  border-bottom: 1px solid color-mix(in oklch, var(--border) 40%, transparent);
+}
+.ent-row:last-child {
+  border-bottom: none;
+}
+.ent-key {
+  width: 20px;
+  font-size: 8px;
+  letter-spacing: 0.04em;
+  color: var(--faint);
+}
+.ent-key.pk {
+  color: var(--s-questioned);
+}
+.ent-key.fk {
+  color: var(--accent);
+}
+.ent-name {
+  flex: 1;
+  color: var(--fg);
+}
+.ent-type {
+  color: var(--faint);
+}
+.er-card {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 3px;
+}
+
+/* ---------- nó Mind map ---------- */
+.mind {
+  --bc: var(--accent);
+  --sc: var(--s-proposed);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 0 13px;
+  background: var(--surface);
+  border: 1.5px solid color-mix(in oklch, var(--bc) 55%, var(--border));
+  border-radius: 999px;
+  box-shadow: var(--shadow-1);
+  font-family: var(--display);
+  font-size: 12px;
+  font-weight: 600;
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+.mind.root {
+  border-color: var(--accent);
+  background: color-mix(in oklch, var(--accent) 14%, var(--surface));
+  font-size: 13px;
+}
+.mind.sel {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.mind-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--bc);
+  box-shadow: 0 0 7px var(--bc);
+  flex: none;
+}
+.mind-label {
+  white-space: nowrap;
+}
+.react-flow__handle.mind-h {
+  opacity: 0;
+}
+
+/* ---------- banda de raia (swimlane) ---------- */
+.lane-band {
+  box-sizing: border-box;
+  background: color-mix(in oklch, var(--surface) 22%, transparent);
+  border-top: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
+  border-bottom: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
+  pointer-events: none;
+  position: relative;
+}
+.lane-label {
+  position: absolute;
+  left: 12px;
+  top: 8px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--faint);
+}
+
+/* ---------- Sequência ---------- */
+.seqview {
+  position: absolute;
+  /* começa logo abaixo da barra de lentes — derivado, não chutado */
+  inset: calc(var(--lensbar-top, 12px) + var(--lensbar-h, 32px) + 14px) 0 0 0;
+  overflow: auto;
+  padding: 10px 20px 30px;
+}
+.seq-lifeline {
+  stroke: color-mix(in oklch, var(--border) 75%, transparent);
+  stroke-dasharray: 4 5;
+  stroke-width: 1;
+}
+.seq-actor {
+  fill: var(--surface);
+  stroke: var(--border-2);
+}
+.seq-actor-t {
+  fill: var(--fg);
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 12px;
+}
+.seq-line {
+  stroke: var(--accent);
+  stroke-width: 1.6;
+}
+.seq-arrow {
+  fill: var(--accent);
+}
+.seq-msg.return .seq-line {
+  stroke: var(--muted);
+  stroke-dasharray: 5 4;
+}
+.seq-msg.return .seq-arrow {
+  fill: var(--muted);
+}
+.seq-msg.async .seq-line {
+  stroke: var(--s-act);
+}
+.seq-msg.async .seq-arrow {
+  fill: var(--s-act);
+}
+.seq-label {
+  fill: var(--muted);
+  font-size: 10px;
+}
