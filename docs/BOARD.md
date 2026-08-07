@@ -6,10 +6,11 @@ Tamanho: **P** (uma sessão) · **M** (poucas) · **G** (frente maior)
 Classe: **importante** · **melhoria**
 Épico entre [colchetes].
 
-> Contexto do épico [porte]: o canvas Cytoscape do `web/` está sendo substituído pelo editor
-> React Flow + elkjs vindo do Context Builder. As leis estão em `CLAUDE.md` na raiz. A fase 0
-> (fundação) está entregue e provada: 11/11 diagramas migram sem perda, `/` continua servindo
-> o editor antigo intacto, e o Fabricio viu o `/v2` funcional na tela em 05/08/2026.
+> Contexto do épico [porte] — **encerrado em 06/08/2026**: o canvas Cytoscape do `web/` foi
+> substituído pelo editor React Flow + elkjs vindo do Context Builder. As leis estão em
+> `CLAUDE.md` na raiz. O corte saiu no FF-008: o `web/` foi removido, o editor novo é servido
+> em `/` e o `/v2` responde 301 para `/`. O que vem agora é o épico `[uso]` — melhoria vinda
+> do uso diário — e o `[aberto]`, o projeto como software público.
 
 ## ✅ Feito
 
@@ -99,6 +100,13 @@ Classe: **importante** · **melhoria**
   na primeira abertura e o `diagram.json` fica preservado como backup, sem ninguém ler nem
   escrever nele. Skill e leis atualizadas. · `[porte/fase-3]` · P · importante
 
+- **FF-014** **O projeto aberto** — LICENSE MIT, `README.md` reescrito para quem nunca viu
+  o projeto (o antigo descrevia o editor Cytoscape e o `diagram.json`, que não existem mais),
+  `docs/SCHEMA.md` tirando o formato dos arquivos de dentro da skill na máquina do autor, e
+  `CONTRIBUTING.md`. O SCHEMA é o que permite plugar **outro** agente no loop — sem ele, a
+  parte interessante da ferramenta fica privada. Os comandos do README foram exercitados
+  contra esta árvore, não escritos de memória. · `[aberto]` · P · importante
+
 - **FF-015** **Modo guiado** — painel de etapas em cartões à esquerda; clicar num cartão
   seleciona o nó e voa a tela até ele, e clicar num nó no canvas rola o painel até o cartão
   (é de mão dupla, senão você perde o fio ao navegar). Campo novo `concept` em `types.ts`:
@@ -109,9 +117,34 @@ Classe: **importante** · **melhoria**
   pediriam outra forma e ficam fora até o gesto se provar. Preferência lembrada em
   `localStorage`. · `[uso]` · M · melhoria
 
+- **FF-016** **Nós sobrepostos são afastados ao abrir** — o desempilhamento do FF-001 só
+  rodava para nó **sem** posição; quando todas vinham do arquivo, o layout devolvia o desenho
+  sem olhar sobreposição. A causa é o porte: caixa fixa de 162×54 virou 330×92 calculada pelo
+  conteúdo, e as caixas engordaram sobre coordenadas preservadas fielmente — **25 pares
+  sobrepostos** nos diagramas reais, 6 com anotação. Como isto **reescreve o desenho do
+  usuário**, virou exceção escrita na lei 4. Três garantias viraram teste (determinístico,
+  mínimo, converge na 2ª abertura), o eixo do empurrão é por lente (na Swimlane empurra em X,
+  senão o nó sai do ator dele) e o editor **avisa** quando mexe. · `[uso]` · P · importante
+
+- **FF-017** **O card do nó em duas colunas** — o card de 268px empilhava tudo e punha a
+  descrição, o campo mais lido, num textarea espremido no fim; e o veredito, o gesto mais
+  frequente, caía abaixo da dobra (apareceu cortado num print). Agora a aba "prática" é grid
+  de duas colunas — identidade à esquerda, texto à direita numa caixa alta — e o card foi a
+  468px. O veredito virou `position: sticky` no rodapé com degradê. · `[uso]` · P · melhoria
+
 ## 📋 A fazer
 
-_(o porte fechou. O que sobra é melhoria e o projeto aberto — FF-014.)_
+- **FF-018** **O card mede contra a janela, não contra o canvas** — o FF-012 decide o lado
+  com `r.right <= window.innerWidth - 12` (`NodeCard.tsx:103`), mas a área de desenho termina
+  onde começa o painel de conversa. Entre as duas fronteiras há uma faixa em que o card
+  "cabe" na conta e mesmo assim abre **por baixo da conversa**, que o pinta por cima — o
+  mesmo defeito que o FF-012 existe para evitar ("o card existia e era inalcançável"), só que
+  com a fronteira errada. Medido em 07/08/2026 no diagrama `arquitetura-flowforge`, viewport
+  de 3440px: com a borda direita do nó em 3003 o card abriu em 3012→3332 e **invadiu o painel
+  em 231px** (~70% dele), com `elementFromPoint` devolvendo `ff-msg claude` na ponta. O FF-017
+  piorou o caso: a faixa é proporcional à largura do card, e ele cresceu 75%. Conserto
+  provável: medir contra o retângulo do container do React Flow em vez da janela. ·
+  `[uso]` · P · importante
 
 ## 🗂️ Backlog
 
