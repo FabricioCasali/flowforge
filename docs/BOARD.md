@@ -162,6 +162,3 @@ _(vazio — o que sobra está no backlog.)_
   próprio. Decisão de contrato ainda em aberto; enquanto isso, o FF-007 **mitigou**: renomear
   na topbar grava em todos os modelos com conteúdo, ao custo de um patch (e um `rev`) por
   modelo. É esse custo que justifica fechar o card. · `[porte]` · P · melhoria
-
-- **FF-010** **Bundle de 1,8 MB** — o elkjs vai inteiro no chunk principal. Candidato a
-  import dinâmico quando incomodar. · `[porte]` · P · melhoria

@@ -3,13 +3,10 @@
 // Arquivos sao a fonte da verdade. O Claude edita esses arquivos diretamente;
 // o servidor (index.js) apenas espelha arquivo <-> browser.
 //
-// Dois arquivos-verdade convivem durante o porte:
-//   diagram.json   — UM diagrama de UM tipo. E o que o editor antigo (web/, servido em /)
-//                    le e escreve. Lei 1: ele nao pode parar; ninguem mexe nele por aqui.
-//   workspace.json — o novo (lei 4): os 5 modelos coexistindo num arquivo so
-//                    { process, state, er, mind, seq, rev, updatedBy }. E o que o editor
-//                    novo (web-next/, servido em /v2) le e escreve, por lente.
-// A ponte entre os dois e a migracao LAZY e NAO DESTRUTIVA do ensureSession (lei 5).
+// workspace.json e o arquivo-verdade: os 5 modelos coexistem num arquivo so
+// { process, state, er, mind, seq, rev, updatedBy } e o editor web-next escreve por lente.
+// diagram.json e apenas legado: ensureSession faz a migracao LAZY e NAO DESTRUTIVA e
+// preserva o arquivo antigo como backup (lei 5).
 
 const fs = require('fs');
 const path = require('path');

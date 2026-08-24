@@ -2,7 +2,7 @@
   "name": "flowforge-web-next",
   "version": "0.1.0",
   "private": true,
-  "description": "Editor novo do FlowForge (React Flow + elkjs), servido em /v2",
+  "description": "Editor do FlowForge (React Flow + elkjs), servido em /",
   "type": "module",
   "scripts": {
     "dev": "vite",
