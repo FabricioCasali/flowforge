@@ -11,13 +11,15 @@ export interface MindNodeData {
   branch: number
   isRoot: boolean
   busy?: boolean
+  cardOpen?: boolean
+  onCardPersist: (id: string) => void
   onVerdict: (id: string, status: NodeStatus, reason?: string) => void
   onEdit: (id: string, patch: Partial<DNode>) => void
   [key: string]: unknown
 }
 
 export function MindNode({ data, selected }: NodeProps): JSX.Element {
-  const { node, branch, isRoot, onVerdict, onEdit, busy } = data as MindNodeData
+  const { node, branch, isRoot, onVerdict, onEdit, onCardPersist, busy, cardOpen } = data as MindNodeData
   const bc = `var(${BRANCH[branch % BRANCH.length]})`
   const sc = `var(${SC[node.status]})`
   const live = LIVE.has(node.status)
@@ -30,7 +32,7 @@ export function MindNode({ data, selected }: NodeProps): JSX.Element {
       <Handle type="target" position={Position.Left} className="fh mind-h" />
       <span className="mind-dot" />
       <span className="mind-label">{node.label}</span>
-      {selected && <NodeCard node={node} busy={busy} onVerdict={onVerdict} onEdit={onEdit} />}
+      {cardOpen && <NodeCard node={node} busy={busy} onVerdict={onVerdict} onEdit={onEdit} onPersist={onCardPersist} />}
       <Handle type="source" position={Position.Right} className="fh mind-h" />
     </div>
   )

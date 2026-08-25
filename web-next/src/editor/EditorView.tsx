@@ -50,6 +50,7 @@ import {
   nodeSize,
   orthRoute,
   radialLayout,
+  routeAll,
   swimlaneLayout,
   toSavedPoint,
   type LayoutNome,
@@ -68,7 +69,7 @@ export interface EditorViewProps {
   /** Lente ativa — o estado mora no App (a topbar também fala dela). */
   lens: LensKey
   onLens: (l: LensKey) => void
-  /** Trava do Claude pensando (lei 7). */
+  /** Trava do agente trabalhando (lei 7). */
   busy?: boolean
   /** Sobe um modelo alterado pro servidor: `{type:'patch', lens, diagram}`. */
   onPatch: (lens: ModelKey, model: Diagram | SeqModel) => void
@@ -78,11 +79,12 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
   const [data, setData] = useState<Workspace>(workspace)
   const [layout, setLayout] = useState<LayoutResult | null>(null)
   const [posOverride, setPosOverride] = useState<Record<string, Pt>>({})
+  const [arrastando, setArrastando] = useState(false)
   const movedRef = useRef<Set<string>>(new Set())
 
-  // O QUE O CLAUDE MUDOU (FF-007). Num diagrama de 22 nós, "o Claude respondeu"
+  // O QUE O AGENTE MUDOU (FF-007). Num diagrama de 22 nós, "o agente respondeu"
   // não serve de nada se você tem que caçar o que mudou. Guarda a assinatura de
-  // cada nó e, quando chega escrita com `updatedBy:'claude'`, marca o que é novo
+  // cada nó e, quando chega escrita com `updatedBy:'agent'`, marca o que é novo
   // ou diferente e oferece o salto.
   const [mudados, setMudados] = useState<Record<string, Set<string>>>({})
   const anteriorRef = useRef<Workspace | null>(null)
@@ -93,7 +95,7 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
     const anterior = anteriorRef.current
     anteriorRef.current = workspace
     setData(workspace)
-    if (!anterior || workspace.updatedBy !== 'claude' || workspace.rev === anterior.rev) return
+    if (!anterior || workspace.updatedBy !== 'agent' || workspace.rev === anterior.rev) return
     const porModelo: Record<string, Set<string>> = {}
     for (const m of ['process', 'state', 'er', 'mind'] as const) {
       const ids = diffNodes(anterior[m], workspace[m])
@@ -107,7 +109,7 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
 
   const lensDef = LENS_BY_KEY[lens]
   const activeDiagram: Diagram | null = lensDef.model === 'seq' ? null : (data[lensDef.model] as Diagram)
-  /** O que o Claude mexeu NA LENTE ATUAL (o realce e o toast leem daqui). */
+  /** O que o agente mexeu NA LENTE ATUAL (o realce e o toast leem daqui). */
   const mudadosAqui = mudados[lensDef.model] ?? null
 
   /**
@@ -142,7 +144,7 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
   // ---- histórico (FF-007): 20 níveis, como no editor antigo ----
   // Guarda o modelo ANTES de cada escrita, junto com a lente — desfazer numa
   // lente não pode escrever noutra. Não guarda o eco do servidor: histórico é
-  // do que EU fiz, e o que o Claude escreve não é meu pra desfazer.
+  // do que EU fiz, e o que o agente escreve não é meu pra desfazer.
   const undoRef = useRef<{ model: Exclude<ModelKey, 'seq'>; antes: Diagram }[]>([])
   const redoRef = useRef<{ model: Exclude<ModelKey, 'seq'>; antes: Diagram }[]>([])
   // as pilhas moram em ref (não precisam re-renderizar), mas os BOTÕES precisam
@@ -232,16 +234,18 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
       </div>
     ) : null
 
-  // Assinatura do que MEXE NO LAYOUT. Inclui `x`/`y` porque o Claude move nó pelo
+  // Assinatura do que MEXE NO LAYOUT. Inclui `x`/`y` porque o agente move nó pelo
   // arquivo e o canvas tem que refletir sozinho (o loop vivo), e inclui `kind`,
   // rótulo, descrição e campos porque todos entram no `nodeSize`: mudar o rótulo
   // muda a largura, e com a posição ancorada no CENTRO isso desloca o canto.
   const structureKey = useMemo(() => {
     if (!activeDiagram) return 'seq'
     const nodes = activeDiagram.nodes
-      .map((n) => `${n.id}@${n.x ?? '-'},${n.y ?? '-'}:${n.kind}:${n.label}:${n.description ?? ''}:${n.fields?.length ?? 0}`)
+      .map((n) => `${n.id}@${n.x ?? '-'},${n.y ?? '-'}:${n.kind}:${n.label}:${n.description ?? ''}:${n.fields?.length ?? 0}:${n.lane ?? ''}`)
       .join(',')
-    return lens + '|' + nodes + '|' + activeDiagram.edges.map((e) => e.id).join(',')
+    const edges = activeDiagram.edges.map((e) => [e.id, e.source, e.target, e.sourceSide, e.targetSide, e.routing, e.waypoints])
+    const lanes = (activeDiagram.lanes ?? []).map((l) => [l.id, l.order])
+    return lens + '|' + nodes + '|' + JSON.stringify(edges) + '|' + JSON.stringify(lanes)
   }, [lens, activeDiagram])
 
   // (re)layout ao trocar de lente / estrutura — e zera as posições arrastadas
@@ -252,6 +256,7 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
     }
     movedRef.current = new Set()
     setPosOverride({})
+    setArrastando(false)
     let alive = true
     computeLayout(lensDef, activeDiagram).then((l) => alive && setLayout(l))
     return () => {
@@ -526,14 +531,112 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
    *
    * Os nós do React Flow são remontados a cada render a partir do arquivo. O
    * React Flow avisa a seleção por `onNodesChange` ({type:'select'}); se a gente
-   * ignorar, o `selected` volta a `false` no render seguinte — o card do nó
-   * abria no clique e sumia no piscar de olhos. Guardar os ids selecionados é o
-   * que faz o card FICAR aberto.
+   * ignorar, o `selected` volta a `false` no render seguinte. Guardar os ids é
+   * o que mantém o realce do nó e a animação das suas ligações; o card tem um
+   * ciclo próprio logo abaixo e não depende mais da seleção.
    */
   const [sel, setSel] = useState<{ nodes: Set<string>; edges: Set<string> }>({
     nodes: new Set(),
     edges: new Set()
   })
+
+  // Selecionar serve para mover o nó e ler suas ligações; abrir o card é outro
+  // gesto. No hover ele é temporário, enquanto duplo clique ou clique dentro do
+  // próprio card o tornam persistente até o próximo clique fora.
+  type CardAberto = { id: string | null; persistente: boolean }
+  const [cardAberto, setCardAberto] = useState<CardAberto>({ id: null, persistente: false })
+  const cardRef = useRef<CardAberto>(cardAberto)
+  const timerAbreCard = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const timerFechaCard = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const gestoPonteiro = useRef<{ x: number; y: number; moveu: boolean } | null>(null)
+  const trocarCard = useCallback((next: CardAberto) => {
+    cardRef.current = next
+    setCardAberto(next)
+  }, [])
+  const cancelarTimersCard = useCallback(() => {
+    if (timerAbreCard.current) clearTimeout(timerAbreCard.current)
+    if (timerFechaCard.current) clearTimeout(timerFechaCard.current)
+    timerAbreCard.current = null
+    timerFechaCard.current = null
+  }, [])
+  const fecharCard = useCallback(() => {
+    cancelarTimersCard()
+    trocarCard({ id: null, persistente: false })
+  }, [cancelarTimersCard, trocarCard])
+  const persistirCard = useCallback(
+    (id: string) => {
+      cancelarTimersCard()
+      trocarCard({ id, persistente: true })
+    },
+    [cancelarTimersCard, trocarCard]
+  )
+  const onNodeMouseEnter = useCallback(
+    (_event: MouseEvent, node: Node) => {
+      if (timerFechaCard.current) clearTimeout(timerFechaCard.current)
+      timerFechaCard.current = null
+      const atual = cardRef.current
+      if (atual.id === node.id || atual.persistente) return
+      if (atual.id) trocarCard({ id: null, persistente: false })
+      if (timerAbreCard.current) clearTimeout(timerAbreCard.current)
+      timerAbreCard.current = setTimeout(() => {
+        timerAbreCard.current = null
+        trocarCard({ id: node.id, persistente: false })
+      }, 1000)
+    },
+    [trocarCard]
+  )
+  const onNodeMouseLeave = useCallback(
+    (_event: MouseEvent, node: Node) => {
+      if (timerAbreCard.current) clearTimeout(timerAbreCard.current)
+      timerAbreCard.current = null
+      const atual = cardRef.current
+      if (atual.id !== node.id || atual.persistente) return
+      timerFechaCard.current = setTimeout(() => {
+        timerFechaCard.current = null
+        const corrente = cardRef.current
+        if (corrente.id === node.id && !corrente.persistente) trocarCard({ id: null, persistente: false })
+      }, 1000)
+    },
+    [trocarCard]
+  )
+  const onNodeDoubleClick = useCallback(
+    (event: MouseEvent, node: Node) => {
+      event.stopPropagation()
+      persistirCard(node.id)
+    },
+    [persistirCard]
+  )
+  useEffect(() => () => cancelarTimersCard(), [cancelarTimersCard])
+  useEffect(() => fecharCard(), [lens, fecharCard])
+  useEffect(() => {
+    const onPointerDown = (event: PointerEvent): void => {
+      if (event.button !== 0) return
+      gestoPonteiro.current = { x: event.clientX, y: event.clientY, moveu: false }
+    }
+    const onPointerMove = (event: PointerEvent): void => {
+      const gesto = gestoPonteiro.current
+      if (!gesto || gesto.moveu) return
+      if (Math.hypot(event.clientX - gesto.x, event.clientY - gesto.y) > 5) gesto.moveu = true
+    }
+    const onClick = (event: globalThis.MouseEvent): void => {
+      const moveu = gestoPonteiro.current?.moveu ?? false
+      gestoPonteiro.current = null
+      if (moveu) return
+      if (!cardRef.current.id) return
+      if (event.target instanceof Element && event.target.closest('.fpanel')) return
+      fecharCard()
+    }
+    // Fecha depois do click completo. Pointerdown desmontava as arestas antes
+    // do mouseup, quebrava a seleção da linha e fechava ao começar um pan.
+    document.addEventListener('pointerdown', onPointerDown, true)
+    document.addEventListener('pointermove', onPointerMove, true)
+    document.addEventListener('click', onClick)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true)
+      document.removeEventListener('pointermove', onPointerMove, true)
+      document.removeEventListener('click', onClick)
+    }
+  }, [fecharCard])
 
   const onNodesChange = useCallback((changes: NodeChange[]) => {
     let mexeuSel = false
@@ -580,6 +683,9 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
       return { nodes: s.nodes, edges }
     })
   }, [])
+  const onEdgeClick = useCallback((_event: MouseEvent, edge: Edge) => {
+    setSel((s) => ({ nodes: s.nodes, edges: new Set([edge.id]) }))
+  }, [])
 
   const branch = useMemo(() => (lens === 'mind' && activeDiagram ? branchMap(activeDiagram) : {}), [lens, activeDiagram])
   const posOf = useCallback(
@@ -600,6 +706,7 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
    */
   const onNodeDragStop = useCallback(
     (_evt: unknown, _node: Node, dragged?: Node[]) => {
+      setArrastando(false)
       const model = lensDef.model
       if (!lensDef.savesPos || model === 'seq' || !activeDiagram) return
       const moved = (dragged?.length ? dragged : [_node]).filter((n): n is Node => !!n && !n.id.startsWith('lane_'))
@@ -616,6 +723,7 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
     },
     [lensDef, activeDiagram, writeModel, posOf, layout]
   )
+  const onNodeDragStart = useCallback(() => setArrastando(true), [])
 
   const rfNodes: Node[] = useMemo(() => {
     if (!layout || !activeDiagram) return []
@@ -624,14 +732,18 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
     if (lens === 'swimlane' && layout.lanes) {
       const maxRight = Math.max(
         0,
-        ...activeDiagram.nodes.map((n) => (layout.positions[n.id]?.x ?? 0) + (layout.sizes[n.id]?.width ?? 0))
+        ...activeDiagram.nodes.map((n) => posOf(n.id).x + (layout.sizes[n.id]?.width ?? 0))
       )
       for (const b of layout.lanes) {
+        const width = maxRight + 60
         out.push({
           id: 'lane_' + b.id,
           type: 'lane',
           position: { x: -20, y: b.y },
-          data: { label: b.label, width: maxRight + 60, height: b.height },
+          data: { label: b.label, width, height: b.height },
+          width,
+          height: b.height,
+          style: { width, height: b.height },
           draggable: false,
           selectable: false,
           zIndex: 0
@@ -650,35 +762,64 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
         height: s?.height,
         style: s ? { width: s.width, height: s.height } : undefined,
         draggable: !busy, // lei 7: modo leitura não arrasta
-        zIndex: 1,
+        zIndex: cardAberto.id === n.id ? 20 : 1,
         data:
           lensDef.nodeType === 'mind'
-            ? { node: n, busy, onVerdict, onEdit: onEditNode, branch: branch[n.id] ?? 0, isRoot: branch[n.id] === -1 }
-            : { node: n, busy, lanes: activeDiagram.lanes ?? [], onVerdict, onEdit: onEditNode }
+            ? {
+                node: n,
+                busy,
+                onVerdict,
+                onEdit: onEditNode,
+                branch: branch[n.id] ?? 0,
+                isRoot: branch[n.id] === -1,
+                cardOpen: cardAberto.id === n.id,
+                onCardPersist: persistirCard
+              }
+            : {
+                node: n,
+                busy,
+                lanes: activeDiagram.lanes ?? [],
+                onVerdict,
+                onEdit: onEditNode,
+                cardOpen: cardAberto.id === n.id,
+                onCardPersist: persistirCard
+              }
       })
     }
     return out
-  }, [layout, activeDiagram, lens, lensDef.nodeType, onVerdict, onEditNode, branch, posOf, busy, mudadosAqui, sel.nodes])
+  }, [layout, activeDiagram, lens, lensDef.nodeType, onVerdict, onEditNode, branch, posOf, busy, mudadosAqui, sel.nodes, cardAberto.id, persistirCard])
+
+  const currentEdgePoints = useMemo(() => {
+    if (!layout || !activeDiagram || movedRef.current.size === 0) return layout?.edgePoints ?? {}
+    const positions = { ...layout.positions, ...posOverride }
+    if (!arrastando) return routeAll(activeDiagram, positions, layout.sizes)
+
+    // Durante o drag, A* em todas as arestas a cada pixel fazia a camada de
+    // bandas/linhas piscar. Mantém as rotas estáveis e recalcula só as ligações
+    // dos nós movidos com o L/Z barato; ao soltar, routeAll refaz o desvio final.
+    const points = { ...layout.edgePoints }
+    for (const edge of activeDiagram.edges) {
+      if (!movedRef.current.has(edge.source) && !movedRef.current.has(edge.target)) continue
+      const source = positions[edge.source]
+      const target = positions[edge.target]
+      const sourceSize = layout.sizes[edge.source]
+      const targetSize = layout.sizes[edge.target]
+      if (!source || !target || !sourceSize || !targetSize) continue
+      points[edge.id] = orthRoute(source, sourceSize, target, targetSize, edge.sourceSide, edge.targetSide)
+    }
+    return points
+  }, [layout, activeDiagram, posOverride, arrastando])
 
   const rfEdges: Edge[] = useMemo(() => {
     if (!layout || !activeDiagram) return []
     return activeDiagram.edges.map((e) => {
-      const moved = movedRef.current.has(e.source) || movedRef.current.has(e.target)
-      const points = moved
-        ? orthRoute(
-            posOf(e.source),
-            sizeOf(layout, e.source),
-            posOf(e.target),
-            sizeOf(layout, e.target),
-            e.sourceSide,
-            e.targetSide
-          )
-        : layout.edgePoints[e.id]
+      const points = currentEdgePoints[e.id]
       const base = {
         id: e.id,
         source: e.source,
         target: e.target,
         type: lensDef.edgeType,
+        animated: sel.nodes.has(e.source) || sel.nodes.has(e.target),
         selected: sel.edges.has(e.id),
         data: {
           points,
@@ -695,13 +836,13 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
       if (lensDef.edgeType === 'mind') return { ...base, data: { points, branch: branch[e.target] ?? 0 } }
       return base
     })
-  }, [layout, activeDiagram, lensDef.edgeType, branch, posOf, posOverride, busy, onEdgeEdit, onEdgeDeleteOne, onEdgeWaypoints, sel.edges])
+  }, [layout, activeDiagram, lensDef.edgeType, branch, currentEdgePoints, busy, onEdgeEdit, onEdgeDeleteOne, onEdgeWaypoints, sel.nodes, sel.edges])
 
   // ------------------------------------------------------------------------
   // FERRAMENTAS (FF-007)
   // ------------------------------------------------------------------------
 
-  /** Centraliza um nó — usado pela busca e pelo salto do toast do Claude. */
+  /** Centraliza um nó — usado pela busca e pelo salto do toast do agente. */
   const saltarPara = useCallback(
     (id: string) => {
       const rf = rfRef.current
@@ -750,13 +891,14 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
   )
 
 
-  /** Cartão do guia → seleciona o nó (abre o card dele) e voa até ele. */
+  /** Cartão do guia → seleciona o nó, abre o card dele e voa até ele. */
   const irParaNo = useCallback(
     (id: string) => {
       setSel((s) => ({ nodes: new Set([id]), edges: s.edges }))
+      persistirCard(id)
       saltarPara(id)
     },
-    [saltarPara]
+    [persistirCard, saltarPara]
   )
 
   const shell = 'neon-editor' + (busy ? ' ro' : '') + (guiaAberto ? ' com-guia' : '')
@@ -812,7 +954,7 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
       )}
       {mudadosAqui && mudadosAqui.size > 0 && (
         <div className="change-toast neon-mono" role="status">
-          <span className="ct-dot" />o Claude mexeu em {mudadosAqui.size}{' '}
+          <span className="ct-dot" />o agente mexeu em {mudadosAqui.size}{' '}
           {mudadosAqui.size === 1 ? 'etapa' : 'etapas'}
           <button className="ct-ir" onClick={() => saltarPara([...mudadosAqui][0]!)}>
             ver ↷
@@ -835,6 +977,11 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
         edgeTypes={edgeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
+        onEdgeClick={onEdgeClick}
+        onNodeDoubleClick={onNodeDoubleClick}
+        onNodeMouseEnter={onNodeMouseEnter}
+        onNodeMouseLeave={onNodeMouseLeave}
+        onNodeDragStart={onNodeDragStart}
         onNodeDragStop={onNodeDragStop}
         onInit={(rf) => (rfRef.current = rf)}
         onConnect={onConnect}

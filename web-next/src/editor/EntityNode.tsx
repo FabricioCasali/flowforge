@@ -6,13 +6,15 @@ import { NodeCard } from './NodeCard.js'
 export interface EntityNodeData {
   node: DNode
   busy?: boolean
+  cardOpen?: boolean
+  onCardPersist: (id: string) => void
   onVerdict: (id: string, status: NodeStatus, reason?: string) => void
   onEdit: (id: string, patch: Partial<DNode>) => void
   [key: string]: unknown
 }
 
 export function EntityNode({ data, selected }: NodeProps): JSX.Element {
-  const { node, onVerdict, onEdit, busy } = data as EntityNodeData
+  const { node, onVerdict, onEdit, onCardPersist, busy, cardOpen } = data as EntityNodeData
   const sc = `var(${SC[node.status]})`
   const live = LIVE.has(node.status)
 
@@ -35,7 +37,7 @@ export function EntityNode({ data, selected }: NodeProps): JSX.Element {
           </div>
         ))}
       </div>
-      {selected && <NodeCard node={node} busy={busy} onVerdict={onVerdict} onEdit={onEdit} />}
+      {cardOpen && <NodeCard node={node} busy={busy} onVerdict={onVerdict} onEdit={onEdit} onPersist={onCardPersist} />}
       <Handle type="source" position={Position.Right} className="fh" />
     </div>
   )

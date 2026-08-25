@@ -11,7 +11,7 @@
 // O que este script prova, por diagrama:
 //   1. a edicao chega     — o campo alterado esta no arquivo
 //   2. o rev sobe UM      — lei 6: o servidor e a autoridade do rev
-//   3. `updatedBy` bate   — user na escrita do browser, claude na do Claude
+//   3. `updatedBy` bate   — user na escrita do browser, agent na do agente
 //   4. o resto nao mexe   — os outros 4 modelos ficam identicos, e o no editado
 //                           preserva x/y, comments, fields e lane
 //   5. o diagram.json fica intacto — lei 5, migracao nao destrutiva
@@ -63,6 +63,14 @@ function listarDiagramas() {
       const diag = path.join(dir, e.name, 'diagram.json');
       const wsp = path.join(dir, e.name, 'workspace.json');
       if (!fs.existsSync(diag) && !fs.existsSync(wsp)) continue;
+      if (!fs.existsSync(diag) && fs.existsSync(wsp)) {
+        try {
+          const ws = JSON.parse(fs.readFileSync(wsp, 'utf8'));
+          const temConteudo = ['process', 'state', 'er', 'mind'].some((k) => (ws[k]?.nodes || []).length)
+            || (ws.seq?.participants || []).length;
+          if (!temConteudo) continue;
+        } catch { continue; }
+      }
       let slug = e.name;
       while (usados.has(slug)) slug = `${rotulo.replace(/[^a-z0-9]+/gi, '-')}-${slug}`;
       usados.add(slug);
@@ -172,14 +180,14 @@ function avalia(alvo, raizCopia) {
     }
   }
 
-  // 6) a escrita do Claude marca autoria diferente e continua subindo o rev
-  const doClaude = S.writeWorkspaceLens(alvo.slug, lens, clone(depois[lens]), 'claude');
-  if (doClaude.updatedBy !== 'claude') problemas.push({ msg: `escrita do Claude marcou updatedBy '${doClaude.updatedBy}'` });
-  if ((Number(doClaude.rev) || 0) !== (Number(depois.rev) || 0) + 1) {
-    problemas.push({ msg: 'escrita do Claude nao incrementou o rev' });
+  // 6) a escrita do agente marca autoria diferente e continua subindo o rev
+  const doAgent = S.writeWorkspaceLens(alvo.slug, lens, clone(depois[lens]), 'agent');
+  if (doAgent.updatedBy !== 'agent') problemas.push({ msg: `escrita do agente marcou updatedBy '${doAgent.updatedBy}'` });
+  if ((Number(doAgent.rev) || 0) !== (Number(depois.rev) || 0) + 1) {
+    problemas.push({ msg: 'escrita do agente nao incrementou o rev' });
   }
 
-  return { alvo, problemas, lens, revAntes, revDepois: doClaude.rev, nos: depois[lens].nodes.length };
+  return { alvo, problemas, lens, revAntes, revDepois: doAgent.rev, nos: depois[lens].nodes.length };
 }
 
 // ---------------------------------------------------------------------------
@@ -204,6 +212,7 @@ function autoteste(raizCopia) {
 
   const ws = S.readWorkspace(slug);
   casos.push(['o rev do diagrama antigo e herdado na migracao', (Number(ws.rev) || 0) === 7]);
+  casos.push(['autoria legada claude e normalizada para agent', S.normalizeWorkspace({ ...ws, updatedBy: 'claude' }).updatedBy === 'agent']);
 
   // edicao normal
   const m = clone(ws.process);

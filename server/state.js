@@ -1,6 +1,6 @@
 'use strict';
 // Estado da sessao em arquivos: workspace.json + diagram.json + thread.json + inbox.jsonl.
-// Arquivos sao a fonte da verdade. O Claude edita esses arquivos diretamente;
+// Arquivos sao a fonte da verdade. O agente edita esses arquivos diretamente;
 // o servidor (index.js) apenas espelha arquivo <-> browser.
 //
 // workspace.json e o arquivo-verdade: os 5 modelos coexistem num arquivo so
@@ -37,7 +37,7 @@ function emptyDiagram(title) {
     type: 'flowchart',
     title: title || 'Novo diagrama',
     rev: 0,
-    updatedBy: 'claude',
+    updatedBy: 'agent',
     lanes: [],
     nodes: [],
     edges: [],
@@ -79,7 +79,7 @@ const TYPE_TO_MODEL = {
 };
 
 // Espelha o emptyDiagram() de web-next/src/types.ts (o contrato manda: updatedBy 'user').
-// Nao confundir com o emptyDiagram() daqui de cima, que e do arquivo antigo e usa 'claude'.
+// Nao confundir com o emptyDiagram() daqui de cima, que e do arquivo antigo e usa 'agent'.
 function emptyModel(title, type) {
   return {
     type: type,
@@ -109,15 +109,20 @@ function emptyWorkspace(title) {
   };
 }
 
+function normalizeUpdatedBy(by) {
+  // Compatibilidade de leitura/escrita com arquivos produzidos antes do protocolo de agente.
+  return by === 'agent' || by === 'claude' ? 'agent' : 'user';
+}
+
 // Normaliza sem PODAR: espalha o objeto original e so preenche o que falta.
-// Campo desconhecido (do Claude, de uma versao futura) sobrevive intacto.
+// Campo desconhecido (do agente, de uma versao futura) sobrevive intacto.
 function normalizeModel(raw, title, type) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return emptyModel(title, type);
   const d = Object.assign({}, raw);
   if (typeof d.type !== 'string' || !d.type) d.type = type || 'flowchart';
   if (typeof d.title !== 'string') d.title = title || 'Novo diagrama';
   if (typeof d.rev !== 'number') d.rev = 0;
-  if (d.updatedBy !== 'user' && d.updatedBy !== 'claude') d.updatedBy = 'user';
+  d.updatedBy = normalizeUpdatedBy(d.updatedBy);
   if (!Array.isArray(d.lanes)) d.lanes = [];
   if (!Array.isArray(d.nodes)) d.nodes = [];
   if (!Array.isArray(d.edges)) d.edges = [];
@@ -144,7 +149,7 @@ function normalizeWorkspace(raw, title) {
   ws.mind = normalizeModel(base.mind, t, 'mindmap');
   ws.seq = normalizeSeq(base.seq);
   ws.rev = Number(base.rev) || 0;
-  ws.updatedBy = base.updatedBy === 'claude' ? 'claude' : 'user';
+  ws.updatedBy = normalizeUpdatedBy(base.updatedBy);
   return ws;
 }
 
@@ -178,11 +183,15 @@ function workspaceFromDiagram(diagram) {
   // o 'type' de dentro vai junto (swimlane continua swimlane, bpm continua bpm):
   // e ele que mantem as raias e as formas BPM depois da migracao.
   ws[key] = normalizeModel(copy, title, copy.type || 'flowchart');
+  // A migracao preserva o diagrama legado byte a byte no arquivo antigo e campo
+  // a campo dentro do workspace. A leitura normaliza `claude` para `agent`, mas
+  // a copia gravada aqui conserva o valor historico original.
+  if (typeof copy.updatedBy === 'string') ws[key].updatedBy = copy.updatedBy;
 
   // continuidade do rev: o workspace nasce no rev em que o diagrama parou, pra
   // nao voltar no tempo pra quem ja estava com a sessao aberta.
   ws.rev = Number(d.rev) || 0;
-  ws.updatedBy = d.updatedBy === 'claude' ? 'claude' : 'user';
+  ws.updatedBy = normalizeUpdatedBy(d.updatedBy);
   return ws;
 }
 
@@ -192,12 +201,12 @@ function readWorkspace(slug) {
 
 // Grava o workspace inteiro. O servidor e a AUTORIDADE do rev (lei 6):
 // incrementa a cada escrita que passa por aqui (origem-usuario, via browser).
-// O Claude escreve o arquivo direto, com rev+1 e updatedBy:'claude' — nao passa aqui.
+// O agente escreve o arquivo direto, com rev+1 e updatedBy:'agent' — nao passa aqui.
 function writeWorkspace(slug, ws, by) {
   const prev = readJson(workspacePath(slug), null);
   const next = normalizeWorkspace(ws, ws && ws.process && ws.process.title);
   next.rev = (Number(prev && prev.rev) || 0) + 1;
-  next.updatedBy = by === 'claude' ? 'claude' : 'user';
+  next.updatedBy = normalizeUpdatedBy(by);
   writeJson(workspacePath(slug), next);
   return next;
 }
@@ -210,7 +219,7 @@ function writeWorkspaceLens(slug, lens, model, by) {
   if (!isModelKey(lens)) return null;
   const ws = readWorkspace(slug);
   const rev = (Number(ws.rev) || 0) + 1;
-  const updatedBy = by === 'claude' ? 'claude' : 'user';
+  const updatedBy = normalizeUpdatedBy(by);
 
   if (lens === 'seq') {
     ws.seq = normalizeSeq(model);
@@ -280,7 +289,7 @@ function readState(slug) {
 function writeDiagram(slug, diagram, by) {
   const prev = readDiagram(slug);
   diagram.rev = (Number(prev.rev) || 0) + 1;
-  diagram.updatedBy = by || 'user';
+  diagram.updatedBy = normalizeUpdatedBy(by);
   if (!diagram.type) diagram.type = prev.type || 'flowchart';
   if (typeof diagram.title !== 'string') diagram.title = prev.title || 'Novo diagrama';
   writeJson(diagramPath(slug), diagram);
@@ -295,11 +304,56 @@ function appendThread(slug, msg) {
   return t;
 }
 
-// Registra um pedido de "Analisar" num log append-only, pra nada se perder
-// mesmo se o Monitor do Claude nao estiver conectado no instante do clique.
+// Registra eventos do protocolo num log append-only, pra nada se perder mesmo
+// se o adapter nao estiver conectado no instante do clique.
 function appendInbox(slug, entry) {
   fs.mkdirSync(sessionDir(slug), { recursive: true });
   fs.appendFileSync(inboxPath(slug), JSON.stringify(entry) + '\n');
+}
+
+// Linhas incompletas ou invalidas sao ignoradas: append interrompido nao pode
+// impedir o replay das demais entradas validas do inbox.
+function readInbox(slug) {
+  let text;
+  try { text = fs.readFileSync(inboxPath(slug), 'utf8'); }
+  catch (e) { return []; }
+
+  const entries = [];
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    try {
+      const entry = JSON.parse(line);
+      if (entry && typeof entry === 'object' && !Array.isArray(entry)) entries.push(entry);
+    } catch (e) {}
+  }
+  return entries;
+}
+
+function pendingAnalyze(slug) {
+  const entries = readInbox(slug);
+  const terminal = new Set(entries
+    .filter((entry) => (entry.type === 'completed' || entry.type === 'failed') && typeof entry.requestId === 'string')
+    .map((entry) => entry.requestId));
+  return entries.filter((entry) => entry.type === 'analyze'
+    && typeof entry.requestId === 'string'
+    && !terminal.has(entry.requestId));
+}
+
+// Só pedido que chegou a ser entregue trava uma sessão após reinício. Um analyze
+// criado offline continua pendente, mas não pode congelar o canvas antes de haver
+// adapter. `accepted` cobre inboxes produzidos antes do evento `dispatched`.
+function pendingDispatchedAnalyze(slug) {
+  const entries = readInbox(slug);
+  const terminal = new Set(entries
+    .filter((entry) => (entry.type === 'completed' || entry.type === 'failed') && typeof entry.requestId === 'string')
+    .map((entry) => entry.requestId));
+  const dispatched = new Set(entries
+    .filter((entry) => (entry.type === 'dispatched' || entry.type === 'accepted') && typeof entry.requestId === 'string')
+    .map((entry) => entry.requestId));
+  return entries.filter((entry) => entry.type === 'analyze'
+    && typeof entry.requestId === 'string'
+    && dispatched.has(entry.requestId)
+    && !terminal.has(entry.requestId));
 }
 
 module.exports = {
@@ -311,6 +365,6 @@ module.exports = {
   normalizeWorkspace, normalizeSeq, normalizeModel, workspaceTitle,
   workspaceFromDiagram, readWorkspace, writeWorkspace, writeWorkspaceLens,
   // comuns
-  ensureSession, readThread, readState, appendThread, appendInbox,
+  ensureSession, readThread, readState, appendThread, appendInbox, readInbox, pendingAnalyze, pendingDispatchedAnalyze,
   threadPath, readJson, writeJson,
 };

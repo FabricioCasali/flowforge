@@ -3,10 +3,11 @@
 // FlowForge bridge server.
 //   - serve o editor (web-next/dist, React Flow + elkjs) em /
 //   - WS /ws?session=<slug>  -> browsers (editam e recebem updates ao vivo)
-//   - WS /claude             -> Monitor do Claude (recebe eventos de "Analisar")
-//   - fs.watch nas sessoes   -> quando um arquivo muda (browser OU Claude), empurra o estado pros browsers
+//   - WS /agent              -> adapter externo (recebe eventos de "Analisar")
+//   - WS /claude             -> alias temporario e legado de /agent
+//   - fs.watch nas sessoes   -> quando um arquivo muda (browser OU agente), empurra o estado pros browsers
 //
-// Arquivos sao a fonte da verdade. O Claude edita sessions/<slug>/workspace.json
+// Arquivos sao a fonte da verdade. O agente edita sessions/<slug>/workspace.json
 // diretamente; o fs.watch propaga a mudanca pro canvas sem refresh manual.
 //
 // O editor antigo (Cytoscape, pasta web/, servido em /) foi REMOVIDO no FF-008,
@@ -16,6 +17,7 @@
 // nesse arquivo.
 
 const http = require('http');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const url = require('url');
@@ -37,7 +39,7 @@ const WEB_DIR = path.join(__dirname, '..', 'web-next', 'dist'); // o editor, ser
 
 // ---- estado em memoria ----------------------------------------------------
 const browsersBySession = new Map(); // slug -> Set<ws>
-const claudeClients = new Set();      // Set<ws> (conexoes Monitor)
+let activeAdapter = null;             // { ws, adapterId, label }
 const watchers = new Map();           // slug -> fs.FSWatcher
 const debounceTimers = new Map();     // slug -> timeout
 
@@ -126,34 +128,56 @@ function safeReadState(slug) {
   return { workspace: S.normalizeWorkspace(workspace), thread };
 }
 
-// ---- estado "Claude pensando" (trava de edicao no browser) ----------------
-// Enquanto pensa, os browsers ficam em modo leitura (ver/navegar sim, editar
-// nao) — mata a corrida de sincronia. Liga ao despachar "analyze" pro Claude;
-// desliga quando o Claude posta a resposta no thread (passo final do contrato)
-// ou por timeout de seguranca.
-const BUSY_TIMEOUT_MS = 180000;
-const busyBySession = new Map(); // slug -> { timer, baseClaude }
+// ---- estado "agente trabalhando" (trava de edicao no browser) --------------
+// Enquanto trabalha, os browsers ficam em modo leitura. Cada trava pertence ao
+// requestId despachado e so a resposta correspondente pode remove-la.
+const BUSY_TIMEOUT_MS = Number(process.env.FLOWFORGE_BUSY_TIMEOUT_MS) || 180000;
+const busyByRequest = new Map(); // requestId -> { slug, adapterWs|null, timer }
+const requestSessionById = new Map(); // requestId despachado -> slug
 
-function claudeCount(st) { return ((st && st.thread && st.thread.messages) || []).filter((m) => m.author === 'claude').length; }
+function isSessionBusy(slug) {
+  for (const busy of busyByRequest.values()) if (busy.slug === slug) return true;
+  return false;
+}
+function busyForSession(slug) {
+  for (const [requestId, busy] of busyByRequest) {
+    if (busy.slug === slug) return { requestId, busy };
+  }
+  return null;
+}
 function broadcastBusy(slug) {
   const set = browsersBySession.get(slug);
   if (!set) return;
-  const payload = JSON.stringify({ type: 'busy', session: slug, busy: busyBySession.has(slug) });
+  const payload = JSON.stringify({ type: 'busy', session: slug, busy: isSessionBusy(slug) });
   for (const ws of set) { if (ws.readyState === ws.OPEN) ws.send(payload); }
 }
-function setBusy(slug) {
-  const prev = busyBySession.get(slug);
-  if (prev) clearTimeout(prev.timer);
-  const timer = setTimeout(() => { busyBySession.delete(slug); broadcastBusy(slug); }, BUSY_TIMEOUT_MS);
-  busyBySession.set(slug, { timer, baseClaude: claudeCount(safeReadState(slug)) });
+function expireBusy(requestId) {
+  const busy = busyByRequest.get(requestId);
+  if (!busy) return;
+  const adapterWs = busy.adapterWs;
+  busy.adapterWs = null;
+  busy.timer = null;
+  S.appendThread(busy.slug, { author: 'system', text: 'O pedido excedeu o tempo limite; o adapter foi desconectado e a trava continua ativa para reenvio seguro.', ts: Date.now() });
+  broadcastState(busy.slug);
+  if (adapterWs && adapterWs.readyState === adapterWs.OPEN) adapterWs.close(1011, 'request timeout');
+}
+function armBusyTimer(requestId, busy) {
+  clearTimeout(busy.timer);
+  busy.timer = setTimeout(() => expireBusy(requestId), BUSY_TIMEOUT_MS);
+}
+function setBusy(slug, requestId, adapterWs) {
+  if (busyByRequest.has(requestId)) return;
+  const busy = { slug, adapterWs, timer: null };
+  busyByRequest.set(requestId, busy);
+  armBusyTimer(requestId, busy);
   broadcastBusy(slug);
 }
-function clearBusy(slug) {
-  const b = busyBySession.get(slug);
-  if (!b) return;
-  clearTimeout(b.timer);
-  busyBySession.delete(slug);
-  broadcastBusy(slug);
+function clearBusy(requestId, adapterWs) {
+  const busy = busyByRequest.get(requestId);
+  if (!busy || busy.adapterWs !== adapterWs) return false;
+  clearTimeout(busy.timer);
+  busyByRequest.delete(requestId);
+  return true;
 }
 
 // ---- broadcast ------------------------------------------------------------
@@ -162,40 +186,95 @@ function broadcastState(slug) {
   if (!set || set.size === 0) return;
   const st = safeReadState(slug);
   if (!st) return;
-  // Claude terminou? nova mensagem dele no thread -> destrava.
-  const b = busyBySession.get(slug);
-  if (b && claudeCount(st) > b.baseClaude) clearBusy(slug);
   for (const ws of set) { if (ws.readyState === ws.OPEN) ws.send(statePayload(slug, st)); }
 }
 
-// O payload de 'state' leva 'workspace' (editor novo) E 'diagram' (editor antigo).
-// Os dois convivem ate o corte final; nenhum dos dois pode ficar cego.
 function statePayload(slug, st) {
   return JSON.stringify({
     type: 'state',
     session: slug,
     workspace: st.workspace,
     thread: st.thread,
-    busy: busyBySession.has(slug),
-    claudeOnline: claudeClients.size > 0,
+    busy: isSessionBusy(slug),
+    agentOnline: activeAdapter !== null,
+    agentLabel: activeAdapter ? activeAdapter.label : null,
   });
 }
 
-// O browser precisa distinguir DUAS conexoes: a dele com o servidor e a do
-// Claude (o Monitor no /claude). Mostrar so a primeira fez o Fabricio clicar
-// "Analisar" vendo "conectado" e receber "Claude offline" — o pill mentia por
-// omissao. Isto avisa todos os browsers quando um Monitor entra ou sai.
-function broadcastClaudeOnline() {
-  const payload = JSON.stringify({ type: 'claude', online: claudeClients.size > 0 });
+function broadcastAgentPresence() {
+  const payload = JSON.stringify({
+    type: 'agent',
+    online: activeAdapter !== null,
+    label: activeAdapter ? activeAdapter.label : null,
+  });
   for (const set of browsersBySession.values()) {
     for (const ws of set) { if (ws.readyState === ws.OPEN) ws.send(payload); }
   }
 }
 
-function pushToClaude(event) {
-  const payload = JSON.stringify(event);
-  for (const ws of claudeClients) { if (ws.readyState === ws.OPEN) ws.send(payload); }
-  return claudeClients.size;
+function dispatchToAdapter(slug, event) {
+  if (!activeAdapter || activeAdapter.ws.readyState !== activeAdapter.ws.OPEN) return false;
+  const current = busyForSession(slug);
+  if (current && current.requestId !== event.requestId) return false;
+  const workspace = S.readWorkspace(slug);
+  const freshEvent = {
+    ...event,
+    workspaceRev: workspace.rev,
+    workspaceTitle: S.workspaceTitle(workspace),
+  };
+  // Persiste ANTES do envio: se o processo cair entre as duas operações, o boot
+  // seguinte prefere reenviar com o mesmo requestId a destravar cedo demais.
+  S.appendInbox(slug, {
+    type: 'dispatched', protocol: 1, requestId: event.requestId, at: new Date().toISOString(),
+  });
+  activeAdapter.ws.send(JSON.stringify(freshEvent));
+  requestSessionById.set(event.requestId, slug);
+  if (current) {
+    current.busy.adapterWs = activeAdapter.ws;
+    armBusyTimer(event.requestId, current.busy);
+  } else {
+    setBusy(slug, event.requestId, activeAdapter.ws);
+  }
+  return true;
+}
+
+function dispatchNext(slug) {
+  if (!activeAdapter || activeAdapter.ws.readyState !== activeAdapter.ws.OPEN) return false;
+  const pending = S.pendingAnalyze(slug);
+  const current = busyForSession(slug);
+  if (current) {
+    if (current.busy.adapterWs === activeAdapter.ws) return false;
+    const event = pending.find((entry) => entry.requestId === current.requestId);
+    return event ? dispatchToAdapter(slug, event) : false;
+  }
+  return pending.length > 0 ? dispatchToAdapter(slug, pending[0]) : false;
+}
+
+function replayPending(adapterWs) {
+  for (const slug of S.listSessions()) {
+    if (!activeAdapter || activeAdapter.ws !== adapterWs) return;
+    dispatchNext(slug);
+  }
+}
+
+function restoreDispatchedBusy() {
+  for (const slug of S.listSessions()) {
+    const event = S.pendingDispatchedAnalyze(slug)[0];
+    if (!event) continue;
+    busyByRequest.set(event.requestId, { slug, adapterWs: null, timer: null });
+    requestSessionById.set(event.requestId, slug);
+  }
+}
+
+function detachAdapterBusy(adapterWs) {
+  const affected = new Set();
+  for (const busy of busyByRequest.values()) {
+    if (busy.adapterWs !== adapterWs) continue;
+    busy.adapterWs = null;
+    affected.add(busy.slug);
+    S.appendThread(busy.slug, { author: 'system', text: 'O agente desconectou; o pedido ficou pendente para reenvio.', ts: Date.now() });
+  }
+  return affected;
 }
 
 // ---- fs.watch por sessao --------------------------------------------------
@@ -206,7 +285,7 @@ function ensureWatcher(slug) {
     const w = fs.watch(dir, (evt, filename) => {
       if (!filename) return;
       const f = String(filename);
-      // workspace.json entrou aqui: sem isso a edicao do Claude no arquivo novo
+      // workspace.json entrou aqui: sem isso a edicao do agente no arquivo novo
       // nao chega no canvas — que e o loop vivo inteiro.
       if (f !== 'workspace.json' && f !== 'diagram.json' && f !== 'thread.json') return;
       clearTimeout(debounceTimers.get(slug));
@@ -250,9 +329,9 @@ const wss = new WebSocketServer({ noServer: true });
 server.on('upgrade', (req, socket, head) => {
   const parsed = url.parse(req.url, true);
   const pathname = parsed.pathname;
-  if (pathname === '/ws' || pathname === '/claude') {
+  if (pathname === '/ws' || pathname === '/agent' || pathname === '/claude') {
     wss.handleUpgrade(req, socket, head, (ws) => {
-      ws._kind = pathname === '/claude' ? 'claude' : 'browser';
+      ws._kind = pathname === '/ws' ? 'browser' : 'agent';
       ws._session = S.slugify(parsed.query.session || INITIAL_SESSION || 'sessao');
       wss.emit('connection', ws, req);
     });
@@ -262,14 +341,73 @@ server.on('upgrade', (req, socket, head) => {
 });
 
 wss.on('connection', (ws) => {
-  if (ws._kind === 'claude') {
-    claudeClients.add(ws);
-    console.log('[claude] Monitor conectado. total=', claudeClients.size);
-    broadcastClaudeOnline();
-    const sai = () => { claudeClients.delete(ws); broadcastClaudeOnline(); };
-    ws.on('close', sai);
-    ws.on('error', sai);
-    ws.send(JSON.stringify({ kind: 'hello', msg: 'FlowForge conectado. Voce recebera eventos "analyze" aqui.' }));
+  if (ws._kind === 'agent') {
+    let disconnected = false;
+    const disconnect = () => {
+      if (disconnected) return;
+      disconnected = true;
+      if (!activeAdapter || activeAdapter.ws !== ws) return;
+      const affected = detachAdapterBusy(ws);
+      activeAdapter = null;
+      console.log('[agent] adapter desconectado');
+      broadcastAgentPresence();
+      for (const slug of affected) broadcastState(slug);
+    };
+    ws.on('close', disconnect);
+    ws.on('error', disconnect);
+    ws.on('message', (raw) => {
+      let msg;
+      try { msg = JSON.parse(raw.toString()); } catch (e) { return; }
+
+      if (msg.type === 'register') {
+        if (msg.protocol !== 1 || typeof msg.adapterId !== 'string' || !msg.adapterId.trim()
+          || typeof msg.label !== 'string' || !msg.label.trim()) {
+          ws.send(JSON.stringify({ type: 'error', message: 'Registro de adapter invalido.' }));
+          ws.close(1008, 'invalid register');
+          return;
+        }
+        if (activeAdapter && activeAdapter.ws !== ws) {
+          ws.send(JSON.stringify({ type: 'error', message: 'Ja existe um adapter ativo.' }));
+          ws.close(1008, 'adapter already active');
+          return;
+        }
+        if (activeAdapter) return;
+        activeAdapter = { ws, adapterId: msg.adapterId.trim(), label: msg.label.trim() };
+        console.log('[agent] adapter registrado id=', activeAdapter.adapterId, 'label=', JSON.stringify(activeAdapter.label));
+        broadcastAgentPresence();
+        replayPending(ws);
+        return;
+      }
+
+      if (msg.type === 'accepted' || msg.type === 'completed' || msg.type === 'failed') {
+        if (!activeAdapter || activeAdapter.ws !== ws || typeof msg.requestId !== 'string') return;
+        const busy = busyByRequest.get(msg.requestId);
+        const slug = requestSessionById.get(msg.requestId);
+        if (!slug || !busy || busy.adapterWs !== ws) return;
+        S.appendInbox(slug, {
+          type: msg.type,
+          protocol: 1,
+          requestId: msg.requestId,
+          at: new Date().toISOString(),
+          ...(typeof msg.message === 'string' && msg.message ? { message: msg.message.slice(0, 4000) } : {}),
+        });
+        if (msg.type === 'completed' || msg.type === 'failed') {
+          if (msg.type === 'failed') {
+            const detail = typeof msg.message === 'string' && msg.message.trim() ? ': ' + msg.message.trim().slice(0, 300) : '';
+            S.appendThread(slug, { author: 'system', text: 'O agente falhou ao processar o pedido' + detail, ts: Date.now() });
+          }
+          clearBusy(msg.requestId, ws);
+          requestSessionById.delete(msg.requestId);
+          dispatchNext(slug);
+          clearTimeout(debounceTimers.get(slug));
+          debounceTimers.delete(slug);
+          // O mesmo state publica os arquivos que o agente acabou de gravar E
+          // a trava final. Destravar antes deixava o browser editar o rev antigo.
+          broadcastState(slug);
+        }
+      }
+    });
+    ws.send(JSON.stringify({ type: 'hello', protocol: 1 }));
     return;
   }
 
@@ -281,7 +419,7 @@ wss.on('connection', (ws) => {
   browsersBySession.get(slug).add(ws);
   console.log('[browser] conectado session=', slug);
 
-  // estado inicial (inclui busy, pra quem conecta durante o "pensando")
+  // estado inicial (inclui busy, pra quem conecta durante o processamento)
   const st = safeReadState(slug);
   if (st) ws.send(statePayload(slug, st));
 
@@ -294,6 +432,12 @@ wss.on('connection', (ws) => {
       // Todo patch e lens-aware desde o FF-008. Patch sem `lens` era do editor
       // antigo: recusa em voz alta em vez de adivinhar a lente, porque escrever
       // no modelo errado e pior que nao escrever.
+      if (isSessionBusy(slug)) {
+        console.error('[patch] recusado: sessao ocupada pelo agente:', slug);
+        const current = safeReadState(slug);
+        if (current && ws.readyState === ws.OPEN) ws.send(statePayload(slug, current));
+        return;
+      }
       if (!msg.lens) { console.error('[patch] recusado: veio sem `lens` (cliente desatualizado?)'); return; }
       if (!S.isModelKey(msg.lens)) { console.error('[patch] lens desconhecida:', msg.lens); return; }
       // atencao: na lens 'seq' o payload e um SeqModel { participants, messages },
@@ -309,9 +453,11 @@ wss.on('connection', (ws) => {
       if (note) S.appendThread(slug, { author: 'user', text: note, ts: Date.now() });
       // Um arquivo, um rev. Antes do FF-008 este evento carregava tambem o
       // rev/title/path do diagram.json, e os dois revs andavam separados — era
-      // fonte de confusao pro Claude sobre qual somar.
+      // fonte de confusao pro agente sobre qual somar.
       const event = {
-        kind: 'analyze',
+        type: 'analyze',
+        protocol: 1,
+        requestId: crypto.randomUUID(),
         session: slug,
         note,
         at,
@@ -319,18 +465,17 @@ wss.on('connection', (ws) => {
         workspaceRev: workspace.rev,
         workspaceTitle: S.workspaceTitle(workspace),
         threadPath: S.threadPath(slug),
-        hint: 'Leia workspacePath + threadPath, rebata, e edite o workspace: um dos 5 modelos '
-          + '(process|state|er|mind|seq) com rev = workspaceRev+1 e updatedBy:"claude". '
-          + 'Termine SEMPRE postando no threadPath — e isso que destrava o canvas.',
+        projectPath: path.basename(S.getRoot()) === '.flowforge' ? path.dirname(S.getRoot()) : process.cwd(),
       };
       S.appendInbox(slug, event);
-      const n = pushToClaude(event);
-      console.log('[analyze] session=', slug, 'note=', JSON.stringify(note.slice(0, 60)), 'claudeClients=', n);
-      if (n > 0) {
-        setBusy(slug); // trava a edicao no browser ate o Claude responder
-      } else {
-        // feedback imediato no thread pro usuario ver que foi enviado
-        S.appendThread(slug, { author: 'system', text: '(Claude offline — pedido salvo no inbox; sera lido quando o Monitor conectar.)', ts: Date.now() });
+      const estavaBusy = isSessionBusy(slug);
+      const dispatched = dispatchNext(slug);
+      const status = dispatched ? 'online' : estavaBusy ? 'queued' : 'offline';
+      console.log('[analyze] session=', slug, 'requestId=', event.requestId, 'adapter=', status);
+      if (!dispatched && !estavaBusy) {
+        S.appendThread(slug, { author: 'system', text: 'Agente offline; pedido salvo no inbox e pendente para reenvio.', ts: Date.now() });
+      } else if (estavaBusy) {
+        S.appendThread(slug, { author: 'system', text: 'Pedido salvo no inbox e enfileirado nesta sessao.', ts: Date.now() });
       }
       return;
     }
@@ -349,6 +494,7 @@ wss.on('connection', (ws) => {
 });
 
 // ---- start ----------------------------------------------------------------
+restoreDispatchedBusy();
 if (INITIAL_SESSION) S.ensureSession(S.slugify(INITIAL_SESSION));
 // Sem host -> dual-stack (:: com IPv4 mapeado): aceita tanto localhost=IPv6(::1)
 // quanto 127.0.0.1. No Windows o Chrome resolve localhost pra ::1 primeiro, e
@@ -361,5 +507,6 @@ server.listen(PORT, () => {
     console.log('  sessao inicial: ' + s);
     console.log('  editor: http://localhost:' + PORT + '/?session=' + s);
   }
-  console.log('  claude WS: ws://localhost:' + PORT + '/claude');
+  console.log('  agent WS: ws://localhost:' + PORT + '/agent');
+  console.log('  alias legado: ws://localhost:' + PORT + '/claude');
 });

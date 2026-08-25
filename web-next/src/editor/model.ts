@@ -33,7 +33,7 @@ export function novoNode(kind: string, center: { x: number; y: number }, lane?: 
 /**
  * Assinatura do CONTEÚDO de um nó — o `nodeKey` do editor antigo (`app.js:506`).
  * A posição fica de fora de propósito: mover um nó não é mudança de conteúdo e
- * não merece o realce de "o Claude mexeu aqui".
+ * não merece o realce de "o agente mexeu aqui".
  */
 export function nodeKey(n: DNode): string {
   return [

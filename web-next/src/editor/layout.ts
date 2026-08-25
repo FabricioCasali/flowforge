@@ -7,7 +7,7 @@
 //
 // LEI 2 (arquivo é a verdade) aplicada à geometria: **quem tem `x`/`y` no
 // arquivo manda**. O elk só calcula quem não tem — e o que ele calcular é
-// transladado para o referencial do desenho salvo, senão o nó novo do Claude
+// transladado para o referencial do desenho salvo, senão o nó novo do agente
 // aparece a mil pixels do diagrama que o Fabricio arrastou. Ver `anchorToSaved`.
 //
 // A Swimlane é a exceção declarada (`savesPos: false` em `lenses.ts`): ela
@@ -121,7 +121,7 @@ function sizesOf(diagram: Diagram): LayoutResult['sizes'] {
  * continua na semântica antiga de propósito: o `web/` antigo ainda roda em `/`
  * (lei 1) e lê os mesmos diagramas.
  *
- * Nó sem `x`/`y` (recém-nascido do Claude) fica fora.
+ * Nó sem `x`/`y` (recém-nascido do agente) fica fora.
  */
 export function savedPositions(diagram: Diagram, sizes: Record<string, Size>): Record<string, Pt> {
   const out: Record<string, Pt> = {}
@@ -384,7 +384,11 @@ export function routeAvoiding(sa: Pt, ta: Pt, s: Rect, t: Rect, obs: Rect[]): Pt
   const lB = { x: ta.x, y: sa.y }
   const okA = !bloqueado(sa.x, sa.y, lA.x, lA.y, obs) && !bloqueado(lA.x, lA.y, ta.x, ta.y, obs)
   const okB = !bloqueado(sa.x, sa.y, lB.x, lB.y, obs) && !bloqueado(lB.x, lB.y, ta.x, ta.y, obs)
-  if (okA || okB) return null
+  // O chamador só chega aqui depois de provar que a rota-base cruza um nó. Se
+  // um dos dois cotovelos simples está livre, ele É o desvio; devolver null
+  // faria routeAll reutilizar justamente a rota inválida que trouxe a chamada.
+  if (okA) return dedup([sa, lA, ta])
+  if (okB) return dedup([sa, lB, ta])
 
   let xs = [s.x1, s.x2, s.cx, t.x1, t.x2, t.cx, sa.x, ta.x]
   let ys = [s.y1, s.y2, s.cy, t.y1, t.y2, t.cy, sa.y, ta.y]
@@ -688,7 +692,7 @@ const FOLGA_OBSTACULO = 10
  *   2. L/Z limpo, se não cruzar ninguém — é o traço mais legível e o mais barato
  *   3. desvio A*, só quando o L/Z passaria por cima de um nó
  */
-function routeAll(diagram: Diagram, positions: Record<string, Pt>, sizes: Record<string, Size>): Record<string, Pt[]> {
+export function routeAll(diagram: Diagram, positions: Record<string, Pt>, sizes: Record<string, Size>): Record<string, Pt[]> {
   const out: Record<string, Pt[]> = {}
   const rects: Record<string, Rect> = {}
   for (const n of diagram.nodes) {
@@ -726,8 +730,20 @@ function routeAll(diagram: Diagram, positions: Record<string, Pt>, sizes: Record
       continue
     }
     // 3) contorna
-    const desvio = routeAvoiding(base[0]!, base[base.length - 1]!, rects[e.source]!, rects[e.target]!, obs)
-    out[e.id] = desvio ?? base
+    // Com lado ancorado, preserva os stubs inicial e final. Entregar as pontas
+    // diretamente ao A* permitia que o desvio dobrasse já na borda e saísse por
+    // uma direção diferente da gravada no arquivo.
+    const ancorada = Boolean(e.sourceSide || e.targetSide)
+    const inicio = ancorada ? base[1]! : base[0]!
+    const fim = ancorada ? base[base.length - 2]! : base[base.length - 1]!
+    const routeObs = ancorada ? [...obs, rects[e.source]!, rects[e.target]!] : obs
+    const desvio = routeAvoiding(inicio, fim, rects[e.source]!, rects[e.target]!, routeObs)
+    const candidato = desvio && ancorada
+      ? dedup([base[0]!, ...desvio, base[base.length - 1]!])
+      : desvio
+    out[e.id] = candidato && !voltaSobreSi(candidato) && !caminhoCruza(candidato, obs)
+      ? candidato
+      : base
   }
   return out
 }
@@ -766,9 +782,13 @@ export async function layoutDiagram(
       'elk.direction': direction,
       'elk.edgeRouting': 'ORTHOGONAL',
       'elk.layered.spacing.nodeNodeBetweenLayers': String(gapLayers),
-      'elk.spacing.nodeNode': '48',
-      'elk.layered.spacing.edgeNodeBetweenLayers': '28',
-      'elk.layered.mergeEdges': 'true',
+      'elk.spacing.nodeNode': '72',
+      'elk.layered.spacing.edgeNodeBetweenLayers': '40',
+      // A Swimlane precisa distinguir cada ligação. Fundir arestas cria troncos
+      // coincidentes que parecem uma única linha e dificulta seguir o fluxo.
+      'elk.layered.mergeEdges': 'false',
+      'elk.spacing.edgeEdge': '18',
+      'elk.layered.spacing.edgeEdgeBetweenLayers': '18',
       'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX'
     },
     children: diagram.nodes.map((n) => ({ id: n.id, width: sizes[n.id]!.width, height: sizes[n.id]!.height })),
@@ -829,8 +849,6 @@ export async function swimlaneLayout(diagram: Diagram): Promise<LayoutResult> {
     lanes.push({ id, label: lanesDef.find((l) => l.id === id)?.label ?? '', y: acc, height: bandHeight[id]! })
     acc += bandHeight[id]!
   }
-  const totalH = acc
-
   const positions: LayoutResult['positions'] = {}
   for (const n of diagram.nodes) {
     const lane = laneOf(n)
@@ -839,33 +857,12 @@ export async function swimlaneLayout(diagram: Diagram): Promise<LayoutResult> {
     positions[n.id] = { x: x + 150, y: bandY[lane]! + (bandHeight[lane]! - h) / 2 }
   }
 
-  // roteamento ortogonal manual (fluxo horizontal cruzando raias)
-  const edgePoints: LayoutResult['edgePoints'] = {}
-  for (const e of diagram.edges) {
-    const s = positions[e.source]
-    const t = positions[e.target]
-    if (!s || !t) continue
-    const ss = sizes[e.source]!
-    const ts = sizes[e.target]!
-    const sr = { x: s.x + ss.width, y: s.y + ss.height / 2 }
-    const tl = { x: t.x, y: t.y + ts.height / 2 }
-    if (tl.x > sr.x + 8) {
-      const mx = (sr.x + tl.x) / 2
-      edgePoints[e.id] = [sr, { x: mx, y: sr.y }, { x: mx, y: tl.y }, tl]
-    } else {
-      // aresta "de volta": desce abaixo das raias e retorna
-      const below = totalH + 30
-      const sb = { x: s.x + ss.width / 2, y: s.y + ss.height }
-      const tb = { x: t.x + ts.width / 2, y: t.y + ts.height }
-      edgePoints[e.id] = [sb, { x: sb.x, y: below }, { x: tb.x, y: below }, tb]
-    }
-  }
   // Sobreposição também incomoda aqui, mas a Swimlane não grava posição (lente
   // derivada): empurra no eixo X, que é o livre, e não devolve `ajustados`.
-  const semColisao = desempilhar(ordemPorPosicao(positions), positions, sizes, 14, 'x').positions
-  const rotas: LayoutResult['edgePoints'] = {}
-  for (const [id, pts] of Object.entries(edgePoints)) rotas[id] = pts
-  return { positions: semColisao, sizes, edgePoints: rotas, lanes }
+  // As arestas só podem ser calculadas DEPOIS disto: antes, o nó mudava de x e
+  // as pontas ficavam presas no lugar antigo, visualmente desligadas do nó.
+  const semColisao = desempilhar(ordemPorPosicao(positions), positions, sizes, 48, 'x').positions
+  return { positions: semColisao, sizes, edgePoints: routeAll(diagram, semColisao, sizes), lanes }
 }
 
 /**

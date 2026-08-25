@@ -42,6 +42,7 @@ const RAIZES = [
   { rotulo: 'context_builder', dir: 'C:/desenv/particular/context_builder/.flowforge' },
   { rotulo: 'poe2', dir: 'C:/desenv/particular/poe2 - overlay + pob/.flowforge' },
   { rotulo: 'th_framework', dir: 'C:/desenv/thealth_projects/th_framework/.flowforge' },
+  { rotulo: 'iforyou_nfse', dir: 'C:/desenv/thealth_projects/IForYou.Nfse/.flowforge' },
 ];
 
 // Quais lentes de grafo rodam sobre qual modelo, e se a lente e DONA da posicao.
@@ -104,7 +105,7 @@ function verificaFormas(SH, L) {
     const obtida = SH.shapeOf(kind);
     if (obtida !== esperada) problemas.push(`kind '${kind}': desenha como '${obtida}', deveria ser '${esperada}'`);
   }
-  // o fallback e intencional: kind novo do Claude vira etapa comum, nao some
+  // o fallback e intencional: kind novo do agente vira etapa comum, nao some
   if (SH.shapeOf('um-kind-que-nao-existe') !== 'rect') {
     problemas.push('kind desconhecido deixou de cair em rect (o fallback e proposital)');
   }
@@ -286,7 +287,7 @@ async function testaPropagacao(M) {
 }
 
 /**
- * FF-007 — export, arranjos nomeados e o diff "o que o Claude mudou".
+ * FF-007 — export, arranjos nomeados e o diff "o que o agente mudou".
  * O que da pra provar sem browser: o texto do Mermaid, a boa formacao do SVG, o
  * fato de os arranjos posicionarem todo mundo IGNORANDO o desenho salvo, e a
  * regra do diff (conteudo conta, posicao nao).
@@ -312,6 +313,14 @@ function segmentoDentro(a, b, r) {
 function trajetoCruza(pts, r) {
   for (let i = 1; i < pts.length; i++) if (segmentoDentro(pts[i - 1], pts[i], r)) return true;
   return false;
+}
+function pontoNaBorda(pt, p, s) {
+  const EPS = 0.6;
+  const dentroX = pt.x >= p.x - EPS && pt.x <= p.x + s.width + EPS;
+  const dentroY = pt.y >= p.y - EPS && pt.y <= p.y + s.height + EPS;
+  const naVertical = Math.abs(pt.x - p.x) < EPS || Math.abs(pt.x - (p.x + s.width)) < EPS;
+  const naHorizontal = Math.abs(pt.y - p.y) < EPS || Math.abs(pt.y - (p.y + s.height)) < EPS;
+  return (naVertical && dentroY) || (naHorizontal && dentroX);
 }
 
 /**
@@ -356,6 +365,47 @@ async function testaRoteamento(L) {
   d2.nodes = d2.nodes.filter((n) => n.id !== 'c');
   const r2 = await L.layoutDiagram(d2, 'DOWN', 70);
   casos.push(['sem obstaculo, o traco continua o L/Z simples', r2.edgePoints.e1.length <= 4]);
+
+  // A rota-base em Z cruza C, mas o cotovelo alternativo pela direita esta
+  // livre. Este era o ramo que encontrava a saida e devolvia null, fazendo o
+  // chamador reutilizar a linha bloqueada.
+  {
+    const dAlt = {
+      type: 'flowchart', title: 'L alternativo', rev: 0, updatedBy: 'user', lanes: [],
+      nodes: [
+        { id: 'a', label: 'A', kind: 'task', status: 'proposed', comments: [], x: 100, y: 100 },
+        { id: 'c', label: 'C', kind: 'task', status: 'proposed', comments: [], x: 300, y: 300 },
+        { id: 'b', label: 'B', kind: 'task', status: 'proposed', comments: [], x: 500, y: 500 },
+      ],
+      edges: [{ id: 'e1', source: 'a', target: 'b', label: '', status: 'proposed' }],
+    };
+    const rAlt = await L.layoutDiagram(dAlt, 'DOWN', 70);
+    const pc = rAlt.positions.c, sc = rAlt.sizes.c;
+    const rc = { x1: pc.x, y1: pc.y, x2: pc.x + sc.width, y2: pc.y + sc.height };
+    casos.push(['cotovelo alternativo livre substitui a rota que cruza obstaculo', !trajetoCruza(rAlt.edgePoints.e1, rc)]);
+  }
+
+  // Se há lados gravados, desviar de um nó não pode mudar a direção de saída
+  // nem a de entrada. O obstáculo estreito bloqueia só o stub da direita; sem
+  // preservá-lo, o atalho do roteador dobrava para baixo já na borda de A.
+  {
+    const dLados = {
+      type: 'flowchart', title: 'Lados com obstaculo', rev: 0, updatedBy: 'user', lanes: [],
+      nodes: [
+        { id: 'a', label: 'A', kind: 'task', status: 'proposed', comments: [] },
+        { id: 'c', label: 'C', kind: 'task', status: 'proposed', comments: [] },
+        { id: 'b', label: 'B', kind: 'task', status: 'proposed', comments: [] },
+      ],
+      edges: [{ id: 'e1', source: 'a', target: 'b', label: '', status: 'proposed', sourceSide: 'right', targetSide: 'top' }],
+    };
+    const positions = { a: { x: 0, y: 100 }, c: { x: 110, y: 180 }, b: { x: 400, y: 300 } };
+    const sizes = { a: { width: 100, height: 40 }, c: { width: 1, height: 40 }, b: { width: 100, height: 40 } };
+    const pts = L.routeAll(dLados, positions, sizes).e1;
+    const saiDireita = pts[1].x > pts[0].x && Math.abs(pts[1].y - pts[0].y) < 0.5;
+    const n = pts.length;
+    const entraTopo = pts[n - 2].y < pts[n - 1].y && Math.abs(pts[n - 2].x - pts[n - 1].x) < 0.5;
+    casos.push(['desvio preserva os lados ancorados nas duas pontas', saiDireita && entraTopo]);
+  }
 
   // quebra MANUAL manda: o traco tem de passar pelo ponto pedido
   const d3 = JSON.parse(JSON.stringify(d));
@@ -523,7 +573,7 @@ async function testaFerramentas(L, M, X, base) {
     casos.push([`arranjo '${nome}' ignora o desenho salvo`, ignorou]);
   }
 
-  // ---- diff: o que o Claude mudou ----
+  // ---- diff: o que o agente mudou ----
   {
     const antes = base();
     const depois = base();
@@ -775,6 +825,28 @@ async function main() {
         const temDirecao = pts.some((p) => Math.abs(p.x - fim.x) + Math.abs(p.y - fim.y) > 0.5);
         if (!temDirecao) problemas.push(`aresta '${eid}': traco sem direcao — a ponta da seta nao teria pra onde apontar`);
         if (voltaSobreSi(pts)) problemas.push(`aresta '${eid}': a linha volta em cima do proprio eixo`);
+      }
+
+      // A Swimlane reorganiza os nós depois do ELK. As pontas precisam seguir
+      // essa posição FINAL; caso contrário a linha termina solta no canvas.
+      if (lente.key === 'swimlane') {
+        for (const e of d.edges || []) {
+          const pts = res.edgePoints[e.id];
+          const sp = res.positions[e.source], tp = res.positions[e.target];
+          const ss = res.sizes[e.source], ts = res.sizes[e.target];
+          if (!pts || !sp || !tp || !ss || !ts) continue;
+          if (!pontoNaBorda(pts[0], sp, ss)) problemas.push(`aresta '${e.id}': ponta inicial desligada do no '${e.source}'`);
+          if (!pontoNaBorda(pts[pts.length - 1], tp, ts)) problemas.push(`aresta '${e.id}': ponta final desligada do no '${e.target}'`);
+          if (!e.waypoints?.length) {
+            for (const n of d.nodes || []) {
+              if (n.id === e.source || n.id === e.target) continue;
+              const p = res.positions[n.id], s = res.sizes[n.id];
+              if (!p || !s) continue;
+              const rect = { x1: p.x, y1: p.y, x2: p.x + s.width, y2: p.y + s.height };
+              if (trajetoCruza(pts, rect)) problemas.push(`aresta '${e.id}': atravessa o no '${n.id}'`);
+            }
+          }
+        }
       }
 
       // SOBREPOSICAO (excecao da lei 4): depois do layout, no nenhum pode ficar

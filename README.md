@@ -20,7 +20,7 @@ agente pelo disco, você pelo `vim`) aparece na tela dos dois lados.
 
 **O agente não fala com o canvas, ele edita o arquivo.** Não existe API de desenho para
 ele chamar, nem formato intermediário: ele lê `workspace.json`, escreve `workspace.json`
-com `rev+1` e `updatedBy:"claude"`, e o `fs.watch` faz o resto. É o mesmo caminho que
+com `rev+1` e `updatedBy:"agent"`, e o `fs.watch` faz o resto. É o mesmo caminho que
 você usaria na mão.
 
 **O desenho carrega a decisão, não só a forma.** Cada nó tem status
@@ -31,11 +31,11 @@ rebate.
 ```
 browser  --(WS patch)-->  servidor  --grava-->  <dados>/<sessão>/workspace.json
                                                         |
-agente   --edita o arquivo------------------------------+   (rev+1, updatedBy:"claude")
+agente   --edita o arquivo------------------------------+   (rev+1, updatedBy:"agent")
                                                         |
 browser  <--(WS state)--  servidor  <--fs.watch---------+   (o canvas atualiza sozinho)
 
-clique "Analisar"  --(WS)-->  servidor  --(WS /claude)-->  agente conectado
+clique "Analisar"  --(WS)-->  servidor  --(WS /agent)-->  adapter do usuário
 ```
 
 ## Rodar em 5 minutos
@@ -78,45 +78,59 @@ continua sendo quem fala com os arquivos — mantenha ele no ar).
 
 ## Ligar o agente
 
-O servidor abre um WebSocket em `ws://localhost:4317/claude`. Quem se conectar ali
-recebe, em JSON, cada clique em **Analisar**:
+O servidor abre um WebSocket em `ws://localhost:4317/agent`. O harness escolhido pelo
+usuário conecta por meio de um adapter externo, recebe o `hello` e se registra:
 
 ```json
-{ "kind": "analyze", "session": "meu-problema", "note": "e se a fila cair?",
+{ "type": "register", "protocol": 1, "adapterId": "meu-adapter", "label": "OpenCode" }
+```
+
+Depois do registro, cada clique em **Analisar** produz:
+
+```json
+{ "type": "analyze", "protocol": 1, "requestId": "<uuid>",
+  "session": "meu-problema", "note": "e se a fila cair?",
   "workspacePath": "<abs>/meu-problema/workspace.json",
   "workspaceRev": 3,
   "threadPath": "<abs>/meu-problema/thread.json", "at": "2026-08-06T12:00:00.000Z" }
 ```
 
-O contrato de resposta tem dois passos, e os dois importam:
+O contrato de resposta tem quatro passos, e os quatro importam:
 
-1. **edite o `workspacePath`** — mexa nos nós/arestas, responda comentários, e grave com
-   `rev` do topo somado em 1 e `updatedBy: "claude"`. Sem isso o browser descarta a
-   escrita;
-2. **escreva no `threadPath`** — acrescente `{"author":"claude","text":"…","ts":<ms>}` em
-   `messages[]`. É a sua resposta na conversa, **e** é o que destrava o canvas: ao
-   despachar o "Analisar" a sessão entra em modo leitura, e ela só sai de lá quando uma
-   mensagem `claude` aparece no thread (ou após 180s de timeout).
+1. envie `accepted` com o mesmo `requestId`;
+2. edite o `workspacePath`, subindo o `rev` do topo e marcando `updatedBy: "agent"`;
+3. acrescente `{"author":"agent","text":"…","ts":<ms>}` ao `threadPath`;
+4. envie `completed` ou `failed` com o mesmo `requestId`, liberando a trava do canvas.
+
+O transporte é pelo menos uma vez: depois de queda ou timeout, o mesmo `requestId` pode
+ser reenviado. O adapter deve deduplicá-lo entre reconexões e nunca iniciar uma segunda
+execução para um pedido que ainda esteja trabalhando. Pedidos da mesma sessão chegam em
+série.
 
 O formato dos arquivos está em [`docs/SCHEMA.md`](docs/SCHEMA.md).
 
-**Com o Claude Code**, é isso que a integração faz: um monitor de WebSocket persistente
-apontado para `ws://localhost:4317/claude`, e um prompt (uma skill, um `CLAUDE.md`) que
-ensine o schema e as duas regras acima. Vale para qualquer agente que saiba ler um socket
-e escrever um arquivo — não há nada específico de um fornecedor no servidor.
+O FlowForge não executa nem escolhe Claude Code, OpenCode, Codex ou outro produto. O
+adapter traduz este protocolo para o harness preferido do usuário e registra o nome que a
+interface deve mostrar. Apenas um adapter fica ativo por vez.
 
 Para conferir que o canal está de pé, sem agente nenhum:
 
 ```js
 // node monitor.js — imprime cada "Analisar"
 const { WebSocket } = require('ws');
-const ws = new WebSocket('ws://localhost:4317/claude');
-ws.on('message', (raw) => console.log(raw.toString()));
+const ws = new WebSocket('ws://localhost:4317/agent');
+ws.on('message', (raw) => {
+  const msg = JSON.parse(raw);
+  if (msg.type === 'hello') ws.send(JSON.stringify({ type: 'register', protocol: 1, adapterId: 'monitor', label: 'Monitor' }));
+  else console.log(msg);
+});
 ```
 
 A barra do topo mostra as **duas** conexões separadas: a sua com o servidor e a do
-agente. Com ninguém ouvindo em `/claude`, o botão avisa antes do clique — o pedido não se
-perde, vai para o `inbox.jsonl` da sessão e pode ser lido depois.
+agente. Sem adapter registrado em `/agent`, o botão avisa antes do clique. O pedido fica
+pendente no `inbox.jsonl` e é reenviado com o mesmo `requestId` quando um adapter conectar.
+`/claude` existe somente como alias temporário de URL e usa exatamente o mesmo protocolo
+de registro de `/agent`.
 
 ## As 6 lentes
 
@@ -154,7 +168,7 @@ O mesmo assunto, visto de seis jeitos. Elas leem 5 modelos que convivem no mesmo
 
 ```
 server/            a ponte: HTTP + WebSocket + estado em arquivo (Node puro + ws)
-  index.js         rotas, WS /ws (browser) e /claude (agente), fs.watch por sessão
+  index.js         rotas, WS /ws (browser) e /agent (adapter), fs.watch por sessão
   state.js         leitura/escrita da sessão, autoridade do `rev`, migração
 web-next/          o editor (Vite + React + TypeScript + @xyflow/react + elkjs)
   src/types.ts     o contrato do modelo — campo novo entra aqui antes de ser usado

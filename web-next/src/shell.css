@@ -105,9 +105,9 @@
   border-color: color-mix(in oklch, var(--s-rejected) 40%, transparent);
   background: color-mix(in oklch, var(--s-rejected) 10%, var(--surface));
 }
-/* Claude sem Monitor não é ERRO — o pedido fica guardado no inbox e é lido
+/* Agente sem adapter não é ERRO — o pedido fica guardado no inbox e é lido
    depois. Vermelho seria alarme falso; âmbar diz "não conta com resposta agora". */
-.ff-pill.claude.off {
+.ff-pill.agent.off {
   color: var(--s-questioned);
   border-color: color-mix(in oklch, var(--s-questioned) 40%, transparent);
   background: color-mix(in oklch, var(--s-questioned) 10%, var(--surface));
@@ -220,10 +220,10 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.ff-msg.claude {
+.ff-msg.agent {
   border-color: color-mix(in oklch, var(--accent) 34%, var(--border));
 }
-.ff-msg.claude .who {
+.ff-msg.agent .who {
   color: var(--accent);
 }
 .ff-msg.system {

@@ -738,22 +738,24 @@
   cursor: pointer;
 }
 
-/* Aresta SELECIONADA: o traço vira tracejado que anda no sentido do fluxo —
-   source → target. É a leitura de direção que o Fabricio tinha no editor antigo
-   e sentiu falta: a ponta diz para onde vai, e o movimento confirma. */
+/* Aresta selecionada ou ligada a um nó selecionado: o traço vira tracejado que
+   anda no sentido do fluxo — source → target. A animação das ligações não
+   seleciona as arestas, portanto não abre o card nem as quebras arrastáveis. */
 @keyframes ff-formigas {
   to {
     stroke-dashoffset: -28;
   }
 }
-.react-flow__edge.selected .react-flow__edge-path {
+.react-flow__edge.selected .react-flow__edge-path,
+.react-flow__edge.animated .react-flow__edge-path {
   stroke-dasharray: 9 5;
   animation: ff-formigas 0.55s linear infinite;
 }
 /* quem prefere a tela quieta (ou tem sensibilidade a movimento) mantém o
    tracejado, que já mostra o sentido junto com a ponta, mas sem a animação */
 @media (prefers-reduced-motion: reduce) {
-  .react-flow__edge.selected .react-flow__edge-path {
+  .react-flow__edge.selected .react-flow__edge-path,
+  .react-flow__edge.animated .react-flow__edge-path {
     animation: none;
   }
 }
@@ -978,7 +980,7 @@
   color: var(--faint);
   margin-bottom: 2px;
 }
-.fpanel-cmt.claude {
+.fpanel-cmt.agent {
   border-left-color: var(--accent);
 }
 .fpanel-cmt.reject {
@@ -1521,7 +1523,7 @@
   background: color-mix(in oklch, var(--accent) 14%, transparent);
 }
 
-/* ---------- o que o Claude mudou: realce + toast ---------- */
+/* ---------- o que o agente mudou: realce + toast ---------- */
 .react-flow__node.ff-changed::before {
   content: '';
   position: absolute;
@@ -1568,7 +1570,7 @@
   background: var(--accent);
   box-shadow: 0 0 8px var(--accent);
 }
-/* o aviso de "afastei nós" é OUTRA coisa que o "o Claude mudou": é o editor
+/* o aviso de "afastei nós" é OUTRA coisa que o "o agente mudou": é o editor
    avisando que mexeu no desenho por conta própria, e some sozinho */
 .change-toast.afasta {
   bottom: 62px;
@@ -1801,6 +1803,9 @@
 }
 
 /* ---------- banda de raia (swimlane) ---------- */
+.react-flow__node-lane {
+  pointer-events: none !important;
+}
 .lane-band {
   box-sizing: border-box;
   background: color-mix(in oklch, var(--surface) 22%, transparent);

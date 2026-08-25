@@ -63,7 +63,7 @@ export function GuidePanel({ nodes, selecionado, onIr, onFechar }: GuidePanelPro
 
       {semTeoria === lista.length && lista.length > 0 && (
         <p className="guia-vazio">
-          Nenhuma etapa tem <b>teoria</b> escrita ainda. Peça ao Claude no “Analisar” para
+          Nenhuma etapa tem <b>teoria</b> escrita ainda. Peça ao agente no “Analisar” para
           explicar o fluxo — ou escreva você, na aba <b>teoria</b> do card de cada nó.
         </p>
       )}

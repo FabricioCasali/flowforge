@@ -1,5 +1,5 @@
 // ============================================================================
-// shapes.ts — a TABELA das formas por `kind` (lei 8 do CLAUDE.md).
+// shapes.ts — a TABELA das formas por `kind` (lei 8 do AGENTS.md).
 //
 // Mora sozinha, sem React e sem @xyflow, por dois motivos:
 //   · `nodeSize` (layout.ts) e `FlowNode` (render) precisam concordar sobre o
@@ -25,7 +25,7 @@ export type FlowShape =
 
 /**
  * Os kinds que o editor conhece por nome. Tudo que não estiver aqui é desenhado
- * como retângulo — de propósito: kind novo do Claude aparece como etapa comum em
+ * como retângulo — de propósito: kind novo do agente aparece como etapa comum em
  * vez de sumir do canvas.
  */
 export const SHAPE_BY_KIND = {

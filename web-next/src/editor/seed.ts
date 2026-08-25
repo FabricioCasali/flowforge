@@ -8,7 +8,7 @@ export function seedDiagram(): Diagram {
     type: 'flowchart',
     title: 'Plano · corrigir bug #12345',
     rev: 1,
-    updatedBy: 'claude',
+    updatedBy: 'agent',
     lanes: [],
     nodes: [
       { id: 'n_start', label: 'Bug reportado', kind: 'start', status: 'proposed', description: 'entrada do fluxo', comments: [] },
@@ -18,7 +18,7 @@ export function seedDiagram(): Diagram {
         kind: 'task',
         status: 'approved',
         description: 'lê o repo e mapeia a origem do erro',
-        comments: [{ author: 'claude', kind: 'note', text: 'Suspeito da classe X — validação nula', ts: 1 }]
+        comments: [{ author: 'agent', kind: 'note', text: 'Suspeito da classe X — validação nula', ts: 1 }]
       },
       { id: 'n_fix', label: 'Aplicar correção', kind: 'task', status: 'proposed', description: 'implementa o patch', comments: [] },
       { id: 'n_test', label: 'Rodar testes', kind: 'task', status: 'proposed', description: 'suíte + regressão do bug', comments: [] },

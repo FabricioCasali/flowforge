@@ -2,7 +2,7 @@
   "name": "flowforge",
   "version": "0.1.0",
   "private": true,
-  "description": "Canvas colaborativo e vivo pra co-desenhar estrategias (fluxograma/BPM/mindmap) com o Claude",
+  "description": "Canvas colaborativo e vivo para co-desenhar estrategias com um agente de codigo",
   "type": "commonjs",
   "bin": {
     "flowforge": "server/index.js"

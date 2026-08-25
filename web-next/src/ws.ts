@@ -1,11 +1,11 @@
 // ============================================================================
-// ws.ts — a fala do editor novo com o servidor do FlowForge (CLAUDE.md §3).
+// ws.ts — a fala do editor novo com o servidor do FlowForge (AGENTS.md §3).
 //
 // Protocolo (não mude de um lado só — o outro lado é `server/index.js`):
 //   conecta  ws://<host>/ws?session=<slug>
-//   recebe   { type:'state',  session, workspace, thread, busy, claudeOnline }
+//   recebe   { type:'state',  session, workspace, thread, busy, agentOnline, agentLabel }
 //   recebe   { type:'busy',   session, busy }
-//   recebe   { type:'claude', online }
+//   recebe   { type:'agent', online, label }
 //   envia    { type:'patch',  session, lens, diagram }   ← lens-aware (lei 4)
 //   envia    { type:'analyze', session, note }
 //
@@ -15,7 +15,7 @@
 // O 'state' levava também um `diagram` (do editor antigo, servido em /). Saiu no
 // FF-008, junto com o editor.
 //
-// LEI 7 (trava `busy`): enquanto o Claude pensa, o editor é SÓ LEITURA. A recusa
+// LEI 7 (trava `busy`): enquanto o agente trabalha, o editor é SÓ LEITURA. A recusa
 // mora aqui embaixo, no transporte: `patch()` simplesmente não sai quando busy.
 // A UI também desabilita os botões — mas a garantia dura é esta, porque é a
 // única que nenhum caminho de código consegue contornar por engano.
@@ -24,6 +24,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   emptyWorkspace,
+  normalizeMessageAuthor,
   normalizeWorkspace,
   type Diagram,
   type ModelKey,
@@ -39,19 +40,21 @@ export interface StateMsg {
   workspace?: unknown
   thread?: unknown
   busy?: boolean
-  /** Tem Monitor do Claude ligado no `/claude`? Sem isso, "Analisar" vai pro inbox. */
-  claudeOnline?: boolean
+  /** Tem adapter de agente registrado no `/agent`? */
+  agentOnline?: boolean
+  agentLabel?: string | null
 }
 export interface BusyMsg {
   type: 'busy'
   session: string
   busy: boolean
 }
-export interface ClaudeMsg {
-  type: 'claude'
+export interface AgentMsg {
+  type: 'agent'
   online: boolean
+  label?: string | null
 }
-export type ServerMsg = StateMsg | BusyMsg | ClaudeMsg | { type: 'pong' }
+export type ServerMsg = StateMsg | BusyMsg | AgentMsg | { type: 'pong' }
 
 export type ClientMsg =
   | { type: 'patch'; session: string; lens: ModelKey; diagram: Diagram | SeqModel }
@@ -66,7 +69,7 @@ export interface Handlers {
   onThread: (t: Thread) => void
   onBusy: (busy: boolean) => void
   onConn: (c: ConnStatus) => void
-  onClaude: (online: boolean) => void
+  onAgent: (online: boolean, label: string | null) => void
 }
 
 const RETRY_BASE = 800
@@ -147,15 +150,15 @@ export class FlowForgeSocket {
       this.h.onWorkspace(normalizeWorkspace(msg.workspace))
       this.h.onThread(normalizeThread(msg.thread))
       if (typeof msg.busy === 'boolean') this.setBusy(msg.busy)
-      if (typeof msg.claudeOnline === 'boolean') this.h.onClaude(msg.claudeOnline)
+      if (typeof msg.agentOnline === 'boolean') this.h.onAgent(msg.agentOnline, msg.agentLabel ?? null)
       return
     }
     if (msg.type === 'busy') {
       this.setBusy(!!msg.busy)
       return
     }
-    if (msg.type === 'claude') {
-      this.h.onClaude(!!msg.online)
+    if (msg.type === 'agent') {
+      this.h.onAgent(!!msg.online, msg.label ?? null)
       return
     }
   }
@@ -176,7 +179,7 @@ export class FlowForgeSocket {
    * quem chamou pode desfazer o otimismo local se quiser.
    */
   patch(lens: ModelKey, model: Diagram | SeqModel): boolean {
-    if (this.busy) return false // lei 7: modo leitura, ninguém escreve por cima do Claude
+    if (this.busy) return false // lei 7: modo leitura, ninguém escreve por cima do agente
     return this.send({ type: 'patch', session: this.session, lens, diagram: model })
   }
 
@@ -201,7 +204,11 @@ export class FlowForgeSocket {
 function normalizeThread(raw: unknown): Thread {
   if (!raw || typeof raw !== 'object') return { messages: [] }
   const m = (raw as Record<string, unknown>).messages
-  return { messages: Array.isArray(m) ? (m as Thread['messages']) : [] }
+  return {
+    messages: Array.isArray(m)
+      ? (m as Thread['messages']).map((msg) => ({ ...msg, author: normalizeMessageAuthor(msg.author) }))
+      : []
+  }
 }
 
 // ---------- ponte com o React ----------
@@ -211,8 +218,9 @@ export interface Live {
   thread: Thread
   busy: boolean
   conn: ConnStatus
-  /** Monitor do Claude ligado? Se não, "Analisar" cai no inbox e espera. */
-  claudeOnline: boolean
+  /** Adapter externo registrado. Sem ele, "Analisar" fica pendente no inbox. */
+  agentOnline: boolean
+  agentLabel: string | null
   /** grava uma lente (não sai quando busy — lei 7) */
   patch: (lens: ModelKey, model: Diagram | SeqModel) => void
   analyze: (note?: string) => void
@@ -227,20 +235,25 @@ export function useFlowForge(session: string): Live {
   const [thread, setThread] = useState<Thread>({ messages: [] })
   const [busy, setBusy] = useState(false)
   const [conn, setConn] = useState<ConnStatus>('conectando')
-  const [claudeOnline, setClaudeOnline] = useState(false)
+  const [agentOnline, setAgentOnline] = useState(false)
+  const [agentLabel, setAgentLabel] = useState<string | null>(null)
   const sockRef = useRef<FlowForgeSocket | null>(null)
 
   useEffect(() => {
     setWorkspace(emptyWorkspace())
     setThread({ messages: [] })
     setBusy(false)
-    setClaudeOnline(false)
+    setAgentOnline(false)
+    setAgentLabel(null)
     const sock = new FlowForgeSocket(session, {
       onWorkspace: setWorkspace,
       onThread: setThread,
       onBusy: setBusy,
       onConn: setConn,
-      onClaude: setClaudeOnline
+      onAgent: (online, label) => {
+        setAgentOnline(online)
+        setAgentLabel(label)
+      }
     })
     sockRef.current = sock
     return () => {
@@ -256,5 +269,5 @@ export function useFlowForge(session: string): Live {
     sockRef.current?.analyze(note)
   }, [])
 
-  return { workspace, thread, busy, conn, claudeOnline, patch, analyze }
+  return { workspace, thread, busy, conn, agentOnline, agentLabel, patch, analyze }
 }

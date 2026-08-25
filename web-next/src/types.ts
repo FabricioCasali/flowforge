@@ -1,5 +1,5 @@
 // ============================================================================
-// types.ts — A BARREIRA (lei 3 do CLAUDE.md do FlowForge).
+// types.ts — A BARREIRA (lei 3 do AGENTS.md do FlowForge).
 //
 // Cópia LOCAL e AUTOSSUFICIENTE do modelo do editor. Nada aqui importa de fora
 // do repo: **não existe** `@neon/shared` no FlowForge. O código veio do NEON
@@ -24,12 +24,14 @@ export type NodeStatus = 'proposed' | 'approved' | 'questioned' | 'rejected'
 
 /** Lado da porta onde a aresta ancora (N/E/S/O). */
 export type Side = 'top' | 'right' | 'bottom' | 'left'
+export type UpdatedBy = 'user' | 'agent'
+export type MessageAuthor = 'user' | 'agent' | 'system'
 
 // ---------- Modelo do diagrama (arquivo-como-verdade) ----------
 export type DiagramType = 'flowchart' | 'bpm' | 'mindmap' | 'swimlane' | 'er'
 
 export interface Comment {
-  author: 'user' | 'claude'
+  author: Exclude<MessageAuthor, 'system'>
   kind: 'note' | 'question' | 'reject'
   text: string
   ts?: number
@@ -103,7 +105,7 @@ export interface Diagram {
   type: DiagramType
   title: string
   rev: number
-  updatedBy: 'user' | 'claude'
+  updatedBy: UpdatedBy
   lanes: Lane[]
   nodes: DNode[]
   edges: DEdge[]
@@ -111,7 +113,7 @@ export interface Diagram {
 
 // ---------- Conversa da sessão (thread.json) ----------
 export interface ThreadMessage {
-  author: 'user' | 'claude' | 'system'
+  author: MessageAuthor
   text: string
   ts?: number
 }
@@ -144,7 +146,7 @@ export interface Workspace {
   mind: Diagram
   seq: SeqModel
   rev: number
-  updatedBy: 'user' | 'claude'
+  updatedBy: UpdatedBy
 }
 
 // ---------- Fábricas ----------
@@ -170,7 +172,7 @@ export function emptyWorkspace(): Workspace {
 
 // ---------- Normalização do que chega do servidor (WS 'state') ----------
 // Espelho do `normalizeWorkspace` de `server/state.js`: garante os 5 modelos +
-// rev + updatedBy SEM PODAR nada. Campo desconhecido (do Claude, de uma versão
+// rev + updatedBy SEM PODAR nada. Campo desconhecido (do agente, de uma versão
 // futura do formato) sobrevive intacto — quem poda perde dado do usuário.
 //
 // Diferente de `coerceDiagram`: aquele DESCONFIA da origem (zera rev, dropa nó
@@ -183,9 +185,15 @@ function normalizeModel(raw: unknown, title: string, type: DiagramType): Diagram
   if (typeof d.type !== 'string' || !d.type) d.type = type
   if (typeof d.title !== 'string' || !d.title) d.title = title
   if (typeof d.rev !== 'number') d.rev = 0
-  if (d.updatedBy !== 'user' && d.updatedBy !== 'claude') d.updatedBy = 'user'
+  d.updatedBy = normalizeUpdatedBy(d.updatedBy)
   if (!Array.isArray(d.lanes)) d.lanes = []
   if (!Array.isArray(d.nodes)) d.nodes = []
+  d.nodes = d.nodes.map((n) => ({
+    ...n,
+    comments: Array.isArray(n.comments)
+      ? n.comments.map((c) => ({ ...c, author: normalizeMessageAuthor(c.author, false) as Comment['author'] }))
+      : []
+  }))
   if (!Array.isArray(d.edges)) d.edges = []
   return d
 }
@@ -211,8 +219,18 @@ export function normalizeWorkspace(raw: unknown): Workspace {
     mind: normalizeModel(base.mind, t, 'mindmap'),
     seq: normalizeSeqModel(base.seq),
     rev: typeof base.rev === 'number' ? base.rev : 0,
-    updatedBy: base.updatedBy === 'claude' ? 'claude' : 'user'
+    updatedBy: normalizeUpdatedBy(base.updatedBy)
   }
+}
+
+export function normalizeUpdatedBy(by: unknown): UpdatedBy {
+  return by === 'agent' || by === 'claude' ? 'agent' : 'user'
+}
+
+export function normalizeMessageAuthor(author: unknown, system = true): MessageAuthor {
+  if (author === 'agent' || author === 'claude') return 'agent'
+  if (system && author === 'system') return 'system'
+  return 'user'
 }
 
 function rawTitle(m: unknown): string | null {
@@ -245,7 +263,7 @@ export function propagateEdges(nodes: DNode[], edges: DEdge[]): DEdge[] {
   })
 }
 
-// ---------- Validação/coerção de input não-tipado (disco / Claude) ----------
+// ---------- Validação/coerção de input não-tipado (disco / agente) ----------
 const DIAGRAM_TYPES: DiagramType[] = ['flowchart', 'bpm', 'mindmap', 'swimlane', 'er']
 const NODE_STATUSES: NodeStatus[] = ['proposed', 'approved', 'questioned', 'rejected']
 
@@ -254,7 +272,7 @@ function coerceStatus(s: unknown): NodeStatus {
 }
 
 /**
- * Coage um Diagram cru (arquivo em disco ou proposta do Claude) para um Diagram
+ * Coage um Diagram cru (arquivo em disco ou proposta do agente) para um Diagram
  * VÁLIDO. Nunca confia na origem: status inválido → 'proposed'; arestas
  * penduradas → dropadas; nós sem `id` → descartados. Sem nenhum nó válido →
  * `null` (o chamador descarta).
@@ -276,7 +294,9 @@ export function coerceDiagram(raw: unknown): Diagram | null {
       label: typeof n.label === 'string' && n.label ? n.label : id,
       kind: typeof n.kind === 'string' && n.kind ? n.kind : 'task',
       status: coerceStatus(n.status),
-      comments: Array.isArray(n.comments) ? (n.comments as Comment[]) : []
+      comments: Array.isArray(n.comments)
+        ? (n.comments as Comment[]).map((c) => ({ ...c, author: normalizeMessageAuthor(c.author, false) as Comment['author'] }))
+        : []
     }
     if (typeof n.description === 'string') node.description = n.description
     if (typeof n.concept === 'string') node.concept = n.concept
@@ -324,7 +344,7 @@ export function coerceDiagram(raw: unknown): Diagram | null {
     type,
     title: typeof r.title === 'string' && r.title ? r.title : 'Proposta',
     rev: 0,
-    updatedBy: 'claude',
+    updatedBy: 'agent',
     lanes,
     nodes,
     edges: propagateEdges(nodes, edges)

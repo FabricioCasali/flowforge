@@ -1,5 +1,5 @@
 // ============================================================================
-// FlowNode — o nó do grafo, com as formas por `kind` (LEI 8 do CLAUDE.md).
+// FlowNode — o nó do grafo, com as formas por `kind` (LEI 8 do AGENTS.md).
 //
 // O porte do NEON só conhecia 3 famílias (pill/diamond/rect), e isso apagava
 // distinção que os diagramas reais usam o tempo todo: `annotation` é o 2º kind
@@ -68,13 +68,15 @@ export interface FlowNodeData {
   node: DNode
   busy?: boolean
   lanes?: Lane[]
+  cardOpen?: boolean
+  onCardPersist: (id: string) => void
   onVerdict: (id: string, status: NodeStatus, reason?: string) => void
   onEdit: (id: string, patch: Partial<DNode>) => void
   [key: string]: unknown
 }
 
 export function FlowNode({ data, selected }: NodeProps): JSX.Element {
-  const { node, onVerdict, onEdit, busy, lanes } = data as FlowNodeData
+  const { node, onVerdict, onEdit, onCardPersist, busy, lanes, cardOpen } = data as FlowNodeData
   const sc = `var(${SC[node.status]})`
   const live = LIVE.has(node.status)
   const shape = shapeOf(node.kind)
@@ -122,7 +124,9 @@ export function FlowNode({ data, selected }: NodeProps): JSX.Element {
         </div>
       )}
 
-      {selected && <NodeCard node={node} busy={busy} lanes={lanes} onVerdict={onVerdict} onEdit={onEdit} />}
+      {cardOpen && (
+        <NodeCard node={node} busy={busy} lanes={lanes} onVerdict={onVerdict} onEdit={onEdit} onPersist={onCardPersist} />
+      )}
     </div>
   )
 }

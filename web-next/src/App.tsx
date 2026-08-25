@@ -1,6 +1,6 @@
 // ============================================================================
 // App — o shell do editor novo (/v2). Objetivo desta fase: o LOOP VIVO ponta a
-// ponta (desenhar → Analisar → o Claude edita o arquivo → o canvas atualiza
+// ponta (desenhar → Analisar → o agente edita o arquivo → o canvas atualiza
 // sozinho). Paridade de edição com o `web/` antigo é a próxima fase.
 //
 // Peças:
@@ -25,7 +25,8 @@ export function App(): JSX.Element {
   const [session, setSession] = useState<string>(sessionFromUrl)
   const [sessions, setSessions] = useState<string[]>([])
   const [lens, setLens] = useState<LensKey>('flow')
-  const { workspace, thread, busy, conn, claudeOnline, patch, analyze } = useFlowForge(session)
+  const { workspace, thread, busy, conn, agentOnline, agentLabel, patch, analyze } = useFlowForge(session)
+  const agentName = agentLabel || 'agente'
 
   // lista de sessões pro seletor. Recarrega quando a sessão muda porque abrir
   // uma sessão nova a CRIA no servidor (ensureSession) — ela precisa aparecer.
@@ -78,7 +79,7 @@ export function App(): JSX.Element {
         <span className="ff-brand neon-mono">FlowForge</span>
         <TituloEditavel title={title} busy={busy} onRename={renomear} />
         <span className="ff-spacer" />
-        {busy && <span className="ff-pill busy neon-mono">modo leitura · Claude analisando…</span>}
+        {busy && <span className="ff-pill busy neon-mono">modo leitura · {agentName} analisando…</span>}
         <select
           className="ff-sess neon-mono"
           value={sessions.includes(session) ? session : ''}
@@ -93,7 +94,7 @@ export function App(): JSX.Element {
           ))}
         </select>
         <ConnPill conn={conn} />
-        <ClaudePill online={claudeOnline} />
+        <AgentPill online={agentOnline} label={agentLabel} />
       </header>
 
       <EditorView workspace={workspace} lens={lens} onLens={setLens} busy={busy} onPatch={patch} />
@@ -102,7 +103,8 @@ export function App(): JSX.Element {
         thread={thread}
         busy={busy}
         online={conn === 'conectado'}
-        claudeOnline={claudeOnline}
+        agentOnline={agentOnline}
+        agentName={agentName}
         onAnalyze={analyze}
       />
     </div>
@@ -170,20 +172,21 @@ function ConnPill({ conn }: { conn: ConnStatus }): JSX.Element {
 /**
  * O SEGUNDO indicador, e ele existe por um motivo concreto: o pill de conexão
  * fala do browser com o servidor, e o Fabricio clicou "Analisar" vendo verde
- * para receber "Claude offline". Duas conexões, uma luz só — a tela mentia por
+ * para receber "agente offline". Duas conexões, uma luz só — a tela mentia por
  * omissão. Agora o Monitor tem a luz dele.
  */
-function ClaudePill({ online }: { online: boolean }): JSX.Element {
+function AgentPill({ online, label }: { online: boolean; label: string | null }): JSX.Element {
+  const name = label || 'agente'
   return (
     <span
-      className={'ff-pill claude ' + (online ? 'on' : 'off') + ' neon-mono'}
+      className={'ff-pill agent ' + (online ? 'on' : 'off') + ' neon-mono'}
       title={
         online
-          ? 'Monitor do Claude ligado — o Analisar chega nele na hora'
-          : 'nenhum Monitor ligado no /claude: o Analisar fica guardado no inbox até um conectar'
+          ? `${name} conectado — o Analisar chega ao adapter na hora`
+          : 'nenhum adapter ligado no /agent: o Analisar fica guardado no inbox até um conectar'
       }
     >
-      claude {online ? 'ouvindo' : 'offline'}
+      {name} {online ? 'ouvindo' : 'offline'}
     </span>
   )
 }
@@ -197,13 +200,15 @@ function ChatPanel({
   thread,
   busy,
   online,
-  claudeOnline,
+  agentOnline,
+  agentName,
   onAnalyze
 }: {
   thread: Thread
   busy: boolean
   online: boolean
-  claudeOnline: boolean
+  agentOnline: boolean
+  agentName: string
   onAnalyze: (note?: string) => void
 }): JSX.Element {
   const [note, setNote] = useState('')
@@ -228,13 +233,13 @@ function ChatPanel({
   const rotulo = useMemo(
     () =>
       busy
-        ? '⏳ Claude analisando…'
+        ? `⏳ ${agentName} analisando…`
         : !online
           ? '⚠ desconectado'
-          : claudeOnline
-            ? '▶ Analisar com o Claude'
-            : '▶ Analisar · guarda no inbox (Claude offline)',
-    [busy, online, claudeOnline]
+          : agentOnline
+            ? `▶ Analisar com ${agentName}`
+            : '▶ Analisar · guarda no inbox (agente offline)',
+    [busy, online, agentOnline, agentName]
   )
 
   return (
@@ -252,7 +257,7 @@ function ChatPanel({
         ) : (
           msgs.map((m, i) => (
             <div key={i} className={'ff-msg ' + (m.author || 'user')}>
-              <div className="who neon-mono">{m.author === 'claude' ? 'Claude' : m.author === 'system' ? 'sistema' : 'você'}</div>
+              <div className="who neon-mono">{m.author === 'agent' ? agentName : m.author === 'system' ? 'sistema' : 'você'}</div>
               <div className="txt">{m.text}</div>
             </div>
           ))

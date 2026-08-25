@@ -1,5 +1,5 @@
 // ============================================================================
-// NodeCard — o card flutuante do nó selecionado. Porte do `#node-card` do editor
+// NodeCard — o card flutuante aberto por hover ou duplo clique. Porte do `#node-card` do editor
 // antigo (`web/index.html:166`), que é onde os campos do nó moram desde a fase 3.
 //
 // Duas abas, como lá: DESCRIÇÃO (rótulo, tipo, descrição técnica) e NOTAS (a
@@ -32,9 +32,11 @@ export interface NodeCardProps {
   onVerdict: (id: string, status: NodeStatus, reason?: string) => void
   /** Grava campos do nó (já commitado — não chamar a cada tecla). */
   onEdit: (id: string, patch: Partial<DNode>) => void
+  /** Clique dentro do card transforma a abertura temporária em persistente. */
+  onPersist: (id: string) => void
 }
 
-export function NodeCard({ node, busy = false, lanes = [], onVerdict, onEdit }: NodeCardProps): JSX.Element {
+export function NodeCard({ node, busy = false, lanes = [], onVerdict, onEdit, onPersist }: NodeCardProps): JSX.Element {
   const ehEntidade = node.kind === 'entity'
   const [tab, setTab] = useState<Tab>('desc')
   const [reasonFor, setReasonFor] = useState<NodeStatus | null>(null)
@@ -137,7 +139,15 @@ export function NodeCard({ node, busy = false, lanes = [], onVerdict, onEdit }: 
   const notas = node.comments?.length ?? 0
 
   return (
-    <div className={'fpanel nodrag nowheel ' + lado} ref={caixa} onClick={(e) => e.stopPropagation()}>
+    <div
+      className={'fpanel nodrag nowheel ' + lado}
+      ref={caixa}
+      onClick={(e) => {
+        e.stopPropagation()
+        onPersist(node.id)
+      }}
+      onDoubleClick={(e) => e.stopPropagation()}
+    >
       <div className="fpanel-caret" />
       <div className="fpanel-head">
         <span className="fpanel-kind neon-mono">{KIND_LABEL[node.kind] ?? node.kind}</span>

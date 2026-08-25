@@ -107,12 +107,12 @@ array**: quem grava reescreve `lanes` inteiro, senão as raias somem.
 ## thread.json
 
 ```jsonc
-{ "messages": [ { "author": "user|claude|system", "text": "…", "ts": 1754400000000 } ] }
+{ "messages": [ { "author": "user|agent|system", "text": "…", "ts": 1754400000000 } ] }
 ```
 
 ## Regras que quebram o desenho se forem ignoradas
 
-1. **Sempre suba o `rev` do topo em 1 e marque `updatedBy: "claude"`.** O servidor é a
+1. **Sempre suba o `rev` do topo em 1 e marque `updatedBy: "agent"`.** O servidor é a
    autoridade do `rev` para as escritas que vêm do browser; a escrita direta no arquivo é
    responsável pelo próprio incremento. Sem isso o browser descarta a mudança.
 
@@ -134,9 +134,9 @@ array**: quem grava reescreve `lanes` inteiro, senão as raias somem.
    Campo que você não conhece também sobrevive — a normalização do servidor completa o que
    falta e não poda o resto.
 
-6. **Termine escrevendo no `thread.json`.** É a resposta na conversa e é o que solta a
-   trava de edição do browser. Ordem segura: `workspace.json` primeiro, `thread.json` por
-   último.
+6. **Termine escrevendo no `thread.json` e enviando `completed`.** O arquivo é a resposta
+   visível; a mensagem do protocolo com o mesmo `requestId` é o que solta a trava. Ordem
+   segura: `workspace.json`, `thread.json`, `completed`.
 
 ## Protocolo WebSocket
 
@@ -144,15 +144,24 @@ array**: quem grava reescreve `lanes` inteiro, senão as raias somem.
 
 | direção | mensagem |
 | --- | --- |
-| recebe | `{ type:'state', session, workspace, thread, busy, claudeOnline }` |
+| recebe | `{ type:'state', session, workspace, thread, busy, agentOnline, agentLabel }` |
 | recebe | `{ type:'busy', session, busy }` |
-| recebe | `{ type:'claude', online }` |
+| recebe | `{ type:'agent', online, label }` |
 | envia | `{ type:'patch', session, lens, diagram }` — `lens` ∈ `process\|state\|er\|mind\|seq` |
 | envia | `{ type:'analyze', session, note }` |
 
-`/claude` — o agente: recebe um `hello` ao conectar e, depois, um evento `analyze` por
-clique, com `workspacePath` e `threadPath` **absolutos**. Use os caminhos que vêm no
-evento; não deduza o diretório de dados.
+`/agent` — o adapter externo: recebe `{type:'hello', protocol:1}`, registra-se com
+`{type:'register', protocol:1, adapterId, label}` e recebe eventos `analyze` com
+`requestId`, `workspacePath`, `threadPath` e `projectPath` absolutos. Responde com
+`accepted`, `completed` ou `failed`, sempre repetindo o `requestId`. Pedidos sem terminal
+ficam no `inbox.jsonl` e são reenviados. Dentro de uma sessão os pedidos são entregues em
+série; sessões diferentes podem avançar em paralelo. `/claude` é apenas um alias temporário
+de URL e exige o mesmo registro de `/agent`.
+
+A entrega é pelo menos uma vez. Queda ou timeout desconectam o adapter, mas mantêm a sessão
+travada e o pedido pendente; na reconexão ele volta com o mesmo `requestId`. O adapter deve
+deduplicar esse identificador entre reconexões e não pode iniciar duas execuções do mesmo
+pedido.
 
 ## Migração de sessão antiga
 

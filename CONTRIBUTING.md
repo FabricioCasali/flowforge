@@ -57,10 +57,11 @@ que se perde com o tempo é a razão — que sintoma apareceu, que alternativa f
 por quê, e como você provou que a correção funciona. Commit que diz "corrige o roteamento"
 e nada mais obriga a próxima pessoa a reconstruir o raciocínio inteiro a partir do código.
 
-Se um agente escreveu parte do código, credite com o trailer padrão:
+Se um agente escreveu parte do código, credite com a identidade real informada pelo
+harness, sem presumir fornecedor:
 
 ```
-Co-Authored-By: <nome do modelo> <noreply@anthropic.com>
+Co-Authored-By: <nome do modelo> <email informado pelo harness>
 ```
 
 ## Onde ficam as coisas
@@ -68,7 +69,7 @@ Co-Authored-By: <nome do modelo> <noreply@anthropic.com>
 - `docs/BOARD.md` — o quadro de tarefas do projeto, com o que está em andamento e o que
   está no backlog. Vale olhar antes de propor algo grande.
 - `docs/SCHEMA.md` — o formato dos arquivos, para quem quer plugar outro agente no loop.
-- `CLAUDE.md` — instruções para agentes que trabalham neste repositório. É um documento de
+- `AGENTS.md` — instruções para agentes que trabalham neste repositório. É um documento de
   trabalho interno, com decisões e datas; não é documentação de usuário.
 - `web-next/src/types.ts` — o contrato do modelo. Campo novo entra ali **antes** de
   qualquer componente ou do servidor consumir.
