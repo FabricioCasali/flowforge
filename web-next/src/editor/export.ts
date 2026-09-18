@@ -15,7 +15,7 @@
 // ============================================================================
 
 import type { Diagram, DNode, NodeStatus } from '../types.js'
-import type { LayoutResult } from './layout.js'
+import { labelPoint, labelRect, toRect, type LayoutResult } from './layout.js'
 import { shapeOf } from './shapes.js'
 
 // ---------------------------------------------------------------------------
@@ -204,15 +204,22 @@ export function toSvg(d: Diagram, layout: LayoutResult): string {
   const dx = -minX + PAD
   const dy = -minY + PAD
 
+  // o rótulo exportado mora onde o canvas o põe: no trecho mais comprido, longe dos nós
+  const caixas = d.nodes.flatMap((n) => {
+    const p = layout.positions[n.id]
+    const s = layout.sizes[n.id]
+    return p && s ? [toRect(p, s)] : []
+  })
   const arestas = d.edges
     .map((e) => {
       const pts = layout.edgePoints[e.id]
       if (!pts || pts.length < 2) return ''
       const cor = COR[e.status]
       const path = pts.map((p, i) => `${i ? 'L' : 'M'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ')
-      const meio = pts[Math.floor(pts.length / 2)]!
+      const meio = e.label ? labelPoint(pts, e.label, caixas) : pts[0]!
+      if (e.label) caixas.push(labelRect(meio, e.label))
       const rotulo = e.label
-        ? `<text x="${meio.x.toFixed(1)}" y="${(meio.y - 6).toFixed(1)}" fill="${MUTED}" font-size="10.5" text-anchor="middle" font-family="JetBrains Mono, monospace">${esc(e.label)}</text>`
+        ? `<text x="${meio.x.toFixed(1)}" y="${(meio.y + 3.5).toFixed(1)}" fill="${MUTED}" font-size="10.5" text-anchor="middle" font-family="JetBrains Mono, monospace">${esc(e.label)}</text>`
         : ''
       return `<path d="${path}" fill="none" stroke="${cor}" stroke-width="1.6" marker-end="url(#seta-${e.status})"/>` + rotulo
     })

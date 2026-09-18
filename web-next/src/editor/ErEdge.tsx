@@ -1,12 +1,14 @@
 import { BaseEdge, EdgeLabelRenderer, type EdgeProps } from '@xyflow/react'
 import type { DEdge, NodeStatus } from '../types.js'
-import { SC } from './status.js'
+import { EDGE_COLOR } from './status.js'
 import { EdgeCard } from './EdgeCard.js'
 
 export interface ErEdgeData {
   points?: { x: number; y: number }[]
   status: NodeStatus
   label?: string
+  /** Centro do rótulo, já escolhido longe dos nós (`labelPoint`, em layout.ts). */
+  labelAt?: { x: number; y: number }
   sourceCard?: string
   targetCard?: string
   edge?: DEdge
@@ -27,7 +29,7 @@ export function ErEdge(props: EdgeProps): JSX.Element {
           { x: sourceX, y: sourceY },
           { x: targetX, y: targetY }
         ]
-  const sc = `var(${SC[data?.status ?? 'proposed']})`
+  const sc = EDGE_COLOR[data?.status ?? 'proposed']
   const d = pts.map((p, i) => `${i ? 'L' : 'M'} ${p.x} ${p.y}`).join(' ')
   const a = pts[0]!
   const b = pts[pts.length - 1]!
@@ -46,7 +48,13 @@ export function ErEdge(props: EdgeProps): JSX.Element {
         </text>
       )}
       {data?.label && (
-        <text className="orth-label" x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 5} textAnchor="middle">
+        <text
+          className="orth-label"
+          x={data.labelAt?.x ?? (a.x + b.x) / 2}
+          y={data.labelAt?.y ?? (a.y + b.y) / 2 - 10}
+          textAnchor="middle"
+          dominantBaseline="central"
+        >
           {data.label}
         </text>
       )}

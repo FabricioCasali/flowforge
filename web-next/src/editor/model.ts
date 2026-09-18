@@ -59,23 +59,109 @@ export function diffNodes(antes: Diagram | undefined, depois: Diagram | undefine
   return out
 }
 
+const KINDS_INICIO = new Set(['start', 'event-start'])
+const KINDS_FIM = new Set(['end', 'event-end'])
+
 /**
- * Ordem de leitura do MODO GUIADO (FF-015): por POSIÇÃO — `y`, com `x` de
- * desempate — e as anotações no fim.
- *
- * Não é topológica de propósito. Medido nos 11 diagramas reais: 3 têm ciclo e 4
- * têm mais de uma raiz, então seguir as setas quebraria neles e não saberia onde
- * começar. A posição sempre existe e é do Fabricio (o FF-001 garantiu isso):
- * ele desenha de cima pra baixo, então esta ordem é a leitura que ele já faz.
- *
- * Anotação vai pro fim porque não é etapa de percurso — são 12 nós soltos nos
- * diagramas reais, e intercalá-las cortaria o fio da meada.
+ * Por onde o fluxo começa: os `start`; sem eles, quem não tem seta entrando (e
+ * tem saindo — nó totalmente solto não é começo de nada). Ordem: a do arquivo.
  */
-export function ordenarParaGuia(nodes: DNode[], ehNota: (n: DNode) => boolean): DNode[] {
+export function iniciosDoFluxo(nodes: DNode[], edges: DEdge[], ehNota: (n: DNode) => boolean): DNode[] {
+  const etapas = nodes.filter((n) => !ehNota(n))
+  const declarados = etapas.filter((n) => KINDS_INICIO.has(n.kind))
+  if (declarados.length) return declarados
+  const comEntrada = new Set(edges.map((e) => e.target))
+  const comSaida = new Set(edges.map((e) => e.source))
+  return etapas.filter((n) => !comEntrada.has(n.id) && comSaida.has(n.id))
+}
+
+/** Alcançáveis a partir de `de`, seguindo `adj`. Em LARGURA, na ordem das setas. */
+function percorrer(de: string[], adj: Map<string, string[]>): string[] {
+  const visto = new Set(de)
+  const fila = [...de]
+  for (let i = 0; i < fila.length; i++) {
+    for (const prox of adj.get(fila[i]!) ?? []) {
+      if (visto.has(prox)) continue
+      visto.add(prox)
+      fila.push(prox)
+    }
+  }
+  return fila
+}
+
+/**
+ * Ordem de leitura do MODO GUIADO: a do FLUXO — começa no início e segue as setas.
+ *
+ * Era por posição (`y`, depois `x`), com o argumento de que 3 dos 11 diagramas
+ * têm ciclo e 4 têm mais de uma raiz. Os dois casos têm resposta sem abrir mão do
+ * fluxo: o percurso marca quem já visitou (ciclo não trava) e aceita vários
+ * inícios. E a posição falhava justamente onde mais importa — bastava um arranjo
+ * automático, ou um desenho em circuito (ida descendo, volta subindo), pro guia
+ * começar pelo meio da história e intercalar ida com volta.
+ *
+ * É em LARGURA de propósito: o desvio de uma decisão ("não pegou a carteira →
+ * volta e busca") aparece logo depois dela, e não no fim, depois do caminho
+ * principal inteiro — que é o que a profundidade faria.
+ *
+ * Quem o percurso não alcança entra depois, por posição (é melhor aparecer fora
+ * de ordem do que sumir do guia), e as anotações por último.
+ */
+export function ordenarParaGuia(nodes: DNode[], ehNota: (n: DNode) => boolean, edges: DEdge[] = []): DNode[] {
   const y = (n: DNode): number => (typeof n.y === 'number' ? n.y : Number.MAX_SAFE_INTEGER)
   const x = (n: DNode): number => (typeof n.x === 'number' ? n.x : Number.MAX_SAFE_INTEGER)
   const ord = (a: DNode, b: DNode): number => y(a) - y(b) || x(a) - x(b)
-  return [...nodes.filter((n) => !ehNota(n)).sort(ord), ...nodes.filter(ehNota).sort(ord)]
+
+  const porId = new Map(nodes.map((n) => [n.id, n]))
+  const saidas = new Map<string, string[]>()
+  for (const e of edges) saidas.set(e.source, [...(saidas.get(e.source) ?? []), e.target])
+
+  const inicios = iniciosDoFluxo(nodes, edges, ehNota).map((n) => n.id)
+  const percurso = percorrer(inicios, saidas)
+    .map((id) => porId.get(id))
+    .filter((n): n is DNode => !!n && !ehNota(n))
+  const noPercurso = new Set(percurso.map((n) => n.id))
+
+  const soltos = nodes.filter((n) => !ehNota(n) && !noPercurso.has(n.id)).sort(ord)
+  return [...percurso, ...soltos, ...nodes.filter(ehNota).sort(ord)]
+}
+
+/**
+ * O que FALTA pra isto ser um processo legível. Vai pro HUD, em voz alta: um
+ * fluxograma sem início não diz por onde ler, e sem fim não diz quando acabou.
+ * O agente tem a mesma regra escrita na skill — isto é o lado de cá conferindo.
+ */
+export interface AvisoDeFluxo {
+  texto: string
+  /** Rótulos dos nós envolvidos, pro `title` do aviso. */
+  quem: string[]
+}
+
+export function avisosDoFluxo(nodes: DNode[], edges: DEdge[], ehNota: (n: DNode) => boolean): AvisoDeFluxo[] {
+  const etapas = nodes.filter((n) => !ehNota(n))
+  if (etapas.length < 2) return []
+  const avisos: AvisoDeFluxo[] = []
+  const inicios = etapas.filter((n) => KINDS_INICIO.has(n.kind))
+  const fins = etapas.filter((n) => KINDS_FIM.has(n.kind))
+  if (!inicios.length) avisos.push({ texto: 'sem início', quem: [] })
+  if (!fins.length) avisos.push({ texto: 'sem fim', quem: [] })
+
+  const saidas = new Map<string, string[]>()
+  const entradas = new Map<string, string[]>()
+  for (const e of edges) {
+    saidas.set(e.source, [...(saidas.get(e.source) ?? []), e.target])
+    entradas.set(e.target, [...(entradas.get(e.target) ?? []), e.source])
+  }
+  if (inicios.length) {
+    const alcanca = new Set(percorrer(inicios.map((n) => n.id), saidas))
+    const fora = etapas.filter((n) => !alcanca.has(n.id))
+    if (fora.length) avisos.push({ texto: `${fora.length} fora do percurso`, quem: fora.map((n) => n.label) })
+  }
+  if (fins.length) {
+    const chega = new Set(percorrer(fins.map((n) => n.id), entradas))
+    const becos = etapas.filter((n) => !chega.has(n.id))
+    if (becos.length) avisos.push({ texto: `${becos.length} sem caminho até o fim`, quem: becos.map((n) => n.label) })
+  }
+  return avisos
 }
 
 /** Aresta nova entre dois nós, com os lados de ancoragem que o gesto escolheu. */

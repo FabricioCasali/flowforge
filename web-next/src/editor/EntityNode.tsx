@@ -2,11 +2,11 @@ import { Handle, Position, type NodeProps } from '@xyflow/react'
 import type { DNode, NodeStatus } from '../types.js'
 import { LIVE, SC } from './status.js'
 import { NodeCard } from './NodeCard.js'
+import { useCardAbertoDe } from './useCardAberto.js'
 
 export interface EntityNodeData {
   node: DNode
   busy?: boolean
-  cardOpen?: boolean
   onCardPersist: (id: string) => void
   onVerdict: (id: string, status: NodeStatus, reason?: string) => void
   onEdit: (id: string, patch: Partial<DNode>) => void
@@ -14,7 +14,8 @@ export interface EntityNodeData {
 }
 
 export function EntityNode({ data, selected }: NodeProps): JSX.Element {
-  const { node, onVerdict, onEdit, onCardPersist, busy, cardOpen } = data as EntityNodeData
+  const { node, onVerdict, onEdit, onCardPersist, busy } = data as EntityNodeData
+  const cardOpen = useCardAbertoDe(node.id)
   const sc = `var(${SC[node.status]})`
   const live = LIVE.has(node.status)
 

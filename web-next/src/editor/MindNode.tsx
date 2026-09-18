@@ -2,6 +2,7 @@ import { Handle, Position, type NodeProps } from '@xyflow/react'
 import type { DNode, NodeStatus } from '../types.js'
 import { LIVE, SC } from './status.js'
 import { NodeCard } from './NodeCard.js'
+import { useCardAbertoDe } from './useCardAberto.js'
 
 // cor do ramo por índice (herdada pelos filhos via data.branch)
 const BRANCH = ['--br-a', '--br-b', '--br-c', '--br-d']
@@ -11,7 +12,6 @@ export interface MindNodeData {
   branch: number
   isRoot: boolean
   busy?: boolean
-  cardOpen?: boolean
   onCardPersist: (id: string) => void
   onVerdict: (id: string, status: NodeStatus, reason?: string) => void
   onEdit: (id: string, patch: Partial<DNode>) => void
@@ -19,7 +19,8 @@ export interface MindNodeData {
 }
 
 export function MindNode({ data, selected }: NodeProps): JSX.Element {
-  const { node, branch, isRoot, onVerdict, onEdit, onCardPersist, busy, cardOpen } = data as MindNodeData
+  const { node, branch, isRoot, onVerdict, onEdit, onCardPersist, busy } = data as MindNodeData
+  const cardOpen = useCardAbertoDe(node.id)
   const bc = `var(${BRANCH[branch % BRANCH.length]})`
   const sc = `var(${SC[node.status]})`
   const live = LIVE.has(node.status)

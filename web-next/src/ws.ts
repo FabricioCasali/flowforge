@@ -215,6 +215,12 @@ function normalizeThread(raw: unknown): Thread {
 
 export interface Live {
   workspace: Workspace
+  /**
+   * `false` enquanto o `workspace` ainda é o marcador vazio (sessão recém-trocada,
+   * servidor ainda não respondeu). Quem compara "antes × depois" precisa disto
+   * pra não tratar a ABERTURA da sessão como uma mudança.
+   */
+  carregado: boolean
   thread: Thread
   busy: boolean
   conn: ConnStatus
@@ -232,6 +238,7 @@ export interface Live {
  */
 export function useFlowForge(session: string): Live {
   const [workspace, setWorkspace] = useState<Workspace>(emptyWorkspace)
+  const [carregado, setCarregado] = useState(false)
   const [thread, setThread] = useState<Thread>({ messages: [] })
   const [busy, setBusy] = useState(false)
   const [conn, setConn] = useState<ConnStatus>('conectando')
@@ -241,12 +248,16 @@ export function useFlowForge(session: string): Live {
 
   useEffect(() => {
     setWorkspace(emptyWorkspace())
+    setCarregado(false)
     setThread({ messages: [] })
     setBusy(false)
     setAgentOnline(false)
     setAgentLabel(null)
     const sock = new FlowForgeSocket(session, {
-      onWorkspace: setWorkspace,
+      onWorkspace: (w) => {
+        setWorkspace(w)
+        setCarregado(true)
+      },
       onThread: setThread,
       onBusy: setBusy,
       onConn: setConn,
@@ -269,5 +280,5 @@ export function useFlowForge(session: string): Live {
     sockRef.current?.analyze(note)
   }, [])
 
-  return { workspace, thread, busy, conn, agentOnline, agentLabel, patch, analyze }
+  return { workspace, carregado, thread, busy, conn, agentOnline, agentLabel, patch, analyze }
 }

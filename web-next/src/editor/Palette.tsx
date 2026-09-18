@@ -94,11 +94,20 @@ function GlyphFor({ kind }: { kind: string }): JSX.Element {
 
 export interface PaletteProps {
   busy?: boolean
+  /**
+   * Recolhida = só as silhuetas, numa faixa de 46px. É o estado de repouso: a
+   * paleta aberta cobria 122×523px do canvas o tempo todo (e, na Swimlane,
+   * justamente os rótulos das raias) pra um gesto que acontece de vez em quando.
+   * Como a escolha já é pela silhueta, o nome só faz falta pra quem está
+   * aprendendo — e continua no `title` de cada item.
+   */
+  recolhida?: boolean
+  onAlterna?: () => void
   /** Kind clicado — cria no meio da viewport (atalho pra quem não quer arrastar). */
   onPick: (kind: string) => void
 }
 
-export function Palette({ busy = false, onPick }: PaletteProps): JSX.Element {
+export function Palette({ busy = false, recolhida = false, onAlterna, onPick }: PaletteProps): JSX.Element {
   const fluxo = KINDS.filter((k) => GRUPO_FLUXO.has(k))
   const bpm = KINDS.filter((k) => !GRUPO_FLUXO.has(k))
 
@@ -122,7 +131,17 @@ export function Palette({ busy = false, onPick }: PaletteProps): JSX.Element {
   )
 
   return (
-    <div className={'palette' + (busy ? ' ro' : '')} aria-label="paleta de formas">
+    <div className={'palette' + (busy ? ' ro' : '') + (recolhida ? ' mini' : '')} aria-label="paleta de formas">
+      {onAlterna && (
+        <button
+          className="pal-toggle neon-mono"
+          onClick={onAlterna}
+          title={recolhida ? 'mostrar os nomes das formas' : 'recolher a paleta (só as silhuetas)'}
+          aria-expanded={!recolhida}
+        >
+          {recolhida ? '»' : '« formas'}
+        </button>
+      )}
       <div className="pal-sec neon-mono">fluxo</div>
       <div className="pal-grid">{fluxo.map(item)}</div>
       <div className="pal-sec neon-mono">bpm</div>

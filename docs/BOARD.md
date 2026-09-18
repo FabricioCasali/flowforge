@@ -152,6 +152,120 @@ Classe: **importante** · **melhoria**
   _Sem verificador: é geometria de DOM, e cobri-la exigiria jsdom — dependência nova que a
   lei 9 não autoriza por isto. Foi medida no browser._
 
+- **FF-019** **O status falava cinco vezes por nó** — ponto com glow, badge, borda, glow da
+  caixa e a seta na mesma cor. No `arquitetura-flowforge` (20 de 21 aprovados) o canvas inteiro
+  brilhava verde e o único questionado sumia. Aprovado virou o **repouso**: `LIVE` é só
+  `questioned`, o badge some no aprovado (`BADGED`), o ponto só brilha em quem está vivo e a
+  seta aprovada é neutra (`EDGE_COLOR`, token `--edge-quiet`) — a cor fica pra seta que
+  discorda, que é a da lei 10. · `[uso]` · P · importante
+
+- **FF-020** **O diagrama abria desenquadrado, e o "fit" ignorava os painéis** — o `fitView` do
+  React Flow roda na montagem, quando o layout assíncrono ainda não chegou: o canvas abria num
+  zoom arbitrário (medido: 1,26× na abertura, 0,49× depois do fit). Agora enquadra quando o
+  DESENHO troca (sessão, lente) e nunca numa edição; folga por lado desconta barra de lentes,
+  paleta e HUD (antes as anotações do topo e os rótulos das raias ficavam atrás deles), e
+  `maxZoom: 1` impede que 3 entidades abram a 1,8×. O `EditorView` ganhou `key` por sessão —
+  o que também fecha um bug: o histórico de desfazer atravessava a troca de sessão. Botões de
+  zoom saíram de trás do HUD; em janela estreita a toolbar desce pra 2ª linha em vez de passar
+  por cima das lentes. · `[uso]` · P · importante
+
+- **FF-021** **Setas: âncoras distribuídas, trechos afastados, rótulo fora dos nós** — toda
+  aresta saía do MEIO do lado, então três setas no mesmo nó viravam um tronco só. Agora as
+  pontas que dividem um lado se espalham nele, na ordem de quem está do outro lado
+  (`distribuirAncoras`; só em forma de lado reto — losango, círculo e elipse continuam no
+  meio), e os trechos de miolo que corriam colados se afastam (`afastarTrechos`, com o sentido
+  escolhido pra não trocar sobreposição por cruzamento). O rótulo deixou de morar numa quina
+  do traço: `labelPoint` testa posições por trecho e fica com a que menos invade nós **e outros
+  rótulos**; o export SVG usa a mesma função. Quebra manual continua mandando (FF-011).
+  Medido no `conceito-model-view`: rótulos sobre nó 4→0, trechos sobrepostos 1→0, cruzamentos
+  2→0; no `processo-atendimento`, sobrepostos 4→1. Contrato inalterado. · `[uso]` · M ·
+  importante
+
+- **FF-022** **Texto estourando forma fixa, e nível de detalhe por zoom** — `decision`
+  (168×104), `data-object` (128×72) e `idea` (altura 40) não cresciam com o rótulo, e frase de
+  50 letras vazava por cima e por baixo; agora o `nodeSize` estima as linhas, como a anotação
+  já fazia (evento e gateway seguem fixos — lei 8, conferido pelo verificador). E abaixo de
+  0,62× de zoom o container ganha `.lod-longe`: some descrição e badge, o título cresce — a
+  0,5× eles eram mancha. É classe no container, não refaz nó. · `[uso]` · P · melhoria
+
+- **FF-023** **Menos painel em cima do desenho** — paleta recolhida por padrão (só as
+  silhuetas, 48px em vez de 122; lembrada em `localStorage` como o guiado), minimapa menor,
+  translúcido e colorido por status (acha-se o questionado sem percorrer o desenho) e fora da
+  Swimlane, onde disputava o canto com o painel de raias; lente vazia diz o que fazer em vez de
+  abrir um canvas preto. · `[uso]` · P · melhoria
+
+- **FF-024** **Casa arrumada no `EditorView`** — o elk (1,4 MB) virou `import()` sob demanda:
+  bundle inicial **1.860 → 412 kB** (desenho inteiro salvo nem o chama). O ciclo do card e o
+  desfazer/refazer saíram pra `useCardAberto.ts` e `useHistorico.ts`; quem está com o card
+  aberto chega aos nós por contexto, não pelo `data` — antes, passar o mouse num nó refazia a
+  lista inteira de nós do React Flow. Durante o arrasto as setas usam as mesmas âncoras do
+  traçado final (`routeMoved`), senão pulavam ao soltar. · `[uso]` · P · melhoria
+
+- **FF-025** **O arranjo automático não começava pelo início, e fluxo comprido virava uma tira**
+  — o `layered` do elk quebra ciclo invertendo a seta que sair mais barata, e todo laço de volta
+  ("não pegou a carteira → tranca de novo") é um ciclo: um desvio qualquer ia parar no topo e o
+  início ficava no meio. Agora o início é preso na 1ª camada (`layerConstraint: FIRST`, só em
+  quem não recebe seta — o elk lança exceção se receber), os nós vão em ordem de leitura com os
+  inícios na frente (`considerModelOrder`), os ciclos quebram em profundidade e os pedaços
+  desconectados entram no mesmo layering (antes o bloco do início podia ir pra baixo de um
+  pedaço solto maior). `BRANDES_KOEPF` + `favorStraightEdges` deixa o tronco reto. E o
+  **wrapping** do layered faz o fluxo comprido dar a volta em colunas: o exemplo de 35 nós saiu
+  de ~600×3.500px (enquadrado a 0,24×, ilegível) pra 3 colunas a 0,47×. A Swimlane não quebra
+  (só usa o `x` do elk). Se o elk recusar o grafo, segunda tentativa sem as restrições — canvas
+  vazio nunca. · `[uso]` · M · importante
+
+- **FF-026** **Âncora velha: a seta saía pela esquerda pra chegar em quem estava à direita** —
+  `sourceSide`/`targetSide` são gravados pra UMA geometria; depois de um arranjo (ou de arrastar)
+  o lado passa a custar uma volta inteira. Três correções: (1) o arranjo **limpa** lado ancorado
+  e quebra manual das setas — "reorganiza pra mim" inclui as setas, e Ctrl+Z desfaz; (2) no
+  traço, âncora que custa muito mais que o caminho natural (`> 1,8× + 120px`) é ignorada, e a
+  que ficou de costas também — o arquivo não muda; a exceção é o par de ida-e-volta (A→B e
+  B→A), onde o desvio é de propósito; (3) seta **contra a corrente** (destino noutra coluna e
+  acima — o que o wrapping produz) sai pelo lado, sobe pelo corredor entre as colunas e entra por
+  cima, em vez de subir por dentro da própria coluna colada no tronco. `ladosDe` virou a fonte
+  única de "por onde a seta sai e chega" pro traço, pro desvio e pras âncoras distribuídas. Muda
+  a lei implícita do FF-005 ("o lado gravado manda") pra "manda enquanto fizer sentido" —
+  decisão do Fabricio em 17/09/2026, depois de ver o defeito no exemplo do Pedro. O enquadramento
+  passou a incluir as SETAS (o conector entre colunas passa por cima dos nós e ficava cortado),
+  com botão próprio no lugar do `fitView` do React Flow. · `[uso]` · M · importante
+
+- **FF-027** **Modo guiado na ordem do fluxo, e o HUD acusa fluxo sem início/fim** — o guia
+  ordenava por posição (`y`, `x`), e bastava um arranjo automático ou um desenho em circuito (ida
+  descendo, volta subindo) pra ele começar pelo meio da história. Agora percorre as setas a
+  partir do início, em **largura** (o desvio de uma decisão aparece logo depois dela, não no fim
+  do caminho principal); ciclo não trava, vários inícios são aceitos, e quem o percurso não
+  alcança entra no fim em vez de sumir. No HUD do Fluxograma/Swimlane: `⚠ sem início`, `⚠ sem
+  fim`, `⚠ N fora do percurso`, `⚠ N sem caminho até o fim` (o `title` lista quem). Medido nos
+  diagramas reais: 1 de 8 sem início/fim, e o `arquitetura-flowforge` com 7 etapas que o início
+  não alcança. Abrir uma sessão também deixou de contar como "o agente mexeu em N etapas". ·
+  `[uso]` · P · importante
+
+- **FF-028** **Um roteador só, e setas que encostam** — achados do Fabricio usando o exemplo do
+  Pedro e o do vínculo do agente. (1) Diagrama recém-aberto (sem `x`/`y`) usava as setas do
+  **elk**, que enxerga todo nó como retângulo: no losango a seta parava na caixa invisível, sem
+  encostar, e "consertava" ao mover um nó — porque aí o `routeAll` assumia. Agora o elk só dá as
+  posições; as setas são sempre do `routeAll`, e o desenho não pula no primeiro arrasto. (2) O
+  eixo da seta livre passou a ser decidido pela **sobreposição das caixas** (sobrepostas em X →
+  vertical), não pela maior distância: a decisão saía pelos lados do losango e voltava por baixo
+  dele, parecendo sair de trás do nó. (3) O desvio A* parte de um **toco de 18px** perpendicular
+  à borda, com os dois nós da seta como obstáculo — antes corria rente ao nó (há uma linha da
+  grade a 10px dele); se o toco não fecha caminho, vale a tentativa antiga. (4) A âncora fica na
+  **projeção** de quem está do outro lado, presa dentro do lado, em vez de sempre no meio. (5)
+  Pontas a até 14px de prumo viram **reta** (o elk deixa centros alguns pixels fora, e o Z
+  desenhava um degrau de 4px). · `[uso]` · M · importante
+
+- **FF-029** **Cada ramo da decisão sai por uma ponta** — o losango (como gateway, evento e
+  elipse) só encosta na seta pelas 4 pontas, então "sim" e "não" apontando pra baixo disputavam a
+  MESMA ponta e desciam colados: a separação dos caminhos, que é a informação da decisão, só
+  aparecia perto do destino. Agora (`separarRamos`): fica na ponta disputada o ramo de destino
+  mais próximo; os outros vão pra ponta lateral do lado do destino, se ela estiver livre — ponta
+  ocupada por seta que CHEGA não recebe ramo. Só saídas (várias chegando é junção, e junção lê
+  bem), e lado gravado no arquivo continua mandando. A âncora de chegada passou a mirar o toco
+  por onde a seta saiu, não o centro do nó (senão saía pela direita, descia e voltava pra
+  esquerda). `distribuirAncoras` virou a fonte única dos lados; `routeAll`/`routeMoved` traçam a
+  partir dela. Pedido do Fabricio em 18/09/2026, com 3 casos no autoteste. · `[uso]` · P ·
+  importante
+
 ## 📋 A fazer
 
 _(vazio — o que sobra está no backlog.)_

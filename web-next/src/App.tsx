@@ -25,7 +25,7 @@ export function App(): JSX.Element {
   const [session, setSession] = useState<string>(sessionFromUrl)
   const [sessions, setSessions] = useState<string[]>([])
   const [lens, setLens] = useState<LensKey>('flow')
-  const { workspace, thread, busy, conn, agentOnline, agentLabel, patch, analyze } = useFlowForge(session)
+  const { workspace, carregado, thread, busy, conn, agentOnline, agentLabel, patch, analyze } = useFlowForge(session)
   const agentName = agentLabel || 'agente'
 
   // lista de sessões pro seletor. Recarrega quando a sessão muda porque abrir
@@ -97,7 +97,10 @@ export function App(): JSX.Element {
         <AgentPill online={agentOnline} label={agentLabel} />
       </header>
 
-      <EditorView workspace={workspace} lens={lens} onLens={setLens} busy={busy} onPatch={patch} />
+      {/* `key` por sessão: trocar de sessão REMONTA o editor. Sem isso o histórico de
+          desfazer atravessava a troca — Ctrl+Z na sessão B gravava nela um diagrama
+          da sessão A — e seleção, card aberto e enquadramento vinham de carona. */}
+      <EditorView key={session} workspace={workspace} carregado={carregado} lens={lens} onLens={setLens} busy={busy} onPatch={patch} />
 
       <ChatPanel
         thread={thread}
