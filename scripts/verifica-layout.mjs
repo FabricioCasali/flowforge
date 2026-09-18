@@ -601,9 +601,9 @@ async function testaFerramentas(L, M, X, base) {
 }
 
 /**
- * FF-015 — a ordem do modo guiado. Por POSICAO, nao topologica, porque 3 dos 11
- * diagramas reais tem ciclo e 4 tem mais de uma raiz. Anotacao vai pro fim: nao
- * e etapa de percurso.
+ * FF-015 — a ordem do modo guiado. Pelo FLUXO (largura a partir do inicio) quando
+ * ha setas; sem elas, por posicao. Anotacao vai pro fim: nao e etapa de percurso.
+ * Ciclo e varias raizes — o motivo de ter sido por posicao — estao cobertos abaixo.
  */
 function testaGuia(M) {
   const casos = [];
@@ -625,6 +625,32 @@ function testaGuia(M) {
   const semPos = [{ id: 'novo', label: 'n', kind: 'task', status: 'proposed', comments: [] }, no('velho', 100, 0)];
   casos.push(['no sem posicao (recem-criado) cai no fim, nao no topo',
     M.ordenarParaGuia(semPos, ehNota).map((n) => n.id).join('') === 'velhonovo']);
+
+  // COM SETAS a ordem e a do FLUXO, a partir do inicio — e nao a da posicao. O caso
+  // abaixo e um circuito: a ida desce, a volta SOBE, entao por posicao o guia
+  // comecaria pelo fim e intercalaria ida com volta.
+  const seta = (source, target) => ({ id: source + target, source, target, status: 'proposed' });
+  const circuito = [no('fim', 0, 900, 'end'), no('volta', 200, 900), no('ini', 0, 0, 'start'), no('ida', 200, 0), no('fundo', 400, 450)];
+  const setasCircuito = [seta('ini', 'ida'), seta('ida', 'fundo'), seta('fundo', 'volta'), seta('volta', 'fim')];
+  casos.push(['com setas, o guia comeca no INICIO e segue o fluxo (nao a posicao)',
+    M.ordenarParaGuia(circuito, ehNota, setasCircuito).map((n) => n.id).join('>') === 'ini>ida>fundo>volta>fim']);
+
+  // o desvio de uma decisao aparece LOGO DEPOIS dela, nao no fim do caminho principal
+  const desvio = [no('i', 0, 0, 'start'), no('d', 100, 0, 'decision'), no('segue', 200, 0), no('busca', 100, 300), no('f', 300, 0, 'end')];
+  const setasDesvio = [seta('i', 'd'), seta('d', 'segue'), seta('d', 'busca'), seta('busca', 'i'), seta('segue', 'f')];
+  casos.push(['o desvio de uma decisao vem logo depois dela (largura), e o ciclo nao trava',
+    M.ordenarParaGuia(desvio, ehNota, setasDesvio).map((n) => n.id).join('>') === 'i>d>segue>busca>f']);
+
+  // quem o percurso nao alcanca continua no guia (no fim, por posicao) — nao some
+  const solto = [no('i', 0, 0, 'start'), no('a', 100, 0), no('ilha', 50, 500)];
+  casos.push(['no fora do percurso nao some do guia',
+    M.ordenarParaGuia(solto, ehNota, [seta('i', 'a')]).map((n) => n.id).join('>') === 'i>a>ilha']);
+
+  // o HUD acusa o que falta pro fluxo ser legivel
+  const avisos = (nodes, edges) => M.avisosDoFluxo(nodes, edges, ehNota).map((a) => a.texto).join('|');
+  casos.push(['fluxo sem inicio e sem fim e acusado', avisos([no('a', 0, 0), no('b', 100, 0)], [seta('a', 'b')]) === 'sem início|sem fim']);
+  casos.push(['fluxo completo nao gera aviso', avisos(circuito, setasCircuito) === '']);
+  casos.push(['etapa que o inicio nao alcanca e acusada', /fora do percurso/.test(avisos(solto, [seta('i', 'a')]))]);
 
   // um diagrama com CICLO nao pode fazer a ordenacao sumir com no nenhum
   const ciclo = [no('x', 300, 0), no('y', 100, 0), no('z', 200, 0)];
@@ -733,16 +759,71 @@ async function autoteste(L, M, X) {
     casos.push(['aresta ancorada entra pelo lado pedido (top)', entraTopo]);
     casos.push(['sem lado, o roteamento continua sendo o automatico', JSON.stringify(auto) !== JSON.stringify(preso)]);
   }
-  // 6c. lado ancorado nas arestas de um diagrama inteiro (o caminho do routeAll)
+  // 6c. lado ancorado nas arestas de um diagrama inteiro (o caminho do routeAll).
+  //     O lado gravado manda ENQUANTO for coerente com a geometria: aqui `b` esta a
+  //     ESQUERDA de `a`, entao sair pela esquerda e entrar pela direita faz sentido.
+  {
+    const d = base();
+    d.nodes[1].x = -400; d.nodes[1].y = 100; // b a esquerda de a, na mesma altura
+    d.edges[0].sourceSide = 'left';
+    d.edges[0].targetSide = 'right';
+    const r = await L.layoutDiagram(d, 'DOWN', 70);
+    const sa = r.edgePoints.e1[0];
+    const ok = Math.abs(sa.x - r.positions.a.x) < 0.5; // saiu pela ESQUERDA do nó a
+    casos.push(['routeAll respeita o lado gravado no arquivo', ok]);
+  }
+  // 6d. ANCORA VELHA: o mesmo left->right com `b` logo ABAIXO de `a` custa uma volta
+  //     inteira (sai pela esquerda, contorna, chega pela direita). Foi o defeito que o
+  //     Fabricio mostrou depois de um arranjo automatico: a ancora e ignorada no traco.
   {
     const d = base();
     d.edges[0].sourceSide = 'left';
     d.edges[0].targetSide = 'right';
     const r = await L.layoutDiagram(d, 'DOWN', 70);
     const pts = r.edgePoints.e1;
-    const sa = pts[0];
-    const ok = Math.abs(sa.x - r.positions.a.x) < 0.5; // saiu pela ESQUERDA do nó a
-    casos.push(['routeAll respeita o lado gravado no arquivo', ok]);
+    const saiPorBaixo = Math.abs(pts[0].y - (r.positions.a.y + r.sizes.a.height)) < 0.5;
+    casos.push(['ancora que custa uma volta inteira e ignorada no traco', saiPorBaixo]);
+    casos.push(['...e o arquivo continua com o lado gravado (so o traco muda)', d.edges[0].sourceSide === 'left']);
+  }
+  // 6e. ...MENOS no par de ida-e-volta: ali o desvio e de proposito, pra seta de volta
+  //     nao deitar em cima da de ida (o laco "sinal fechado -> espera de novo").
+  {
+    const d = base();
+    d.edges.push({ id: 'e2', source: 'b', target: 'a', label: '', status: 'proposed', sourceSide: 'right', targetSide: 'right' });
+    const r = await L.layoutDiagram(d, 'DOWN', 70);
+    const p0 = r.edgePoints.e2[0];
+    const saiDireita = Math.abs(p0.x - (r.positions.b.x + r.sizes.b.width)) < 0.5;
+    casos.push(['laco de ida-e-volta mantem o lado gravado', saiDireita]);
+  }
+  // 6f. RAMOS DE DECISAO: o losango so encosta pelas 4 pontas. Dois ramos apontando pra
+  //     baixo disputavam a mesma ponta e desciam colados; agora o de destino mais proximo
+  //     fica, e o outro sai pela ponta lateral do lado do destino dele.
+  {
+    const no = (id, kind, x, y) => ({ id, label: id, kind, status: 'proposed', comments: [], x, y });
+    const d = {
+      type: 'flowchart', title: 'T', rev: 0, updatedBy: 'user', lanes: [],
+      nodes: [no('dec', 'decision', 400, 100), no('perto', 'task', 400, 300), no('longe', 'task', 100, 600)],
+      edges: [
+        { id: 'nao', source: 'dec', target: 'perto', label: 'nao', status: 'proposed' },
+        { id: 'sim', source: 'dec', target: 'longe', label: 'sim', status: 'proposed' },
+      ],
+    };
+    const r = await L.layoutDiagram(d, 'DOWN', 70);
+    const dec = r.positions.dec, sz = r.sizes.dec;
+    const saiDe = (id) => r.edgePoints[id][0];
+    const pontaDeBaixo = (p) => Math.abs(p.x - (dec.x + sz.width / 2)) < 0.5 && Math.abs(p.y - (dec.y + sz.height)) < 0.5;
+    const pontaEsquerda = (p) => Math.abs(p.x - dec.x) < 0.5 && Math.abs(p.y - (dec.y + sz.height / 2)) < 0.5;
+    casos.push(['decisao: o ramo de destino mais proximo fica na ponta de baixo', pontaDeBaixo(saiDe('nao'))]);
+    casos.push(['decisao: o outro ramo sai pela ponta lateral do lado do destino', pontaEsquerda(saiDe('sim'))]);
+
+    // ponta lateral OCUPADA (uma seta chegando nela) nao recebe ramo
+    d.nodes.push(no('volta', 'task', 0, 100));
+    d.edges.push({ id: 'chega', source: 'volta', target: 'dec', label: '', status: 'proposed' });
+    const r2 = await L.layoutDiagram(d, 'DOWN', 70);
+    const p = r2.edgePoints.sim[0];
+    const dec2 = r2.positions.dec, sz2 = r2.sizes.dec;
+    casos.push(['decisao: ponta ocupada por seta que CHEGA nao recebe ramo',
+      !(Math.abs(p.x - dec2.x) < 0.5 && Math.abs(p.y - (dec2.y + sz2.height / 2)) < 0.5)]);
   }
   // 7. swimlane IGNORA o x/y salvo (lente derivada — decisao de 06/08/2026)
   {

@@ -21,9 +21,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent } from 'react'
 import {
   Background,
+  ControlButton,
   Controls,
   MiniMap,
   ReactFlow,
+  getViewportForBounds,
   type Connection,
   type Edge,
   type Node,
@@ -45,19 +47,26 @@ import { ErEdge } from './ErEdge.js'
 import { MindEdge } from './MindEdge.js'
 import { SequenceView } from './SequenceView.js'
 import {
+  labelPoint,
+  labelRect,
   layoutDiagram,
   namedLayout,
   nodeSize,
-  orthRoute,
   radialLayout,
   routeAll,
+  routeMoved,
   swimlaneLayout,
+  toRect,
   toSavedPoint,
   type LayoutNome,
   type LayoutResult
 } from './layout.js'
+import { CardAbertoCtx, useCardAberto } from './useCardAberto.js'
+import { useHistorico } from './useHistorico.js'
+import { SC } from './status.js'
 import { baixarPng, baixarTexto, nomeSeguro, toMermaid, toSvg } from './export.js'
-import { applyVerdict, diffNodes, novaEdge, novoNode, propagateFrom } from './model.js'
+import { applyVerdict, avisosDoFluxo, diffNodes, novaEdge, novoNode, propagateFrom } from './model.js'
+import { shapeOf } from './shapes.js'
 import { LENSES, LENS_BY_KEY, type LensDef, type LensKey } from './lenses.js'
 
 const nodeTypes = { flow: FlowNode, entity: EntityNode, mind: MindNode, lane: LaneNode }
@@ -66,6 +75,8 @@ const edgeTypes = { orth: OrthEdge, er: ErEdge, mind: MindEdge }
 export interface EditorViewProps {
   /** O arquivo-verdade (`workspace.json`) já normalizado, vindo do WS. */
   workspace: Workspace
+  /** O `workspace` já é o do servidor (e não o marcador vazio da troca de sessão). */
+  carregado?: boolean
   /** Lente ativa — o estado mora no App (a topbar também fala dela). */
   lens: LensKey
   onLens: (l: LensKey) => void
@@ -75,7 +86,7 @@ export interface EditorViewProps {
   onPatch: (lens: ModelKey, model: Diagram | SeqModel) => void
 }
 
-export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: EditorViewProps): JSX.Element {
+export function EditorView({ workspace, carregado = true, lens, onLens, busy = false, onPatch }: EditorViewProps): JSX.Element {
   const [data, setData] = useState<Workspace>(workspace)
   const [layout, setLayout] = useState<LayoutResult | null>(null)
   const [posOverride, setPosOverride] = useState<Record<string, Pt>>({})
@@ -88,6 +99,7 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
   // ou diferente e oferece o salto.
   const [mudados, setMudados] = useState<Record<string, Set<string>>>({})
   const anteriorRef = useRef<Workspace | null>(null)
+  const jaCarregadoRef = useRef(false)
 
   // O arquivo-verdade é a fonte da verdade (lei 2): o que chega do servidor
   // SUBSTITUI o estado local — inclusive o eco do nosso próprio patch.
@@ -95,6 +107,12 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
     const anterior = anteriorRef.current
     anteriorRef.current = workspace
     setData(workspace)
+    // ABRIR uma sessão não é "o agente mexeu": o primeiro estado do servidor é
+    // comparado com o marcador vazio, e sem esta trava toda sessão cuja última
+    // escrita foi do agente abria com TODOS os nós realçados e o toast na tela.
+    const primeiroEstado = !jaCarregadoRef.current
+    jaCarregadoRef.current = carregado
+    if (primeiroEstado) return
     if (!anterior || workspace.updatedBy !== 'agent' || workspace.rev === anterior.rev) return
     const porModelo: Record<string, Set<string>> = {}
     for (const m of ['process', 'state', 'er', 'mind'] as const) {
@@ -102,7 +120,7 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
       if (ids.size) porModelo[m] = ids
     }
     setMudados(porModelo)
-  }, [workspace])
+  }, [workspace, carregado])
 
   // trocar de lente limpa o realce da lente anterior
   const limparMudados = useCallback(() => setMudados({}), [])
@@ -135,24 +153,6 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
   }, [])
   const guiaAberto = guiado && lensDef.guiado && !!activeDiagram
 
-  /**
-   * Escreve um modelo: otimista na tela + patch no servidor (que reecoa o
-   * arquivo e vira a verdade). O `mutate` roda FORA do updater do setState de
-   * propósito — updater tem que ser puro, e o StrictMode o chama duas vezes;
-   * mandar o patch de dentro dele mandaria dois patches por clique.
-   */
-  // ---- histórico (FF-007): 20 níveis, como no editor antigo ----
-  // Guarda o modelo ANTES de cada escrita, junto com a lente — desfazer numa
-  // lente não pode escrever noutra. Não guarda o eco do servidor: histórico é
-  // do que EU fiz, e o que o agente escreve não é meu pra desfazer.
-  const undoRef = useRef<{ model: Exclude<ModelKey, 'seq'>; antes: Diagram }[]>([])
-  const redoRef = useRef<{ model: Exclude<ModelKey, 'seq'>; antes: Diagram }[]>([])
-  // as pilhas moram em ref (não precisam re-renderizar), mas os BOTÕES precisam
-  // saber se estão vivos — daí este par de contadores em state
-  const [hist, setHist] = useState({ undo: 0, redo: 0 })
-  const marcaHist = useCallback(() => setHist({ undo: undoRef.current.length, redo: redoRef.current.length }), [])
-  const MAX_HIST = 20
-
   const aplica = useCallback(
     (model: Exclude<ModelKey, 'seq'>, next: Diagram) => {
       setData((d) => ({ ...d, [model]: next }))
@@ -161,53 +161,26 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
     [onPatch]
   )
 
+  // desfazer/refazer (FF-007) — as pilhas e o Ctrl+Z moram em `useHistorico`
+  const { registra, desfazer, refazer, podeDesfazer, podeRefazer } = useHistorico(data, busy, aplica)
+
+  /**
+   * Escreve um modelo: otimista na tela + patch no servidor (que reecoa o
+   * arquivo e vira a verdade). O `mutate` roda FORA do updater do setState de
+   * propósito — updater tem que ser puro, e o StrictMode o chama duas vezes;
+   * mandar o patch de dentro dele mandaria dois patches por clique.
+   */
   const writeModel = useCallback(
     (model: Exclude<ModelKey, 'seq'>, mutate: (d: Diagram) => Diagram) => {
       if (busy) return // lei 7
       const antes = data[model]
       const next = mutate(antes)
       if (next === antes) return // mutate desistiu (ex: aresta duplicada)
-      undoRef.current.push({ model, antes })
-      if (undoRef.current.length > MAX_HIST) undoRef.current.shift()
-      redoRef.current = [] // ramo novo: o que estava pra frente morreu
-      marcaHist()
+      registra(model, antes)
       aplica(model, next)
     },
-    [busy, data, aplica, marcaHist]
+    [busy, data, aplica, registra]
   )
-
-  const desfazer = useCallback(() => {
-    if (busy) return
-    const passo = undoRef.current.pop()
-    if (!passo) return
-    redoRef.current.push({ model: passo.model, antes: data[passo.model] })
-    marcaHist()
-    aplica(passo.model, passo.antes)
-  }, [busy, data, aplica, marcaHist])
-
-  const refazer = useCallback(() => {
-    if (busy) return
-    const passo = redoRef.current.pop()
-    if (!passo) return
-    undoRef.current.push({ model: passo.model, antes: data[passo.model] })
-    marcaHist()
-    aplica(passo.model, passo.antes)
-  }, [busy, data, aplica, marcaHist])
-
-  useEffect(() => {
-    const tecla = (e: globalThis.KeyboardEvent): void => {
-      if (!(e.ctrlKey || e.metaKey)) return
-      const alvo = e.target as HTMLElement | null
-      // dentro de campo de texto, Ctrl+Z é do campo, não do diagrama
-      if (alvo && /^(INPUT|TEXTAREA|SELECT)$/.test(alvo.tagName)) return
-      if (e.key.toLowerCase() !== 'z') return
-      e.preventDefault()
-      if (e.shiftKey) refazer()
-      else desfazer()
-    }
-    window.addEventListener('keydown', tecla)
-    return () => window.removeEventListener('keydown', tecla)
-  }, [desfazer, refazer])
 
   // APROVAR TUDO: promove todas as etapas `proposed` da lente atual a `approved`
   // num clique (com patch persistido) — sem clicar nó a nó.
@@ -258,7 +231,10 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
     setPosOverride({})
     setArrastando(false)
     let alive = true
-    computeLayout(lensDef, activeDiagram).then((l) => alive && setLayout(l))
+    computeLayout(lensDef, activeDiagram)
+      .then((l) => alive && setLayout(l))
+      // um layout que falha deixava o canvas parado no desenho ANTERIOR, sem dizer nada
+      .catch((err) => console.error('[flowforge] layout falhou; o desenho anterior fica na tela', err))
     return () => {
       alive = false
     }
@@ -318,6 +294,147 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
 
   const rfRef = useRef<ReactFlowInstance | null>(null)
 
+  // ------------------------------------------------------------------------
+  // ENQUADRAMENTO e NÍVEL DE DETALHE
+  // ------------------------------------------------------------------------
+
+  /**
+   * Paleta recolhida por padrão (só as silhuetas). Preferência de leitura, como
+   * o guiado: mora no localStorage, não no arquivo.
+   */
+  const [paletaMini, setPaletaMini] = useState(() => {
+    try {
+      return localStorage.getItem('ff-paleta') !== 'aberta'
+    } catch {
+      return true
+    }
+  })
+  const alternaPaleta = useCallback(() => {
+    setPaletaMini((v) => {
+      try {
+        localStorage.setItem('ff-paleta', v ? 'aberta' : 'mini')
+      } catch {
+        /* sem storage: vale só nesta aba */
+      }
+      return !v
+    })
+  }, [])
+
+  /**
+   * A área do `.react-flow` NÃO é a área que se enxerga: barra de lentes e toolbar
+   * cobrem o topo, a paleta cobre a esquerda e o HUD o rodapé. Enquadrar na área
+   * inteira punha as anotações do topo atrás da barra e, na Swimlane, os rótulos
+   * das raias atrás da paleta. A folga por lado desconta esses painéis.
+   * `maxZoom: 1` porque diagrama pequeno não precisa ser AMPLIADO pra caber —
+   * o `er-demo`, de 3 entidades, abria a 1,8× com caixas gigantes.
+   */
+  const enquadre = useMemo(() => {
+    // em janela estreita a toolbar desce pra segunda linha (media query no
+    // editor.css, mesmos cortes) e o topo coberto cresce junto
+    const estreita = window.innerWidth <= (guiaAberto ? 1640 : 1330)
+    return {
+      padding: {
+        top: estreita ? '112px' : '72px',
+        right: '28px',
+        bottom: '64px',
+        left: paletaMini ? '84px' : '158px'
+      } as const,
+      maxZoom: 1
+    }
+  }, [paletaMini, guiaAberto])
+
+  /**
+   * LONGE = zoom em que descrição (10,5px) e badge (9px) já são mancha. Abaixo do
+   * corte o nó mostra só o título, maior — a descrição continua no card e no
+   * modo guiado. É classe no container: trocar de nível não refaz nó nenhum.
+   */
+  const ZOOM_LONGE = 0.62
+  const [longe, setLonge] = useState(false)
+  const medirZoom = useCallback((zoom: number) => setLonge(zoom < ZOOM_LONGE), [])
+
+  /**
+   * Enquadra quando o DESENHO troca (abrir sessão, trocar de lente) — nunca numa
+   * edição, que tiraria a tela de baixo do mouse. O `fitView` do React Flow não
+   * servia: ele roda na montagem, quando o layout (assíncrono) ainda não chegou
+   * e não há nó nenhum pra enquadrar; o canvas abria num zoom arbitrário.
+   */
+  const enquadrarPendente = useRef(true)
+  useEffect(() => {
+    enquadrarPendente.current = true
+  }, [lens])
+
+  /**
+   * Enquadra o DESENHO — nós E setas. O `fitView` do React Flow só olha os nós, e
+   * num fluxo quebrado em colunas a seta que liga o pé de uma ao topo da outra
+   * passa POR CIMA de todos eles: ficava cortada atrás da barra de lentes. De
+   * quebra, calcular o viewport na mão não espera o React Flow medir os nós, que
+   * é o que o deixava sem enquadrar em aba oculta.
+   */
+  const enquadrar = useCallback(() => {
+    const rf = rfRef.current
+    const area = document.querySelector('.neon-editor .react-flow')?.getBoundingClientRect()
+    if (!rf || !area) return
+    let x1 = Infinity
+    let y1 = Infinity
+    let x2 = -Infinity
+    let y2 = -Infinity
+    const inclui = (x: number, y: number): void => {
+      x1 = Math.min(x1, x)
+      y1 = Math.min(y1, y)
+      x2 = Math.max(x2, x)
+      y2 = Math.max(y2, y)
+    }
+    for (const n of rf.getNodes()) {
+      inclui(n.position.x, n.position.y)
+      // +22 embaixo: evento e gateway levam o rótulo FORA da forma
+      inclui(n.position.x + (n.width ?? 0), n.position.y + (n.height ?? 0) + (n.type === 'lane' ? 0 : 22))
+    }
+    for (const e of rf.getEdges()) {
+      for (const p of ((e.data as { points?: Pt[] } | undefined)?.points ?? [])) inclui(p.x, p.y)
+    }
+    if (!Number.isFinite(x1)) return
+    const vp = getViewportForBounds(
+      { x: x1, y: y1, width: Math.max(1, x2 - x1), height: Math.max(1, y2 - y1) },
+      area.width,
+      area.height,
+      0.15,
+      enquadre.maxZoom,
+      enquadre.padding
+    )
+    void rf.setViewport(vp)
+    medirZoom(vp.zoom)
+  }, [enquadre, medirZoom])
+  useEffect(() => {
+    if (!enquadrarPendente.current || !layout || !Object.keys(layout.positions).length) return
+    // um frame de espera: o React Flow precisa ter recebido os nós deste layout.
+    // A pendência só é baixada DENTRO do frame — se o efeito for desmontado antes
+    // (StrictMode, ou outro layout chegando logo atrás), o próximo tenta de novo.
+    // Timer e não `requestAnimationFrame`: o Chrome PAUSA o rAF em aba oculta, e
+    // sessão aberta em segundo plano ficava desenquadrada até alguém olhar pra ela.
+    const espera = setTimeout(() => {
+      const rf = rfRef.current
+      if (!rf) return
+      enquadrarPendente.current = false
+      enquadrar()
+    }, 40)
+    return () => clearTimeout(espera)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layout])
+
+  // Abrir ou fechar o guia muda a ÁREA de desenho em 306px: sem reenquadrar, o
+  // lado direito do diagrama ia parar atrás da conversa. É troca de modo de
+  // leitura, não edição — aqui mexer na tela é o esperado.
+  const guiaAnterior = useRef(guiaAberto)
+  useEffect(() => {
+    if (guiaAnterior.current === guiaAberto) return
+    // a marca só é baixada quando o timer DISPARA (StrictMode desmonta o efeito antes)
+    const espera = setTimeout(() => {
+      guiaAnterior.current = guiaAberto
+      enquadrar()
+    }, 60)
+    return () => clearTimeout(espera)
+  }, [guiaAberto, enquadrar])
+
   /**
    * Nasce um nó. A posição que chega é o CENTRO (é o que o arquivo guarda).
    *
@@ -330,6 +447,8 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
     (kind: string, center: Pt | null) => {
       const model = lensDef.model
       if (busy || model === 'seq') return
+      // quem criou um nó escolheu onde olhar: o enquadramento automático não pode mais puxar a tela
+      enquadrarPendente.current = false
       const node = novoNode(kind, center ?? { x: 0, y: 0 })
       if (!lensDef.savesPos || !center) {
         delete node.x
@@ -540,103 +659,9 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
     edges: new Set()
   })
 
-  // Selecionar serve para mover o nó e ler suas ligações; abrir o card é outro
-  // gesto. No hover ele é temporário, enquanto duplo clique ou clique dentro do
-  // próprio card o tornam persistente até o próximo clique fora.
-  type CardAberto = { id: string | null; persistente: boolean }
-  const [cardAberto, setCardAberto] = useState<CardAberto>({ id: null, persistente: false })
-  const cardRef = useRef<CardAberto>(cardAberto)
-  const timerAbreCard = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const timerFechaCard = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const gestoPonteiro = useRef<{ x: number; y: number; moveu: boolean } | null>(null)
-  const trocarCard = useCallback((next: CardAberto) => {
-    cardRef.current = next
-    setCardAberto(next)
-  }, [])
-  const cancelarTimersCard = useCallback(() => {
-    if (timerAbreCard.current) clearTimeout(timerAbreCard.current)
-    if (timerFechaCard.current) clearTimeout(timerFechaCard.current)
-    timerAbreCard.current = null
-    timerFechaCard.current = null
-  }, [])
-  const fecharCard = useCallback(() => {
-    cancelarTimersCard()
-    trocarCard({ id: null, persistente: false })
-  }, [cancelarTimersCard, trocarCard])
-  const persistirCard = useCallback(
-    (id: string) => {
-      cancelarTimersCard()
-      trocarCard({ id, persistente: true })
-    },
-    [cancelarTimersCard, trocarCard]
-  )
-  const onNodeMouseEnter = useCallback(
-    (_event: MouseEvent, node: Node) => {
-      if (timerFechaCard.current) clearTimeout(timerFechaCard.current)
-      timerFechaCard.current = null
-      const atual = cardRef.current
-      if (atual.id === node.id || atual.persistente) return
-      if (atual.id) trocarCard({ id: null, persistente: false })
-      if (timerAbreCard.current) clearTimeout(timerAbreCard.current)
-      timerAbreCard.current = setTimeout(() => {
-        timerAbreCard.current = null
-        trocarCard({ id: node.id, persistente: false })
-      }, 1000)
-    },
-    [trocarCard]
-  )
-  const onNodeMouseLeave = useCallback(
-    (_event: MouseEvent, node: Node) => {
-      if (timerAbreCard.current) clearTimeout(timerAbreCard.current)
-      timerAbreCard.current = null
-      const atual = cardRef.current
-      if (atual.id !== node.id || atual.persistente) return
-      timerFechaCard.current = setTimeout(() => {
-        timerFechaCard.current = null
-        const corrente = cardRef.current
-        if (corrente.id === node.id && !corrente.persistente) trocarCard({ id: null, persistente: false })
-      }, 1000)
-    },
-    [trocarCard]
-  )
-  const onNodeDoubleClick = useCallback(
-    (event: MouseEvent, node: Node) => {
-      event.stopPropagation()
-      persistirCard(node.id)
-    },
-    [persistirCard]
-  )
-  useEffect(() => () => cancelarTimersCard(), [cancelarTimersCard])
-  useEffect(() => fecharCard(), [lens, fecharCard])
-  useEffect(() => {
-    const onPointerDown = (event: PointerEvent): void => {
-      if (event.button !== 0) return
-      gestoPonteiro.current = { x: event.clientX, y: event.clientY, moveu: false }
-    }
-    const onPointerMove = (event: PointerEvent): void => {
-      const gesto = gestoPonteiro.current
-      if (!gesto || gesto.moveu) return
-      if (Math.hypot(event.clientX - gesto.x, event.clientY - gesto.y) > 5) gesto.moveu = true
-    }
-    const onClick = (event: globalThis.MouseEvent): void => {
-      const moveu = gestoPonteiro.current?.moveu ?? false
-      gestoPonteiro.current = null
-      if (moveu) return
-      if (!cardRef.current.id) return
-      if (event.target instanceof Element && event.target.closest('.fpanel')) return
-      fecharCard()
-    }
-    // Fecha depois do click completo. Pointerdown desmontava as arestas antes
-    // do mouseup, quebrava a seleção da linha e fechava ao começar um pan.
-    document.addEventListener('pointerdown', onPointerDown, true)
-    document.addEventListener('pointermove', onPointerMove, true)
-    document.addEventListener('click', onClick)
-    return () => {
-      document.removeEventListener('pointerdown', onPointerDown, true)
-      document.removeEventListener('pointermove', onPointerMove, true)
-      document.removeEventListener('click', onClick)
-    }
-  }, [fecharCard])
+  // O ciclo do card (hover temporário, duplo clique persiste, clique fora fecha)
+  // mora em `useCardAberto`. Quem está aberto chega aos nós por contexto.
+  const { cardId, persistirCard, onNodeMouseEnter, onNodeMouseLeave, onNodeDoubleClick } = useCardAberto(lens)
 
   const onNodesChange = useCallback((changes: NodeChange[]) => {
     let mexeuSel = false
@@ -762,7 +787,7 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
         height: s?.height,
         style: s ? { width: s.width, height: s.height } : undefined,
         draggable: !busy, // lei 7: modo leitura não arrasta
-        zIndex: cardAberto.id === n.id ? 20 : 1,
+        zIndex: 1, // o nó com card aberto sobe por CSS (`:has(.fpanel)`), sem refazer esta lista
         data:
           lensDef.nodeType === 'mind'
             ? {
@@ -772,7 +797,6 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
                 onEdit: onEditNode,
                 branch: branch[n.id] ?? 0,
                 isRoot: branch[n.id] === -1,
-                cardOpen: cardAberto.id === n.id,
                 onCardPersist: persistirCard
               }
             : {
@@ -781,13 +805,12 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
                 lanes: activeDiagram.lanes ?? [],
                 onVerdict,
                 onEdit: onEditNode,
-                cardOpen: cardAberto.id === n.id,
                 onCardPersist: persistirCard
               }
       })
     }
     return out
-  }, [layout, activeDiagram, lens, lensDef.nodeType, onVerdict, onEditNode, branch, posOf, busy, mudadosAqui, sel.nodes, cardAberto.id, persistirCard])
+  }, [layout, activeDiagram, lens, lensDef.nodeType, onVerdict, onEditNode, branch, posOf, busy, mudadosAqui, sel.nodes, persistirCard])
 
   const currentEdgePoints = useMemo(() => {
     if (!layout || !activeDiagram || movedRef.current.size === 0) return layout?.edgePoints ?? {}
@@ -797,23 +820,20 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
     // Durante o drag, A* em todas as arestas a cada pixel fazia a camada de
     // bandas/linhas piscar. Mantém as rotas estáveis e recalcula só as ligações
     // dos nós movidos com o L/Z barato; ao soltar, routeAll refaz o desvio final.
-    const points = { ...layout.edgePoints }
-    for (const edge of activeDiagram.edges) {
-      if (!movedRef.current.has(edge.source) && !movedRef.current.has(edge.target)) continue
-      const source = positions[edge.source]
-      const target = positions[edge.target]
-      const sourceSize = layout.sizes[edge.source]
-      const targetSize = layout.sizes[edge.target]
-      if (!source || !target || !sourceSize || !targetSize) continue
-      points[edge.id] = orthRoute(source, sourceSize, target, targetSize, edge.sourceSide, edge.targetSide)
-    }
-    return points
+    return routeMoved(activeDiagram, positions, layout.sizes, movedRef.current, layout.edgePoints)
   }, [layout, activeDiagram, posOverride, arrastando])
 
   const rfEdges: Edge[] = useMemo(() => {
     if (!layout || !activeDiagram) return []
+    // caixas dos nós ONDE ELES ESTÃO (arrasto incluso): o rótulo da seta foge delas
+    const caixas = activeDiagram.nodes.flatMap((n) => {
+      const s = layout.sizes[n.id]
+      return s ? [toRect(posOf(n.id), s, 4)] : []
+    })
     return activeDiagram.edges.map((e) => {
       const points = currentEdgePoints[e.id]
+      const labelAt = e.label && points && points.length >= 2 ? labelPoint(points, e.label, caixas) : undefined
+      if (labelAt && e.label) caixas.push(labelRect(labelAt, e.label)) // o próximo rótulo desvia deste
       const base = {
         id: e.id,
         source: e.source,
@@ -825,6 +845,7 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
           points,
           status: e.status,
           label: e.label,
+          labelAt,
           edge: e,
           busy,
           onEdgeEdit,
@@ -836,7 +857,7 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
       if (lensDef.edgeType === 'mind') return { ...base, data: { points, branch: branch[e.target] ?? 0 } }
       return base
     })
-  }, [layout, activeDiagram, lensDef.edgeType, branch, currentEdgePoints, busy, onEdgeEdit, onEdgeDeleteOne, onEdgeWaypoints, sel.nodes, sel.edges])
+  }, [layout, activeDiagram, lensDef.edgeType, branch, currentEdgePoints, busy, onEdgeEdit, onEdgeDeleteOne, onEdgeWaypoints, sel.nodes, sel.edges, posOf])
 
   // ------------------------------------------------------------------------
   // FERRAMENTAS (FF-007)
@@ -872,6 +893,15 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
           if (!p || !s) return n
           const c = toSavedPoint(p, s)
           return { ...n, x: c.x, y: c.y }
+        }),
+        // Lado ancorado e quebra manual pertencem ao desenho ANTIGO: foram
+        // escolhidos pra uma geometria que o arranjo acabou de jogar fora. Mantê-los
+        // é o que fazia a seta sair pela esquerda pra chegar em quem foi parar à
+        // direita. "Reorganiza isso pra mim" inclui as setas. (Ctrl+Z desfaz tudo.)
+        edges: dia.edges.map((e) => {
+          if (!e.sourceSide && !e.targetSide && !e.waypoints && !e.routing) return e
+          const { sourceSide: _s, targetSide: _t, waypoints: _w, routing: _r, ...limpa } = e
+          return limpa
         })
       }))
     },
@@ -901,7 +931,7 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
     [persistirCard, saltarPara]
   )
 
-  const shell = 'neon-editor' + (busy ? ' ro' : '') + (guiaAberto ? ' com-guia' : '')
+  const shell = 'neon-editor' + (busy ? ' ro' : '') + (guiaAberto ? ' com-guia' : '') + (longe ? ' lod-longe' : '')
 
   if (lensDef.layout === 'seq') {
     return (
@@ -913,6 +943,11 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
   }
 
   const counts = activeDiagram ? tally(activeDiagram) : null
+  // início/fim/percurso só fazem sentido onde há PROCESSO (Fluxograma e Swimlane)
+  const avisos =
+    activeDiagram && lensDef.model === 'process'
+      ? avisosDoFluxo(activeDiagram.nodes, activeDiagram.edges, (n) => shapeOf(n.kind) === 'annotation')
+      : []
 
   return (
     <div className={shell} onDrop={onDrop} onDragOver={onDragOver}>
@@ -920,12 +955,13 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
       {guiaAberto && activeDiagram && (
         <GuidePanel
           nodes={activeDiagram.nodes}
+          edges={activeDiagram.edges}
           selecionado={[...sel.nodes][0] ?? null}
           onIr={irParaNo}
           onFechar={alternaGuiado}
         />
       )}
-      <Palette busy={busy} onPick={criarNoCentro} />
+      <Palette busy={busy} recolhida={paletaMini} onAlterna={alternaPaleta} onPick={criarNoCentro} />
       {lens === 'swimlane' && activeDiagram && (
         <LanesPanel lanes={activeDiagram.lanes ?? []} busy={busy} onChange={onLanesChange} />
       )}
@@ -933,8 +969,8 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
         <Toolbar
           nodes={activeDiagram.nodes}
           busy={busy}
-          podeDesfazer={hist.undo > 0}
-          podeRefazer={hist.redo > 0}
+          podeDesfazer={podeDesfazer}
+          podeRefazer={podeRefazer}
           onDesfazer={desfazer}
           onRefazer={refazer}
           onArranjo={aplicarArranjo}
@@ -970,6 +1006,13 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
           <b>sem raias definidas</b> — este diagrama não tem <code>lanes</code>, então o fluxo aparece sem bandas.
         </div>
       )}
+      {activeDiagram && activeDiagram.nodes.length === 0 && (
+        <div className="canvas-vazio neon-mono" role="status">
+          <b>{lensDef.label} ainda sem nada.</b>
+          {busy ? ' O agente está trabalhando.' : ' Arraste uma forma da paleta, dê duplo-clique no vazio, ou peça pro agente em "Analisar".'}
+        </div>
+      )}
+      <CardAbertoCtx.Provider value={cardId}>
       <ReactFlow
         nodes={rfNodes}
         edges={rfEdges}
@@ -984,6 +1027,7 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
         onNodeDragStart={onNodeDragStart}
         onNodeDragStop={onNodeDragStop}
         onInit={(rf) => (rfRef.current = rf)}
+        onMove={(_evt, vp) => medirZoom(vp.zoom)}
         onConnect={onConnect}
         onNodesDelete={onNodesDelete}
         onEdgesDelete={onEdgesDelete}
@@ -992,14 +1036,33 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
         deleteKeyCode={busy ? null : ['Delete', 'Backspace']}
         nodesConnectable={!busy}
         elementsSelectable
-        fitView
         proOptions={{ hideAttribution: true }}
         minZoom={0.15}
       >
         <Background color="oklch(0.30 0.02 258 / .35)" gap={26} />
-        <Controls showInteractive={false} />
-        <MiniMap pannable zoomable nodeColor={() => 'oklch(0.4 0.03 258)'} maskColor="oklch(0.12 0.02 258 / .7)" />
+        {/* O botão de enquadrar é NOSSO: o do React Flow chama o `fitView` dele (que
+            ignora setas e painéis) e só depois avisa — os dois brigariam pelo viewport. */}
+        <Controls showInteractive={false} showFitView={false}>
+          <ControlButton className="react-flow__controls-fitview" onClick={enquadrar} title="enquadrar o desenho" aria-label="enquadrar o desenho">
+            <svg viewBox="0 0 32 30" aria-hidden>
+              <path d="M3.692 4.63c0-.53.4-.938.939-.938h5.215V0H4.708C2.13 0 0 2.054 0 4.63v5.216h3.692V4.631zM27.354 0h-5.2v3.692h5.17c.53 0 .984.4.984.939v5.215H32V4.631A4.624 4.624 0 0027.354 0zm.954 24.83c0 .532-.4.94-.939.94h-5.215v3.768h5.215c2.577 0 4.631-2.13 4.631-4.707v-5.139h-3.692v5.139zm-23.677.94c-.531 0-.939-.4-.939-.94v-5.138H0v5.139c0 2.577 2.13 4.707 4.708 4.707h5.138V25.77H4.631z" />
+            </svg>
+          </ControlButton>
+        </Controls>
+        {/* Na Swimlane o canto é do painel de raias. A cor por status é o que dá
+            serventia ao minimapa: acha-se o questionado sem percorrer o desenho. */}
+        {lens !== 'swimlane' && (
+          <MiniMap
+            pannable
+            zoomable
+            style={{ width: 148, height: 96 }}
+            nodeColor={corNoMinimapa}
+            nodeStrokeWidth={0}
+            maskColor="oklch(0.12 0.02 258 / .7)"
+          />
+        )}
       </ReactFlow>
+      </CardAbertoCtx.Provider>
 
       {counts && (
         <div className="neon-editor-hud neon-mono">
@@ -1008,10 +1071,26 @@ export function EditorView({ workspace, lens, onLens, busy = false, onPatch }: E
           <span className="c qu">{counts.questioned} questionados</span>
           <span className="c no">{counts.rejected} reprovados</span>
           <span className="c pr">{counts.proposed} propostos</span>
+          {avisos.map((a) => (
+            <span
+              key={a.texto}
+              className="c aviso"
+              title={a.quem.length ? a.quem.join(' · ') : 'todo fluxograma precisa dizer onde começa e onde termina'}
+            >
+              ⚠ {a.texto}
+            </span>
+          ))}
         </div>
       )}
     </div>
   )
+}
+
+/** Aprovado e proposto são o repouso (cinza); questionado e reprovado saltam. */
+function corNoMinimapa(n: Node): string {
+  if (n.type === 'lane') return 'transparent'
+  const status = (n.data as { node?: DNode }).node?.status
+  return status === 'questioned' || status === 'rejected' ? `var(${SC[status]})` : 'oklch(0.42 0.03 258)'
 }
 
 function LensBar({

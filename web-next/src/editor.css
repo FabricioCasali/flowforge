@@ -52,6 +52,12 @@
 .react-flow__node.selected {
   z-index: 20 !important;
 }
+/* …e o nó com o card ABERTO também, mesmo sem estar selecionado (o card abre no
+   hover). Por CSS de propósito: quando isto era `zIndex` no nó, abrir um card
+   refazia a lista inteira de nós do React Flow. */
+.react-flow__node:has(.fpanel) {
+  z-index: 21 !important;
+}
 .react-flow__handle.fh {
   width: 10px;
   height: 10px;
@@ -86,16 +92,105 @@
   fill: var(--fg);
 }
 .react-flow__minimap {
-  background: var(--surface);
+  background: color-mix(in oklch, var(--surface) 80%, transparent);
+  border: 1px solid var(--border);
   border-radius: var(--r-md);
+  overflow: hidden;
+  opacity: 0.75;
+  transition: opacity 0.15s;
 }
+.react-flow__minimap:hover {
+  opacity: 1;
+}
+/* Os botões de zoom moravam no mesmo canto do HUD e ficavam atrás dele.
+   Sobem o bastante pra limpar a faixa do HUD (8+14+~30px). */
+.neon-editor .react-flow__controls {
+  bottom: 58px;
+  left: 1px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  box-shadow: none;
+}
+/* O contorno na cor do fundo é a "pastilha" do rótulo: corta a linha da seta
+   atrás do texto. 3px deixavam a linha vazar entre as letras. */
 .orth-label {
   fill: var(--muted);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 11px;
   paint-order: stroke;
   stroke: var(--bg);
-  stroke-width: 3px;
+  stroke-width: 6px;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+/* ==========================================================================
+   NÍVEL DE DETALHE — `.lod-longe` entra no container quando o zoom cai abaixo
+   do corte (EditorView, `ZOOM_LONGE`). Num diagrama de 20 nós enquadrado a 0,5×
+   a descrição (10,5px) e o badge (9px) viram mancha: gastam tinta sem dizer
+   nada. De longe o nó diz só o NOME, maior; o resto está a um zoom de distância
+   (ou no card, ou no modo guiado).
+   ========================================================================== */
+.lod-longe .nn-body,
+.lod-longe .badge,
+.lod-longe .mk-sub {
+  display: none;
+}
+.lod-longe .fnode:is(.shape-rect, .shape-subprocess) .nn-head {
+  flex: 1 1 auto;
+  min-height: 0;
+  border-bottom: none;
+  font-size: 19px;
+  line-height: 1.12;
+  overflow: hidden;
+}
+.lod-longe .nn-head .nn-label {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.lod-longe .dot {
+  width: 11px;
+  height: 11px;
+}
+.lod-longe .nn-center,
+.lod-longe .fnode.shape-diamond .nn-center,
+.lod-longe .fnode.shape-idea .nn-center,
+.lod-longe .fnode.shape-data .nn-center {
+  font-size: 14.5px;
+  line-height: 1.15;
+  overflow: hidden;
+}
+/* nas formas de rótulo centrado a caixa foi medida pro texto de 12px: de longe o
+   ponto de status cede o lugar (a borda já diz o status) pro nome caber maior */
+.lod-longe .nn-center .dot {
+  display: none;
+}
+.lod-longe .fnode:is(.shape-pill, .shape-idea, .shape-data) .nn-center {
+  padding: 0 8px;
+}
+.lod-longe .fnode.shape-annotation .nn-center {
+  font-size: 13.5px;
+  line-height: 1.25;
+}
+.lod-longe .nn-out {
+  font-size: 16px;
+  max-width: 190px;
+}
+.lod-longe .orth-label {
+  font-size: 15px;
+  stroke-width: 8px;
+}
+/* a seta também engrossa: 1,4px a 0,25× de zoom dá um terço de pixel na tela, e
+   o diagrama de 35 nós virava um punhado de caixas soltas, sem fluxo nenhum.
+   `!important` porque a espessura vem inline do OrthEdge (ela depende do status). */
+.lod-longe .react-flow__edge-path {
+  stroke-width: 3.2px !important;
+}
+.lod-longe .lane-label {
+  font-size: 22px;
 }
 
 /* ---------- nó de co-decisão: FACE = template do hello-react-flow ---------- */
@@ -159,8 +254,11 @@
   height: 8px;
   border-radius: 50%;
   background: var(--sc);
-  box-shadow: 0 0 8px var(--sc);
   flex: none;
+}
+/* o ponto só brilha em quem está VIVO (pede atenção); no aprovado ele é só tinta */
+.live .dot {
+  box-shadow: 0 0 8px var(--sc);
 }
 .badge {
   margin-left: auto;
@@ -221,7 +319,9 @@
 .fnode.shape-diamond .nn-center {
   position: relative;
   z-index: 1;
-  padding: 0 22px;
+  /* proporcional, não fixo: o losango agora cresce com o rótulo (`nodeSize`), e o
+     texto tem de ficar na faixa central, onde o losango tem altura pra ele */
+  padding: 0 19%;
   font-size: 12px;
 }
 .fnode-di {
@@ -1092,6 +1192,11 @@
 .neon-editor-hud .c.no {
   color: var(--s-rejected);
 }
+/* o que falta pro fluxo ser legível: sem início, sem fim, etapa fora do percurso */
+.neon-editor-hud .c.aviso {
+  color: var(--s-questioned);
+  cursor: help;
+}
 
 /* botão voltar do editor (dive numa tarefa-proposta) — acima da barra de lentes */
 .editor-back {
@@ -1303,7 +1408,9 @@
   top: calc(var(--lensbar-top, 12px) + var(--lensbar-h, 32px) + 14px);
   z-index: 10;
   width: 122px;
-  max-height: calc(100% - var(--lensbar-top, 12px) - var(--lensbar-h, 32px) - 46px);
+  /* para ANTES dos botões de zoom e do HUD, que dividem a mesma borda: em janela
+     baixa a paleta rola por dentro em vez de cobrir o "+" e o "−" */
+  max-height: calc(100% - var(--lensbar-top, 12px) - var(--lensbar-h, 32px) - 178px);
   overflow-y: auto;
   overflow-x: hidden;
   padding: 8px;
@@ -1363,6 +1470,53 @@
   stroke-width: 1.6;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+/* recolher/abrir. Fica FORA do `.ro`: com o agente trabalhando não se cria nó,
+   mas recolher a paleta pra enxergar o desenho continua sendo direito de quem lê */
+.pal-toggle {
+  display: block;
+  width: 100%;
+  margin-bottom: 4px;
+  padding: 3px 4px;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  color: var(--faint);
+  background: transparent;
+  border: none;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  text-align: left;
+  pointer-events: auto;
+}
+.pal-toggle:hover {
+  color: var(--fg);
+  background: color-mix(in oklch, var(--accent) 10%, transparent);
+}
+/* RECOLHIDA: só as silhuetas. O grupo "bpm" vira um fio separador. */
+.palette.mini {
+  width: 48px;
+  padding: 6px 5px;
+}
+.palette.mini .pal-toggle {
+  text-align: center;
+}
+.palette.mini .pal-lbl {
+  display: none;
+}
+.palette.mini .pal-item {
+  justify-content: center;
+  padding: 4px 0;
+}
+.palette.mini .pal-sec {
+  height: 1px;
+  padding: 0;
+  margin: 5px 4px;
+  overflow: hidden;
+  font-size: 0;
+  background: var(--border);
+}
+.palette.mini .pal-sec:first-of-type {
+  display: none;
 }
 /* uma linha só, e com reticências — cortar no meio da palavra ("subproce") é
    pior que abreviar de propósito, que é o que o KIND_LABEL_CURTO faz */
@@ -1646,6 +1800,46 @@
   padding: 7px 12px;
   pointer-events: none;
   white-space: nowrap;
+}
+/* JANELA ESTREITA: a barra de lentes (~580px) e a toolbar (~355px) dividem a
+   mesma linha, e abaixo de ~970px de canvas uma passa por cima da outra. A
+   toolbar desce pra segunda linha, e o "Aprovar tudo" desce junto. Os cortes são
+   em largura de JANELA porque o canvas é ela menos a conversa (340px) — e menos
+   o guia (306px) quando ele está aberto. */
+@media (max-width: 1330px) {
+  .neon-editor .toolbar {
+    top: 52px;
+  }
+  .neon-editor .neon-editor-actions {
+    top: 96px;
+  }
+}
+@media (max-width: 1640px) {
+  .neon-editor.com-guia .toolbar {
+    top: 52px;
+  }
+  .neon-editor.com-guia .neon-editor-actions {
+    top: 96px;
+  }
+}
+
+/* lente sem conteúdo: uma linha dizendo o que fazer, em vez de um canvas preto */
+.canvas-vazio {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 5;
+  max-width: 420px;
+  font-size: 11.5px;
+  line-height: 1.6;
+  text-align: center;
+  color: var(--faint);
+  pointer-events: none;
+}
+.canvas-vazio b {
+  color: var(--muted);
+  font-weight: 600;
 }
 .lanes-empty code {
   font-family: var(--mono);

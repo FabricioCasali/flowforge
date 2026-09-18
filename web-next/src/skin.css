@@ -10,9 +10,10 @@
    --br-a..--br-d (ramos do mind map), --surface/--border/--fg/--muted/--faint,
    --r-* (raios), --glow-* e --shadow-* (sombras).
 
-   FONTES: no NEON são auto-hospedadas via @fontsource. Aqui NÃO trouxemos essa
-   dependência (stack travado) — `--display`/`--mono` caem no fallback do
-   sistema. Se a tipografia virar requisito, adicionar @fontsource é o caminho.
+   FONTES: Space Grotesk e JetBrains Mono são auto-hospedadas via @fontsource
+   (FF-003), importadas em `styles.ts` — sem CDN, porque a ferramenta não pode
+   depender de rede. Os fallbacks de `--display`/`--mono` só valem se o arquivo
+   da fonte falhar.
    ============================================================================ */
 
 :root {
@@ -36,6 +37,8 @@
   --s-approved: oklch(0.8 0.16 162);
   --s-questioned: oklch(0.84 0.15 78);
   --s-rejected: oklch(0.7 0.19 22);
+  /* seta aprovada: neutra e legível — a cor fica para a seta que ainda discute */
+  --edge-quiet: oklch(0.62 0.025 250);
 
   /* --- EIXO 2: execução (runtime) — painel vivo --- */
   --s-idle: oklch(0.55 0.015 258);

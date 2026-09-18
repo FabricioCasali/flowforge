@@ -20,8 +20,9 @@
 import { Fragment } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import type { DNode, Lane, NodeStatus, Side } from '../types.js'
-import { LIVE, SC, STLBL } from './status.js'
+import { BADGED, LIVE, SC, STLBL } from './status.js'
 import { NodeCard } from './NodeCard.js'
+import { useCardAbertoDe } from './useCardAberto.js'
 import { BOXY, DIAMONDISH, LABEL_OUTSIDE, shapeOf } from './shapes.js'
 
 /** ✕ (exclusivo) e ✛ (paralelo) — SVG inline, nítido em qualquer zoom. */
@@ -68,7 +69,6 @@ export interface FlowNodeData {
   node: DNode
   busy?: boolean
   lanes?: Lane[]
-  cardOpen?: boolean
   onCardPersist: (id: string) => void
   onVerdict: (id: string, status: NodeStatus, reason?: string) => void
   onEdit: (id: string, patch: Partial<DNode>) => void
@@ -76,7 +76,8 @@ export interface FlowNodeData {
 }
 
 export function FlowNode({ data, selected }: NodeProps): JSX.Element {
-  const { node, onVerdict, onEdit, onCardPersist, busy, lanes, cardOpen } = data as FlowNodeData
+  const { node, onVerdict, onEdit, onCardPersist, busy, lanes } = data as FlowNodeData
+  const cardOpen = useCardAbertoDe(node.id)
   const sc = `var(${SC[node.status]})`
   const live = LIVE.has(node.status)
   const shape = shapeOf(node.kind)
@@ -110,7 +111,7 @@ export function FlowNode({ data, selected }: NodeProps): JSX.Element {
           <div className="nn-head">
             <span className="dot" />
             <span className="nn-label">{node.label}</span>
-            <span className="badge neon-mono">{STLBL[node.status]}</span>
+            {BADGED.has(node.status) && <span className="badge neon-mono">{STLBL[node.status]}</span>}
           </div>
           {node.description && <div className="nn-body neon-mono">{node.description}</div>}
         </>

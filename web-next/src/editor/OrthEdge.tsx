@@ -1,6 +1,6 @@
 import { BaseEdge, EdgeLabelRenderer, type EdgeProps } from '@xyflow/react'
 import type { DEdge, NodeStatus, Pt } from '../types.js'
-import { SC } from './status.js'
+import { EDGE_COLOR } from './status.js'
 import { EdgeCard } from './EdgeCard.js'
 import { BendHandles } from './BendHandles.js'
 
@@ -8,6 +8,8 @@ export interface OrthEdgeData {
   points?: { x: number; y: number }[]
   status: NodeStatus
   label?: string
+  /** Centro do rótulo, já escolhido longe dos nós (`labelPoint`, em layout.ts). */
+  labelAt?: Pt
   /** A aresta do modelo + os callbacks — só chegam quando a lente edita. */
   edge?: DEdge
   busy?: boolean
@@ -27,11 +29,11 @@ export function OrthEdge(props: EdgeProps): JSX.Element {
     { x: targetX, y: targetY }
   ]
   const status = data?.status ?? 'proposed'
-  const sc = `var(${SC[status]})`
   const path = roundedPath(pts, 8)
   const mid = pts[Math.floor(pts.length / 2)]
 
-  const cor = selected ? 'var(--accent)' : sc
+  const cor = selected ? 'var(--accent)' : EDGE_COLOR[status]
+  const rotulo = data?.labelAt ?? (mid ? { x: mid.x, y: mid.y - 10 } : null)
 
   return (
     <>
@@ -46,8 +48,8 @@ export function OrthEdge(props: EdgeProps): JSX.Element {
       {/* trilho invisível e gordo: acertar uma linha de 1.4px com o mouse é
           perícia, e selecionar a seta é o gesto que abre o card dela */}
       <path className="orth-hit" d={path} />
-      {data?.label && mid && (
-        <text className="orth-label" x={mid.x} y={mid.y - 5} textAnchor="middle">
+      {data?.label && rotulo && (
+        <text className="orth-label" x={rotulo.x} y={rotulo.y} textAnchor="middle" dominantBaseline="central">
           {data.label}
         </text>
       )}

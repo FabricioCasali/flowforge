@@ -134,7 +134,20 @@ array**: quem grava reescreve `lanes` inteiro, senão as raias somem.
    Campo que você não conhece também sobrevive — a normalização do servidor completa o que
    falta e não poda o resto.
 
-6. **Termine escrevendo no `thread.json` e enviando `completed`.** O arquivo é a resposta
+6. **Processo tem começo e fim, e o arquivo conta a história na ordem.** Em `process`, todo
+   fluxo tem pelo menos um `start`/`event-start` e um `end`/`event-end`, toda etapa é alcançável
+   a partir de um início e chega a algum fim (`annotation` fica fora). Escreva `nodes[]` **na
+   ordem de leitura, com o início primeiro**, e em cada decisão a seta do caminho principal antes
+   da do desvio: o arranjo automático e o modo guiado usam essa ordem pra decidir o que vem
+   primeiro. O editor confere e acusa no HUD (`⚠ sem início`, `⚠ 3 fora do percurso`…).
+
+7. **Não ancore seta em diagrama que o editor vai arrumar.** `sourceSide`/`targetSide` e
+   `waypoints` valem pra UMA geometria. Em nó sem `x`/`y` eles brigam com o arranjo automático;
+   só grave quando estiver compondo as posições na mão, e pra expressar algo que o traço
+   automático não expressa (o laço de volta saindo pelo lado, por exemplo). O editor ignora no
+   traço a âncora que custa uma volta inteira, mas o arquivo fica mentindo.
+
+8. **Termine escrevendo no `thread.json` e enviando `completed`.** O arquivo é a resposta
    visível; a mensagem do protocolo com o mesmo `requestId` é o que solta a trava. Ordem
    segura: `workspace.json`, `thread.json`, `completed`.
 

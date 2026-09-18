@@ -12,20 +12,21 @@
 // mostra `concept` e NÃO cai pra `description` quando ele falta: fingir que tem
 // teoria escrita mostrando o texto técnico é pior que dizer que falta.
 //
-// A ORDEM é por POSIÇÃO (y, e x como desempate), não topológica. Medido nos 11
-// diagramas reais: 3 têm ciclo e 4 têm mais de uma raiz — seguir as setas
-// quebraria neles. Já a posição sempre existe, e é do Fabricio (FF-001): ele
-// desenha de cima pra baixo, então a ordem do painel é a leitura que ele já faz.
+// A ORDEM é a do FLUXO: começa no início e segue as setas, em largura (ver
+// `ordenarParaGuia`, em model.ts). Já foi por posição — e aí bastava um arranjo
+// automático, ou um desenho em circuito, pro guia começar pelo meio da história.
 // ============================================================================
 
 import { useEffect, useRef } from 'react'
-import type { DNode } from '../types.js'
+import type { DEdge, DNode } from '../types.js'
 import { KIND_LABEL, shapeOf } from './shapes.js'
 import { STLBL } from './status.js'
 import { ordenarParaGuia } from './model.js'
 
 export interface GuidePanelProps {
   nodes: DNode[]
+  /** As setas: a ordem do guia é a do FLUXO, a partir do início. */
+  edges: DEdge[]
   /** Nó selecionado no canvas — o painel acompanha e rola até ele. */
   selecionado?: string | null
   onIr: (id: string) => void
@@ -37,8 +38,8 @@ function ehNota(n: DNode): boolean {
   return shapeOf(n.kind) === 'annotation'
 }
 
-export function GuidePanel({ nodes, selecionado, onIr, onFechar }: GuidePanelProps): JSX.Element {
-  const lista = ordenarParaGuia(nodes, ehNota)
+export function GuidePanel({ nodes, edges, selecionado, onIr, onFechar }: GuidePanelProps): JSX.Element {
+  const lista = ordenarParaGuia(nodes, ehNota, edges)
   const caixa = useRef<HTMLDivElement>(null)
 
   // seguir a seleção do canvas: clicar num nó lá rola o painel até o cartão dele.

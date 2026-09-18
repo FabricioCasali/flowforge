@@ -16,5 +16,32 @@ export const STLBL: Record<NodeStatus, string> = {
   rejected: 'reprovado'
 }
 
-/** Status que acendem o nó no canvas (o que saiu do neutro e tem veredito). */
-export const LIVE = new Set<NodeStatus>(['approved', 'questioned'])
+/**
+ * Status que ACENDEM o nó no canvas — só o que ainda pede a atenção do Fabricio.
+ *
+ * `approved` saiu daqui: aprovado é assunto RESOLVIDO, e a regra-mãe da pele é
+ * "só brilha o que está vivo". Com ele dentro, um diagrama maduro (20 de 21 nós
+ * aprovados no `arquitetura-flowforge`) brilhava inteiro e o único questionado —
+ * o que importa — sumia no meio do verde.
+ */
+export const LIVE = new Set<NodeStatus>(['questioned'])
+
+/**
+ * Status que levam BADGE escrito no nó. O aprovado fica só com o ponto verde:
+ * é o estado de repouso, e repetir "APROVADO" em toda caixa é ruído. Quem ainda
+ * espera veredito (ou levou um negativo) continua dizendo isso por extenso.
+ */
+export const BADGED = new Set<NodeStatus>(['proposed', 'questioned', 'rejected'])
+
+/**
+ * Cor da SETA por status. A aprovada é neutra pelo mesmo motivo do nó: num
+ * diagrama resolvido a malha de setas verdes competia com os próprios nós. A cor
+ * fica para a seta que discorda do repouso (lei 10: a seta tem status próprio,
+ * e é justamente essa que precisa saltar aos olhos).
+ */
+export const EDGE_COLOR: Record<NodeStatus, string> = {
+  proposed: 'var(--s-proposed)',
+  approved: 'var(--edge-quiet)',
+  questioned: 'var(--s-questioned)',
+  rejected: 'var(--s-rejected)'
+}
