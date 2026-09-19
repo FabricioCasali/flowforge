@@ -178,7 +178,24 @@ node <flowforge>/adapters/tasks.js add "avisar o time"      # também: reset, no
 node <flowforge>/adapters/tasks.js start 2 --node login/n7  # marca e já liga à etapa do desenho
 node <flowforge>/adapters/tasks.js link 3 login/n9          # liga uma tarefa que já existe
 node <flowforge>/adapters/tasks.js unlink 3                 # desfaz o elo
+node <flowforge>/adapters/tasks.js from-plan login          # a lista sai do plano aprovado no canvas
 ```
+
+**O plano aprovado.** `from-plan <sessão> ["<objetivo>"]` lê o modelo `process` daquela sessão — um
+fluxograma comum, pelo "Contrato estrutural de processos" — e cria uma tarefa por etapa
+**`approved`**, na ordem de leitura do fluxo (percurso a partir do início, caminho principal antes
+do desvio) e já com `node: { session, id }`. Só os kinds de trabalho viram tarefa (`task`,
+`subprocess`); início, fim, decisão, gateway, evento, anotação e objeto de dados não. O que ficou
+de fora é impresso com o motivo. Não há kind novo nem campo novo: o veredito da etapa é o
+`approved`/`questioned`/`rejected` que o usuário já dá no browser, e **aprovar é gesto dele**.
+
+Rodar de novo depois de uma revisão nova **reconcilia** em vez de refazer: a tarefa é reencontrada
+pelo elo, etapa que continua aprovada mantém status e nota, etapa nova aprovada entra na posição do
+fluxo, e etapa que deixou de estar aprovada vira `blocked` com o motivo — sumir esconderia que algo
+planejado não vai ser feito. Tarefa sem elo (ou ligada a outra sessão) é preservada. Por isso
+`start` numa tarefa ligada a um nó do `process` que não está `approved` é recusado com exit 2;
+`--force` passa por cima quando o usuário mandar seguir assim mesmo. Nada disso escreve no
+`workspace.json`.
 
 `--node <sessão>/<nó>` vale em `add` e `start`; o `plan` não tem sintaxe de elo (marcar o nó dentro
 do título comeria texto de verdade — "revisar o handler @auth/login"), então ali se liga depois com

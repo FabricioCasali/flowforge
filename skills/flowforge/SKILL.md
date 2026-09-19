@@ -135,6 +135,8 @@ O pedido pode vir como:
    - Dúvida que **trava a task** → `block` na tarefa.
    - Dúvida **sobre o desenho** → nó `questioned` com um comment `kind: "question"`.
    - Sessão só para rabiscar um fluxo, sem task em curso → pule este passo.
+   - Trabalho de vários passos → desenhe o plano antes e tire a lista dele: veja
+     **Plano antes de executar**.
 
 7. **Abrir o navegador** (o padrão do sistema) em `http://localhost:4317/?session=<slug>` e
    confirmar a URL no chat.
@@ -196,6 +198,49 @@ diagrama; se ela pedir algo destrutivo ou fora do desenho, confirme com ele no c
 5. O `reply.json` não cobre `fields` de ER, `lanes` e o modelo `seq`. Nesses casos edite o
    `workspace.json` direto, com `rev = atual + 1` e `updatedBy: "agent"`; escreva a resposta no
    `thread.json` (ou use `--message`) e rode o `done`.
+
+## Plano antes de executar
+
+**Quando:** trabalho de vários passos, mudança arriscada (migração, refatoração ampla, algo que
+toca dado de produção), ou sempre que ele pedir um plano. Trabalho de um passo só não precisa
+disso.
+
+A ideia: você **desenha** o plano no canvas, ele **revisa** etapa por etapa, e só o que ele
+aprovou é executado. O plano não tem formato próprio — é um fluxograma comum, o `process` de uma
+sessão (slug `plano-<assunto>`), seguindo o **Contrato estrutural de processos**.
+
+1. **Desenhe o plano.** Um `start`, um `end`, e cada etapa de trabalho como um nó `task` (ou
+   `subprocess`, quando a etapa é um bloco inteiro) com `status: "proposed"` — ele ainda não
+   revisou nada. Decisão vira `decision`, com as setas rotuladas; o que é contexto vira
+   `annotation`. Escreva `nodes[]` na ordem de leitura, com o caminho principal antes do desvio:
+   é dessa ordem que sai a ordem das tarefas.
+2. **Peça a revisão.** Diga a ele, no chat, para **aprovar, questionar ou reprovar** cada etapa no
+   canvas e clicar **Analisar** quando terminar. O clique é o sinal de "revisei" — não invente
+   botão nem mensagem de protocolo para isso. Não aprove nada por conta própria.
+3. **Ao acordar** (o evento `FLOWFORGE analisar` de sempre): leia o workspace, **responda as
+   etapas questionadas** (no `reply.json`, com `comment`/`commentKind: "note"`, ajustando o
+   desenho se ele tiver razão), **não execute as reprovadas** e feche o pedido com o `done`.
+4. **Tire a lista do plano aprovado:**
+
+   ```
+   node "${CLAUDE_PLUGIN_ROOT}/adapters/tasks.js" from-plan <slug> "<objetivo>"
+   ```
+
+   Cria uma tarefa por etapa **aprovada**, na ordem de leitura do fluxo, já ligada ao nó — é o elo
+   que faz a etapa acender no desenho enquanto você a executa. Início, fim, decisão, gateway,
+   evento, anotação e objeto de dados não viram tarefa. O comando imprime o que ficou de fora e
+   por quê; repasse isso a ele se houver surpresa.
+5. **Execute só o que entrou na lista**, marcando `start <n>` e `done <n>` etapa por etapa.
+   `start` numa tarefa cuja etapa não está aprovada é **recusado** — é a trava do plano. Se ele
+   mandou seguir mesmo assim, `start <n> --force`.
+
+**Se ele reprovar tudo**, o `from-plan` recusa e diz o motivo de cada etapa: não execute nada,
+volte ao desenho e proponha outro caminho. **Se ele questionar ou reprovar uma etapa no meio da
+execução** (novo clique em Analisar), responda a questão e rode o `from-plan` de novo: é
+reconciliação, não recomeço — o que já está em andamento ou concluído fica como está, a etapa que
+deixou de estar aprovada vira `blocked` com o motivo (em vez de sumir, o que esconderia de você e
+dele que algo planejado não vai ser feito), a etapa nova aprovada entra no lugar certo, e a tarefa
+que você acrescentou à mão com `add` é preservada.
 
 ## Schema do workspace.json
 
