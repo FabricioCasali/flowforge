@@ -190,6 +190,7 @@ node adapters/tasks.js plan "objetivo" "tarefa" ...                  # o agente 
 node adapters/activity.js install claude-code                       # liga o hook da linha do tempo neste projeto
 node scripts/verifica-opencode.mjs                                  # prova a sessão viva e a linha do tempo do OpenCode
 node scripts/verifica-activity.mjs                                  # prova a linha do tempo, do hook ao browser
+node scripts/verifica-codex.mjs                                     # prova o hook e a entrega na sessão aberta do Codex
 node scripts/verifica-tasks.mjs                                     # prova as tarefas ao vivo, do comando ao browser
 node scripts/verifica-adapter.mjs                                   # prova o núcleo do adapter (driver falso)
 node scripts/prova-adapter.mjs <harness>                            # loop vivo com o CLI real (gasta token)

@@ -91,6 +91,42 @@ Outros harnesses: a ponte serve a qualquer um que consiga transformar o stdout d
 evento na conversa, ou que aceite um módulo de entrega — o contrato está em
 [`deliver/README.md`](deliver/README.md).
 
+### Codex
+
+O Codex não tem nada parecido com o Monitor — nenhum modo em que o stdout de um processo vire
+evento na conversa. Tem o **caminho inverso**, e ele serve melhor: `codex queue` enfileira uma
+mensagem numa sessão que já existe. Com a sessão ociosa, a mensagem **abre um turno novo**, sem
+ninguém digitar nada.
+
+```
+node adapters/activity.js install codex          # (uma vez) o hook anota qual sessão está aberta
+node adapters/live.js --deliver codex            # a ponte, num terminal ao lado
+```
+
+A cada Analisar a ponte roda `codex queue --thread <sessão> --message "…"`; a sessão aberta acorda,
+lê `workspace.json` e `thread.json`, grava `reply.json` e roda o `live.js done`. Provado ponta a
+ponta na versão `codex-cli 0.154.0`: o canvas travou no clique, a sessão respondeu sem receber nada
+digitado, e o `done` destravou.
+
+Em qual sessão entregar, nesta ordem: `FLOWFORGE_CODEX_THREAD`; `CODEX_THREAD_ID` (a ponte aberta de
+dentro da própria sessão — o Codex exporta essa variável para o que ele roda); ou o que o hook da
+linha do tempo anotou em `~/.flowforge/codex-threads.json`, por projeto. É por isso que instalar o
+hook basta: o `session_id` que chega no hook **é** o id que o `codex queue --thread` aceita.
+
+Limites, com a evidência:
+
+- **A sessão precisa ter pelo menos um turno gravado.** Thread recém-criado, sem nada respondido:
+  `thread/queue/add failed: … no rollout found for thread id`.
+- **No meio de um turno a mensagem espera** o turno acabar e vira o turno seguinte; com a sessão
+  fechada ela fica na fila para a próxima vez que aquele thread for retomado — e até lá o canvas
+  fica travado.
+- **A ponte fora da porta 4317 precisa passar a url**, e ela vai na mensagem: o `done` acha a ponte
+  pela porta. Sem isso o `done` falha e o canvas não destrava (aconteceu na primeira prova).
+- **`codex agents` e `codex resume` são telas**, não API: não dá para listar de forma programável
+  qual sessão está viva. O que existe de máquina é o app-server
+  (`codex app-server --listen`, métodos `thread/start`, `thread/queue/add`, `thread/loaded/list`);
+  o `codex queue` é o atalho de linha de comando para o mesmo `thread/queue/add`.
+
 ## Execução à parte
 
 Com o servidor no ar e o CLI do harness instalado e autenticado na sua máquina (um adapter por
@@ -212,6 +248,15 @@ apaga só ele. O OpenCode carrega plugin na abertura: **reabra a sessão**. Uma 
 vale nota: o `bash` do OpenCode não tem campo `description`, então comando ali **sempre** vira
 programa + subcomando.
 
+**Codex** ([`hooks/codex.js`](hooks/codex.js)): `install` escreve em `<projeto>/.codex/hooks.json`
+(ou `$CODEX_HOME/hooks.json` com `--global`) — a configuração de hook do Codex é JSON, não TOML.
+Depois de instalar, **o Codex pede para confiar no hook**: abra a sessão e rode `/hooks`, senão ele
+sai calado. Duas particularidades do payload real (conferidas na 0.154.0): o shell chega como
+ferramenta `Bash` com a linha inteira em `tool_input.command`, e a edição chega como `apply_patch`
+com **o patch inteiro** em `tool_input.command` — dele sai só o *nome* dos arquivos. O `Bash` do
+Codex devolve a saída crua, sem código de retorno, então ali `failed` fica indefinido em vez de ser
+adivinhado no texto.
+
 Harness novo: um módulo em [`hooks/`](hooks/) com `SOURCE`, `map(payload, projectDir)` e
 `install({ global, remove, projectDir, scriptPath })`; o `activity.js` descobre pelo nome do
 arquivo. O `map` devolve `{ kind, summary, files?, failed? }` ou `null` — e é onde mora a regra de
@@ -246,11 +291,12 @@ node scripts/prova-adapter.mjs meu-harness  # o loop inteiro com o CLI de verdad
 
 ## Limites conhecidos
 
-- **A sessão viva existe no Claude Code** (pela ferramenta Monitor, que expira em no máximo
-  30 min; o canvas avisa e o usuário pede a reconexão) **e no OpenCode** (pelo servidor HTTP da
-  TUI). No OpenCode a ponte não sabe se a TUI está de fato aberta: `append-prompt` responde 200
-  mesmo num `opencode serve` sem TUI nenhuma, e o pedido se perde em silêncio. Para os demais
-  harnesses só há a execução à parte.
+- **A sessão viva existe nos três harnesses, cada um do seu jeito.** No Claude Code, pela ferramenta
+  Monitor (expira em no máximo 30 min; o canvas avisa e o usuário pede a reconexão). No OpenCode, pelo
+  servidor HTTP da TUI — e ali a ponte não sabe se a TUI está de fato aberta: `append-prompt` responde
+  200 mesmo num `opencode serve` sem TUI nenhuma, e o pedido se perde em silêncio. No Codex, por
+  `codex queue`, com os limites descritos na seção dele (a ponte roda num terminal ao lado; sessão
+  fechada deixa o pedido na fila). Para qualquer outro harness só há a execução à parte.
 - **O adapter só trata `analyze`.** O caminho inverso existe para **tarefas** (acima), e é o
   agente quem publica, por comando. Ações do CLI narradas sozinhas no canvas (o que ele leu,
   editou, rodou) ainda não existem.
