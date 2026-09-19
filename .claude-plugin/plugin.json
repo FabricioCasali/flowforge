@@ -1,7 +1,7 @@
 {
   "name": "flowforge",
   "displayName": "FlowForge",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Canvas colaborativo e vivo: o agente desenha, o usuário aprova, reprova e comenta no navegador, e a própria sessão do CLI responde ao Analisar. Traz a skill /flowforge e o hook da linha do tempo.",
   "author": {
     "name": "Fabricio Casali"
