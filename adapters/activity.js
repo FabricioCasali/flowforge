@@ -18,13 +18,22 @@
 // =============================================================================
 
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 const A = require('../server/activity.js');
 const T = require('../server/tasks.js');
 const { findExistingDataDir, findDataDir, whoAmI } = require('./project.js');
 
-const HARNESSES = { 'claude-code': () => require('./hooks/claude-code.js') };
+// Um harness = um modulo em adapters/hooks/<nome>.js. Descoberto pelo NOME DO ARQUIVO: harness novo
+// nao edita este arquivo. Contrato do modulo:
+//   SOURCE  { id, label }                       quem publica (o mesmo id da lista em tasks.json)
+//   map(payload, projectDir) -> { kind, summary, files?, failed? } | null
+//   install({ global, remove, projectDir, scriptPath }) -> string (o que foi feito, pra imprimir)
+function loadHarness(name) {
+  if (!/^[a-z0-9-]+$/.test(String(name || ''))) return null;
+  const file = path.join(__dirname, 'hooks', name + '.js');
+  return fs.existsSync(file) ? require(file) : null;
+}
+const knownHarnesses = () => fs.readdirSync(path.join(__dirname, 'hooks')).filter((f) => f.endsWith('.js')).map((f) => f.slice(0, -3));
 
 function currentTask(dataDir, sourceId) {
   const list = T.readTasks(dataDir).lists.find((l) => l.id === sourceId);
@@ -43,7 +52,7 @@ function readStdin() {
 
 async function hook(harnessName) {
   try {
-    const harness = HARNESSES[harnessName] && HARNESSES[harnessName]();
+    const harness = loadHarness(harnessName);
     if (!harness) return;
     const payload = JSON.parse(await readStdin());
     const dataDir = findExistingDataDir(payload.cwd || process.cwd());
@@ -58,32 +67,14 @@ async function hook(harnessName) {
   } catch (e) { /* calado de proposito: ver o cabecalho */ }
 }
 
-function settingsFile(harnessName, global) {
-  if (harnessName !== 'claude-code') throw new Error('harness sem instalador: ' + harnessName + ' (so claude-code por enquanto)');
-  return global ? path.join(os.homedir(), '.claude', 'settings.json') : path.join(path.dirname(findDataDir(process.cwd())), '.claude', 'settings.local.json');
-}
-const MARK = 'adapters/activity.js';
-const isOurs = (group) => (group.hooks || []).some((h) => String(h.command || '').replace(/\\/g, '/').includes(MARK));
-
+// Cada harness liga o hook do jeito dele (JSON de settings, arquivo de plugin, config TOML...):
+// quem sabe e o modulo. Aqui so se resolve o projeto e o caminho deste script.
 function install(harnessName, { global, remove }) {
-  const harness = HARNESSES[harnessName] && HARNESSES[harnessName]();
-  if (!harness) throw new Error('harness desconhecido: ' + harnessName);
-  const file = settingsFile(harnessName, global);
-  let settings = {};
-  try { settings = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { if (e.code !== 'ENOENT') throw new Error(file + ' nao e JSON valido; nao vou mexer'); }
-  settings.hooks = settings.hooks || {};
-  const command = 'node "' + __filename.replace(/\\/g, '/') + '" hook ' + harnessName;
-  const entries = harness.settingsEntries(command);
-  for (const ev of harness.EVENTS) {
-    const kept = (settings.hooks[ev] || []).filter((g) => !isOurs(g)); // reinstalar nao duplica
-    settings.hooks[ev] = remove ? kept : [...kept, entries[ev]];
-    if (!settings.hooks[ev].length) delete settings.hooks[ev];
-  }
-  if (!Object.keys(settings.hooks).length) delete settings.hooks;
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(settings, null, 2) + '\n');
-  console.log((remove ? 'hook removido de ' : 'hook instalado em ') + file);
-  if (!remove) console.log('vale a partir da PROXIMA sessao do harness aberta neste projeto.');
+  const harness = loadHarness(harnessName);
+  if (!harness) throw new Error('harness desconhecido: ' + harnessName + ' (tenho: ' + knownHarnesses().join(', ') + ')');
+  if (typeof harness.install !== 'function') throw new Error('o harness ' + harnessName + ' ainda nao tem instalador');
+  const projectDir = path.dirname(findDataDir(process.cwd()));
+  console.log(harness.install({ global, remove, projectDir, scriptPath: __filename.replace(/\\/g, '/') }));
 }
 
 const ICON = { read: 'leu ', edit: 'edit', run: 'rod ', search: 'busc', web: 'web ', agent: 'agen', tool: 'tool', note: 'nota', prompt: '>>> ', stop: '--- ' };

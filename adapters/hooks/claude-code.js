@@ -5,6 +5,8 @@
 // Devolve { kind, summary, files?, failed? } ou null (acao que nao vale narrar).
 // NARRACAO, nao transcricao: nunca o texto do pedido do usuario, nunca a saida da ferramenta.
 
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const SOURCE = { id: 'claude-code', label: 'Claude Code' };
@@ -59,10 +61,36 @@ function map(payload, projectDir) {
   }
 }
 
+/**
+ * Liga (ou tira) o hook no settings do Claude Code: `.claude/settings.local.json` do projeto, ou
+ * `~/.claude/settings.json` com `global`. Reinstalar nao duplica; `remove` tira SO o que e do
+ * FlowForge. Quem instala o FlowForge como PLUGIN nao precisa disto: os hooks vem no hooks/hooks.json.
+ */
+const MARK = 'adapters/activity.js';
+const isOurs = (group) => (group.hooks || []).some((h) => String(h.command || '').replace(/\\/g, '/').includes(MARK));
+
+function install({ global, remove, projectDir, scriptPath }) {
+  const file = global ? path.join(os.homedir(), '.claude', 'settings.json') : path.join(projectDir, '.claude', 'settings.local.json');
+  let settings = {};
+  try { settings = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { if (e.code !== 'ENOENT') throw new Error(file + ' nao e JSON valido; nao vou mexer'); }
+  settings.hooks = settings.hooks || {};
+  const entries = settingsEntries('node "' + scriptPath + '" hook ' + SOURCE.id);
+  for (const ev of EVENTS) {
+    const kept = (settings.hooks[ev] || []).filter((g) => !isOurs(g));
+    settings.hooks[ev] = remove ? kept : [...kept, entries[ev]];
+    if (!settings.hooks[ev].length) delete settings.hooks[ev];
+  }
+  if (!Object.keys(settings.hooks).length) delete settings.hooks;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(settings, null, 2) + '\n');
+  return (remove ? 'hook removido de ' : 'hook instalado em ') + file
+    + (remove ? '' : '\no Claude Code recarrega o settings a quente: vale na sessao aberta.');
+}
+
 /** Entradas de hook para o settings.json do Claude Code. `command` ja vem pronto. */
 function settingsEntries(command) {
   const hook = { type: 'command', command, async: true, timeout: 10 };
   return Object.fromEntries(EVENTS.map((ev) => [ev, ev === 'PostToolUse' ? { matcher: '', hooks: [hook] } : { hooks: [hook] }]));
 }
 
-module.exports = { SOURCE, EVENTS, map, settingsEntries };
+module.exports = { SOURCE, EVENTS, map, settingsEntries, install };

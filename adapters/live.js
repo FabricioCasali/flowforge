@@ -17,8 +17,14 @@
 //   4. quando a sessao roda `live.js done <requestId>`, aplica o reply.json, sela
 //      os arquivos e manda `completed`.
 //
-//   node adapters/live.js [--url ws://localhost:4317/agent] [--label "Claude Code"]
+//   node adapters/live.js [--url ws://localhost:4317/agent] [--label "Claude Code"] [--deliver <nome>]
 //   node adapters/live.js done <requestId> [--message "texto"] [--failed "motivo"]
+//
+// COMO o pedido chega na sessao depende do harness. O padrao e imprimir a linha no stdout (serve a
+// quem vigia o processo, como a ferramenta Monitor do Claude Code). `--deliver <nome>` troca isso por
+// um modulo adapters/deliver/<nome>.js que exporta `deliver({ line, evt, opts })` -> Promise: e o
+// lugar de entregar por API do harness (um servidor HTTP da TUI, por exemplo). O resto — registro,
+// progress, o `done` — e igual.
 //
 // Saida: uma linha curta por evento, prefixo FLOWFORGE:
 //   FLOWFORGE analisar <requestId> sessao=<slug> dir=<pasta da sessao> nota="<pedido>"
@@ -44,6 +50,7 @@ function parse(argv) {
     else if (a === '--label') out.label = argv[++i];
     else if (a === '--message') out.message = argv[++i];
     else if (a === '--failed') out.failed = argv[++i];
+    else if (a === '--deliver') out.deliver = argv[++i];
     else out.args.push(a);
   }
   return out;
@@ -79,6 +86,11 @@ function listen(opts) {
   const url = opts.url || 'ws://localhost:4317/agent';
   const label = opts.label || 'Claude Code';
   const pending = new Map(); // requestId -> { evt, before, beat }
+  let deliverer = null; // modulo de entrega; sem ele, o stdout e a entrega
+  if (opts.deliver) {
+    if (!/^[a-z0-9-]+$/.test(opts.deliver)) { console.error('--deliver invalido: ' + opts.deliver); process.exit(2); }
+    deliverer = require(path.join(__dirname, 'deliver', opts.deliver + '.js'));
+  }
   let ws = null;
   let retryMs = 1000;
   let announcedDown = false;
@@ -127,10 +139,15 @@ function listen(opts) {
     //   <dir>/workspace.json  <dir>/thread.json  <dir>/reply.json   e   live.js done <requestId>
     // A nota inteira esta sempre no thread.json (o servidor grava la antes de despachar).
     const note = String(evt.note || '').replace(/\s+/g, ' ').trim();
-    say('analisar ' + evt.requestId
+    const line = 'analisar ' + evt.requestId
       + ' sessao=' + evt.session
       + ' dir=' + path.dirname(evt.workspacePath).replace(/\\/g, '/')
-      + ' nota=' + JSON.stringify(note.length > 240 ? note.slice(0, 240) + '… (inteira no thread.json)' : note));
+      + ' nota=' + JSON.stringify(note.length > 240 ? note.slice(0, 240) + '… (inteira no thread.json)' : note);
+    say(line); // sempre no stdout: e o log da ponte, mesmo quando a entrega e por outro caminho
+    if (deliverer) {
+      Promise.resolve(deliverer.deliver({ line: 'FLOWFORGE ' + line, evt, opts }))
+        .catch((e) => say('erro: a entrega por "' + opts.deliver + '" falhou: ' + e.message));
+    }
   }
 
   function connect() {
