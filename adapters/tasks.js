@@ -343,6 +343,9 @@ function main() {
           delete existente.note;
           existente.updatedAt = now;
           relato.push('  ~ "' + existente.title + '" (' + no.id + '): destravada — o usuario aprovou a etapa de novo');
+        } else if (existente.status === 'completed' && /^feita antes da revisao mudar\b/.test(String(existente.note || ''))) {
+          delete existente.note; // a etapa voltou a ser aprovada: o aviso perdeu o sentido
+          existente.updatedAt = now;
         }
         lista.push(existente);
       }
@@ -355,10 +358,17 @@ function main() {
         if (reaproveitadas.has(t)) continue;
         const no = t.node && t.node.session === plano.sessao ? plano.porId.get(t.node.id) : null;
         if (no && KINDS_DE_TRABALHO.includes(no.kind) && no.status !== 'approved') {
-          t.status = 'blocked';
-          t.note = motivoDoBloqueio(no);
+          if (t.status === 'completed') {
+            // O trabalho JA FOI FEITO: travar apagaria esse fato da lista. Fica concluida, e a
+            // nota avisa que a revisao mudou de ideia depois — e o usuario quem decide se desfaz.
+            t.note = 'feita antes da revisao mudar — ' + motivoDoBloqueio(no);
+            relato.push('  ! "' + t.title + '" (' + no.id + '): ja estava concluida — ' + motivoDoBloqueio(no) + ' (nao desfiz nada)');
+          } else {
+            t.status = 'blocked';
+            t.note = motivoDoBloqueio(no);
+            relato.push('  ! "' + t.title + '" (' + no.id + '): travada — ' + t.note);
+          }
           t.updatedAt = now;
-          relato.push('  ! "' + t.title + '" (' + no.id + '): travada — ' + t.note);
         }
         lista.push(t);
       }

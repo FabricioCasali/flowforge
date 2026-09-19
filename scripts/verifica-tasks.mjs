@@ -301,6 +301,22 @@ async function main() {
       tasks(['link', '4', 'nem-existe/n1', ...LP]);
       ok('sessao inexistente nao trava o start (continua so o aviso)', tasks(['start', '4', ...LP]).status === 0);
 
+      // --- trabalho JA FEITO cuja etapa e reprovada depois: a lista nao pode apagar o fato ---
+      tasks(['done', '3', ...LP]); // "refatorar o handler" (n6) foi concluida...
+      await a.until((t) => lp(t)?.tasks[2].status === 'completed', 'done da n6');
+      escrevePlano(dataDir, 'plano-x', planoNos('questioned', 'rejected'), planoSetas); // ...e o usuario reprovou a n6
+      const fp3 = tasks(['from-plan', 'plano-x', ...LP]);
+      const p3 = await a.until((t) => /^feita antes/.test(lp(t)?.tasks.find((x) => x.node?.id === 'n6')?.note || ''), 'concluida com etapa reprovada');
+      const n6feita = lp(p3).tasks.find((x) => x.node?.id === 'n6');
+      ok('tarefa CONCLUIDA cuja etapa foi reprovada depois continua concluida, com o aviso na nota',
+        fp3.status === 0 && n6feita.status === 'completed' && /feita antes da revisao mudar — etapa reprovada/.test(n6feita.note)
+        && /ja estava concluida/.test(fp3.stdout));
+      escrevePlano(dataDir, 'plano-x', planoNos('questioned', 'approved'), planoSetas); // aprovou de novo
+      tasks(['from-plan', 'plano-x', ...LP]);
+      const p4 = await a.until((t) => !lp(t)?.tasks.find((x) => x.node?.id === 'n6')?.note, 'aviso limpo');
+      ok('se a etapa volta a ser aprovada, o aviso some e a tarefa segue concluida',
+        lp(p4).tasks.find((x) => x.node?.id === 'n6').status === 'completed');
+
       // --- recusas do from-plan: sempre com a lista INTACTA ---
       const listaAntes = fs.readFileSync(path.join(dataDir, 'tasks.json'), 'utf8');
       const semSessao = tasks(['from-plan', 'nem-existe', ...LP]);
