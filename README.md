@@ -156,10 +156,11 @@ aberta responder ao Analisar ([#10](https://github.com/FabricioCasali/flowforge/
 
 O melhor respondedor é a sessão de CLI que você **já tem aberta** no projeto: ela sabe o que está
 sendo feito. O [`adapters/live.js`](adapters/README.md#sessão-viva) é uma ponte que não chama
-ninguém — imprime cada pedido numa linha, e o harness que vigia o processo acorda a sessão. No
-Claude Code isso é a ferramenta Monitor.
+ninguém — segura o canal, e quem acorda a sessão é o harness. **No Claude Code, com o plugin
+instalado, isso é automático:** um hook `Stop` rearma a escuta no fim de cada turno, e o clique em
+Analisar chega à sessão aberta sem você pedir nada.
 
-A escuta do agente **cai sozinha** de tempos em tempos (no Claude Code, a cada 30 minutos). O canvas
+Sem o plugin a escuta vive na ferramenta Monitor e **cai sozinha** a cada 30 minutos. O canvas
 não esconde isso: o indicador vira **"agente desconectado"** e um aviso diz o que fazer — no terminal
 do seu agente, peça **"reconecte o FlowForge"**. Nada se perde: o Analisar clicado nesse intervalo
 fica guardado e é entregue na reconexão.

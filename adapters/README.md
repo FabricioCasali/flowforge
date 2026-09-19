@@ -27,6 +27,44 @@ sessão viva.
 
 ### No Claude Code
 
+**Com o plugin instalado, a escuta se arma sozinha.** O `hooks/hooks.json` traz um hook `Stop`
+(`async` + `asyncRewake`) que roda `adapters/live.js wait` no fim de **cada turno** — não há nada
+a pedir à sessão, e não há teto de 30 minutos.
+
+```
+node <flowforge>/adapters/live.js wait    # o que o hook Stop roda (não rode à mão)
+node <flowforge>/adapters/live.js stop    # encerra a ponte destacada deste servidor
+```
+
+São **dois papéis**, porque acordar a sessão exige um processo que *sai* e segurar o socket exige
+um que *fica*:
+
+- **a ponte** (fica) é o mesmo `live.js` de sempre: segura o `/agent`, manda `progress`, atende o
+  `done`. Sob o hook ela roda **destacada** — sem terminal, sobrevivendo ao fim do turno — e o
+  próprio `wait` a sobe na primeira vez. A porta de controle continua anunciada em
+  `~/.flowforge/live-<porta>.json`, agora com o modo em que a ponte está;
+- **o ouvinte** (sai) é o `wait`. Ele fica pendurado num long-poll (`GET /next`) na porta de
+  controle e, quando chega um pedido, escreve no **stderr** e sai com **código 2** — é isso que
+  acorda a sessão ociosa. O aviso chega ao modelo rotulado como *"Stop hook blocking error"*, então
+  a primeira linha do texto desmente o rótulo: não é erro, é o clique no canvas.
+
+O `wait` **sai 0 e calado** — o hook roda a cada turno e não pode virar ruído — quando o projeto
+não tem `.flowforge/`, quando não há servidor FlowForge **deste** projeto no ar (ele compara o
+`dataDir` do `GET /api/health`: outro projeto pode estar na mesma porta), quando já existe um
+ouvinte vivo, e quando o `/agent` está ocupado por outro adapter (um Monitor antigo, por exemplo) —
+não disputa. Ele procura o servidor em `4317` e `4318`; noutra porta, use `FLOWFORGE_PORT`.
+
+Pedido que chega enquanto **não há ouvinte** (a sessão estava no meio de um turno) não se perde: a
+ponte guarda na fila e entrega ao próximo `wait`.
+
+**A ponte destacada não fica órfã.** Ela encerra sozinha depois de 10 minutos com o servidor fora
+do ar, ou de 30 minutos sem ouvinte **nem** pedido pendente — como o hook `Stop` dispara a cada fim
+de turno, uma sessão viva rearma o ouvinte em um turno, e meia hora sem nenhum é sessão que foi
+embora. O `live.js stop` encerra na hora. Não há hook `SessionEnd`: duas sessões no mesmo projeto
+dividem a mesma ponte, e fechar uma derrubaria a escuta da outra.
+
+### Sem o plugin: a ferramenta Monitor
+
 Peça à sessão para armar a ponte com a ferramenta **Monitor**:
 
 ```
@@ -49,9 +87,13 @@ node <flowforge>/adapters/live.js done <requestId> --failed "motivo"     # não 
 ```
 
 **Quando a escuta cai.** O Monitor do Claude Code expira em no máximo 30 minutos, e rearmar sozinho
-dependeria de o modelo lembrar. Em vez disso o canvas avisa: o indicador vira "agente desconectado" e
+dependeria de o modelo lembrar. É esse o caminho de quem **não** tem o plugin — com ele, o hook
+`Stop` acima rearma sozinho. Sem ele o canvas avisa: o indicador vira "agente desconectado" e
 pede ao usuário a frase **"reconecte o FlowForge"**, que a skill ensina o agente a reconhecer. O pedido
 feito no intervalo fica no `inbox.jsonl` e é reenviado, com o mesmo `requestId`, na reconexão.
+
+Uma ponte por servidor: quem chega depois não disputa. Com o hook armado, o Monitor encontra a
+ponte já no ar e encerra dizendo isso — pare a ponte (`live.js stop`) antes de armar o Monitor.
 
 É o `done` que destrava o canvas. Enquanto a sessão trabalha, a ponte manda `progress` para a
 trava não expirar. A linha é curta de propósito — o harness corta evento comprido —, então a nota
@@ -300,12 +342,13 @@ node scripts/prova-adapter.mjs meu-harness  # o loop inteiro com o CLI de verdad
 
 ## Limites conhecidos
 
-- **A sessão viva existe nos três harnesses, cada um do seu jeito.** No Claude Code, pela ferramenta
-  Monitor (expira em no máximo 30 min; o canvas avisa e o usuário pede a reconexão). No OpenCode, pelo
-  servidor HTTP da TUI — e ali a ponte não sabe se a TUI está de fato aberta: `append-prompt` responde
-  200 mesmo num `opencode serve` sem TUI nenhuma, e o pedido se perde em silêncio. No Codex, por
-  `codex queue`, com os limites descritos na seção dele (a ponte roda num terminal ao lado; sessão
-  fechada deixa o pedido na fila). Para qualquer outro harness só há a execução à parte.
+- **A sessão viva existe nos três harnesses, cada um do seu jeito.** No Claude Code, pelo hook `Stop` do
+  plugin, que rearma a escuta a cada fim de turno; sem o plugin, pela ferramenta Monitor, que expira em
+  no máximo 30 min — e aí o canvas avisa e o usuário pede a reconexão. No OpenCode, pelo servidor HTTP
+  da TUI — e ali a ponte não sabe se a TUI está de fato aberta: `append-prompt` responde 200 mesmo num
+  `opencode serve` sem TUI nenhuma, e o pedido se perde em silêncio. No Codex, por `codex queue`, com os
+  limites descritos na seção dele (a ponte roda num terminal ao lado; sessão fechada deixa o pedido na
+  fila). Para qualquer outro harness só há a execução à parte.
 - **O adapter só trata `analyze`.** O caminho inverso existe para **tarefas** (acima), e é o
   agente quem publica, por comando. Ações do CLI narradas sozinhas no canvas (o que ele leu,
   editou, rodou) ainda não existem.

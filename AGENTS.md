@@ -185,6 +185,7 @@ node server/index.js --data-dir "<projeto>/.flowforge" --port 4317   # servidor
 claude --plugin-dir .                                               # carrega ESTE repo como plugin (skill + hooks) numa sessão
 claude plugin validate .                                            # valida plugin.json, hooks e a skill
 node adapters/live.js                                               # SESSÃO VIVA: vigie com o Monitor; responde quem já está aberto
+node adapters/live.js wait                                          # o ouvinte do hook Stop (rearma a escuta sozinho); `stop` encerra a ponte
 node adapters/index.js <claude-code|opencode|codex>                 # execução à parte (sem sessão aberta)
 node adapters/tasks.js plan "objetivo" "tarefa" ...                  # o agente publica as tarefas dele (lente Tarefas)
 node adapters/activity.js install claude-code                       # liga o hook da linha do tempo neste projeto
@@ -193,6 +194,7 @@ node scripts/verifica-activity.mjs                                  # prova a li
 node scripts/verifica-codex.mjs                                     # prova o hook e a entrega na sessão aberta do Codex
 node scripts/verifica-tasks.mjs                                     # prova as tarefas ao vivo, do comando ao browser
 node scripts/verifica-adapter.mjs                                   # prova o núcleo do adapter (driver falso)
+node scripts/verifica-wait.mjs                                      # prova o rearme automático da escuta (hook Stop)
 node scripts/prova-adapter.mjs <harness>                            # loop vivo com o CLI real (gasta token)
 cd web-next && npm run dev                                          # front em dev
 cd web-next && npm run build                                        # bundle servido pelo server
