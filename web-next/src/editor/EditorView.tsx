@@ -33,7 +33,7 @@ import {
   type NodeChange,
   type ReactFlowInstance
 } from '@xyflow/react'
-import { emptyTasks } from '../types.js'
+import { emptyTasks, workspaceTitle } from '../types.js'
 import type { ActivityEvent, DEdge, Diagram, DNode, Lane, ModelKey, NodeStatus, Pt, SeqModel, TasksFile, Workspace } from '../types.js'
 import { FlowNode, sideOfHandle } from './FlowNode.js'
 import { Palette } from './Palette.js'
@@ -934,7 +934,9 @@ export function EditorView({ workspace, carregado = true, lens, onLens, busy = f
   const exportar = useCallback(
     async (formato: 'png' | 'svg' | 'mmd') => {
       if (!activeDiagram || !layout) return
-      const nome = nomeSeguro(activeDiagram.title)
+      // o nome da SESSÃO (title do topo do workspace), nao o do modelo: depois de renomear, o title de
+      // dentro do modelo fica com o nome antigo ate aquela lente ser reescrita
+      const nome = nomeSeguro(workspaceTitle(data))
       if (formato === 'mmd') return baixarTexto(nome + '.mmd', toMermaid(activeDiagram))
       const svg = toSvg(activeDiagram, layout)
       if (formato === 'svg') return baixarTexto(nome + '.svg', svg, 'image/svg+xml;charset=utf-8')
@@ -1099,7 +1101,7 @@ export function EditorView({ workspace, carregado = true, lens, onLens, busy = f
 
       {counts && (
         <div className="neon-editor-hud neon-mono">
-          <span className="t">{activeDiagram!.title}</span>
+          <span className="t">{workspaceTitle(data)}</span>
           <span className="c ap">{counts.approved} aprovados</span>
           <span className="c qu">{counts.questioned} questionados</span>
           <span className="c no">{counts.rejected} reprovados</span>
