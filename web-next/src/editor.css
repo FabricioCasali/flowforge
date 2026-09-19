@@ -1711,6 +1711,94 @@
     opacity: 0.2;
   }
 }
+
+/* ---------- ETAPA VIVA: a tarefa que o agente está executando (issue #8) ----------
+   Duas conversas diferentes no mesmo nó, e elas NÃO podem se misturar:
+
+     · CO-DECISÃO (proposto/aprovado/questionado/reprovado) mora na BORDA, no
+       ponto e no badge, e pinta com --s-* do eixo 1;
+     · EXECUÇÃO (a tarefa do CLI) mora num anel FORA da caixa, e pinta com o
+       eixo 2 (--s-act para quem anda, --s-wait para quem travou).
+
+   Por isso o anel é TRACEJADO e sobra pra fora: nenhum nó do editor tem contorno
+   tracejado por fora (o tracejado da anotação é a própria borda dela), então a
+   forma já diz "isto é outra coisa" antes mesmo da cor — o que importa porque o
+   âmbar de "travada" e o de "questionado" são o mesmo tom.
+
+   A classe fica no INVÓLUCRO do React Flow, como o `ff-changed`: vale em
+   qualquer lente de grafo sem cada tipo de nó saber disso, e os dois realces
+   podem estar ligados ao mesmo tempo (um usa ::before, o outro ::after). */
+.react-flow__node.ff-viva {
+  --ex: var(--s-act);
+}
+.react-flow__node.ff-travada {
+  --ex: var(--s-wait);
+}
+.react-flow__node.ff-viva::after,
+.react-flow__node.ff-travada::after {
+  content: '';
+  position: absolute;
+  inset: -9px;
+  border: 1.5px dashed color-mix(in oklch, var(--ex) 62%, transparent);
+  border-radius: 17px;
+  background: color-mix(in oklch, var(--ex) 9%, transparent);
+  pointer-events: none;
+  z-index: -1;
+}
+/* só quem está ANDANDO respira; travada é parada, e piscar diria o contrário */
+.react-flow__node.ff-viva::after {
+  animation: ff-respira 2.1s ease-in-out infinite;
+}
+@keyframes ff-respira {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* a marca: quem está nesta etapa e qual tarefa é (o texto mora no `title`) */
+.ff-viva-marca {
+  position: absolute;
+  top: -9px;
+  right: -9px;
+  z-index: 3;
+  line-height: 0;
+}
+.ff-viva-marca.andando {
+  --ex: var(--s-act);
+}
+.ff-viva-marca.travada {
+  --ex: var(--s-wait);
+}
+.ff-viva-marca svg {
+  display: block;
+  width: 15px;
+  height: 15px;
+}
+.ff-vm-fundo {
+  fill: var(--bg-2);
+  stroke: var(--ex);
+  stroke-width: 1.2;
+}
+.ff-vm-mk {
+  fill: var(--ex);
+}
+.ff-vm-mk.barras {
+  fill: none;
+  stroke: var(--ex);
+  stroke-width: 1.7;
+  stroke-linecap: round;
+}
+/* na entidade a marca entra NA LINHA do cabeçalho: o nó tem `overflow: hidden`
+   (é o que arredonda a lista de campos) e comeria uma marca pendurada na borda */
+.ent .ff-viva-marca {
+  position: static;
+  margin-left: auto;
+}
+
 .change-toast {
   position: absolute;
   left: 50%;
@@ -2269,6 +2357,41 @@
 .tk-item.st-completed .tk-nota {
   color: var(--faint);
 }
+
+/* ---------- o elo da tarefa com o desenho (issue #8) ----------
+   Discreto: é um atalho, não o assunto da linha. Na sessão aberta é botão (leva
+   ao nó); fora dela é texto, porque trocar de sessão é gesto da topbar. */
+.tk-elo {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 3px;
+  padding: 1px 7px 1px 5px;
+  max-width: 100%;
+  font: inherit;
+  font-size: 10.5px;
+  color: var(--muted);
+  background: color-mix(in oklch, var(--surface-2) 70%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+button.tk-elo {
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+button.tk-elo:hover {
+  color: var(--accent);
+  border-color: color-mix(in oklch, var(--accent) 55%, transparent);
+}
+.tk-elo.fora,
+.tk-elo.orfao {
+  color: var(--faint);
+  border-style: dashed;
+}
 .tk-ha {
   font-size: 10px;
   color: var(--faint);
@@ -2512,5 +2635,11 @@
   .tk-pulso,
   .tk-m-gira {
     animation: none;
+  }
+  /* o anel da etapa viva continua LÁ, só para de respirar: a informação é o
+     anel e a marca, o movimento era só ênfase */
+  .react-flow__node.ff-viva::after {
+    animation: none;
+    opacity: 1;
   }
 }

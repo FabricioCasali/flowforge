@@ -1,6 +1,6 @@
 // Helpers do editor: propagação de status (consenso das 2 pontas), veredito e as
 // fábricas de nó/aresta (criar, ligar).
-import type { Comment, DEdge, Diagram, DNode, NodeStatus, Side } from '../types.js'
+import type { Comment, DEdge, Diagram, DNode, NodeStatus, Side, TasksFile } from '../types.js'
 import { KIND_NEW_LABEL } from './shapes.js'
 
 /**
@@ -197,6 +197,59 @@ export function propagateFrom(nodes: DNode[], edges: DEdge[], changed: Iterable<
     const status: NodeStatus = a && a !== 'proposed' && a === b ? a : 'proposed'
     return e.status === status ? e : { ...e, status }
   })
+}
+
+// ---------- Etapa viva: a tarefa do agente apontando um nó (issue #8) ----------
+
+/** O que uma tarefa ligada diz sobre o nó dela — o que o canvas precisa mostrar. */
+export interface EtapaViva {
+  /**
+   * EIXO 2 (execução), nunca o de co-decisão: `andando` é a tarefa
+   * `in_progress`, `travada` é a `blocked`. Tarefa concluída ou pendente não
+   * acende nada — o nó volta ao normal sozinho.
+   */
+  estado: 'andando' | 'travada'
+  /** Título da tarefa, como ela aparece na lente Tarefas. */
+  titulo: string
+  /** Rótulo do publicador (`Claude Code`, `Codex`…): de QUEM é a tarefa. */
+  quem: string
+  /** Posição da tarefa na lista do publicador (1, 2, 3…) — como a lente a numera. */
+  n: number
+  /** A nota do andamento, ou o motivo de estar travada. */
+  nota?: string
+}
+
+/**
+ * Quais nós da sessão ABERTA estão vivos, e por quê. É estado DERIVADO: sai do
+ * `tasks.json` (que é do projeto) cruzado com o slug da sessão, e não encosta no
+ * `workspace.json` — nada disso vira `rev`, patch ou arquivo (lei 4).
+ *
+ * É pura de propósito, como a `lenteInicial`: a regra se prova sem browser.
+ *
+ * Duas tarefas podem apontar o MESMO nó (dois agentes no mesmo projeto). Quem
+ * está andando ganha de quem está travada, e entre iguais ganha a mexida mais
+ * recente: o nó tem uma cor só, e a cor certa é a do trabalho em curso.
+ */
+export function nosVivos(tasks: TasksFile | null | undefined, session: string): Record<string, EtapaViva> {
+  const out: Record<string, EtapaViva> = {}
+  const quando: Record<string, number> = {}
+  if (!tasks || !session) return out
+  for (const lista of tasks.lists ?? []) {
+    ;(lista.tasks ?? []).forEach((t, i) => {
+      // o elo já chega normalizado do `types.ts`; checar de novo aqui é barato e
+      // deixa a regra segura para quem a chamar com o arquivo cru
+      if (!t.node || typeof t.node !== 'object' || t.node.session !== session || !t.node.id) return
+      const estado = t.status === 'in_progress' ? 'andando' : t.status === 'blocked' ? 'travada' : null
+      if (!estado) return
+      const id = t.node.id
+      const ts = t.updatedAt ?? 0
+      const atual = out[id]
+      if (atual && !(estado === 'andando' && atual.estado === 'travada') && !(estado === atual.estado && ts > (quando[id] ?? 0))) return
+      out[id] = { estado, titulo: t.title, quem: lista.label || lista.id, n: i + 1, nota: t.note }
+      quando[id] = ts
+    })
+  }
+  return out
 }
 
 /** Aplica um veredito a um nó (com motivo obrigatório em reject/question → comment). */

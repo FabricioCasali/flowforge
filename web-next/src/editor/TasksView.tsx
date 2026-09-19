@@ -18,6 +18,10 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import type { ActivityEvent, TaskItem, TaskList, TasksFile, TaskStatus } from '../types.js'
+import type { LensKey } from './lenses.js'
+
+/** id do nó → como ele se chama e em que lente da sessão ABERTA ele é desenhado. */
+export type NosDaSessao = Map<string, { rotulo: string; lens: LensKey }>
 
 const ROTULO: Record<TaskStatus, string> = {
   pending: 'pendente',
@@ -121,7 +125,17 @@ function rastros(activity: ActivityEvent[]): Map<string, Rastro> {
   return out
 }
 
-export function TasksView({ tasks, activity }: { tasks: TasksFile; activity: ActivityEvent[] }): JSX.Element {
+export interface TasksViewProps {
+  tasks: TasksFile
+  activity: ActivityEvent[]
+  /** O slug da sessão aberta — é dele que sai "este elo é daqui" (issue #8). */
+  session: string
+  nosDaSessao: NosDaSessao
+  /** Leva ao desenho: troca de lente e centraliza o nó. */
+  onIrParaNo: (id: string) => void
+}
+
+export function TasksView({ tasks, activity, session, nosDaSessao, onIrParaNo }: TasksViewProps): JSX.Element {
   // o "há 12 s" envelhece sozinho, sem depender de chegar arquivo novo
   const [agora, setAgora] = useState(() => Date.now())
   useEffect(() => {
@@ -161,7 +175,7 @@ export function TasksView({ tasks, activity }: { tasks: TasksFile; activity: Act
     <div className="tasksview com-tempo">
       <div className="tk-cols">
         {listas.map((l) => (
-          <Lista key={l.id} lista={l} agora={agora} porTarefa={porTarefa} />
+          <Lista key={l.id} lista={l} agora={agora} porTarefa={porTarefa} session={session} nosDaSessao={nosDaSessao} onIrParaNo={onIrParaNo} />
         ))}
       </div>
       <LinhaDoTempo activity={activity} tasks={tasks} agora={agora} />
@@ -169,7 +183,21 @@ export function TasksView({ tasks, activity }: { tasks: TasksFile; activity: Act
   )
 }
 
-function Lista({ lista, agora, porTarefa }: { lista: TaskList; agora: number; porTarefa: Map<string, Rastro> }): JSX.Element {
+function Lista({
+  lista,
+  agora,
+  porTarefa,
+  session,
+  nosDaSessao,
+  onIrParaNo
+}: {
+  lista: TaskList
+  agora: number
+  porTarefa: Map<string, Rastro>
+  session: string
+  nosDaSessao: NosDaSessao
+  onIrParaNo: (id: string) => void
+}): JSX.Element {
   const feitas = lista.tasks.filter((t) => t.status === 'completed').length
   const total = lista.tasks.length
   const andando = lista.tasks.some((t) => t.status === 'in_progress')
@@ -192,7 +220,16 @@ function Lista({ lista, agora, porTarefa }: { lista: TaskList; agora: number; po
       </header>
       <ol className="tk-itens">
         {lista.tasks.map((t, i) => (
-          <Item key={t.id} tarefa={t} n={i + 1} agora={agora} rastro={porTarefa.get(chave(lista.id, t.id))} />
+          <Item
+            key={t.id}
+            tarefa={t}
+            n={i + 1}
+            agora={agora}
+            rastro={porTarefa.get(chave(lista.id, t.id))}
+            session={session}
+            nosDaSessao={nosDaSessao}
+            onIrParaNo={onIrParaNo}
+          />
         ))}
       </ol>
     </section>
@@ -232,7 +269,67 @@ function Marca({ status }: { status: TaskStatus }): JSX.Element {
 
 const nomeCurto = (f: string): string => f.split('/').pop() || f
 
-function Item({ tarefa, n, agora, rastro }: { tarefa: TaskItem; n: number; agora: number; rastro?: Rastro }): JSX.Element {
+/**
+ * O ELO com o desenho (issue #8). Na sessão aberta vira botão: clicar troca para
+ * a lente que desenha o nó e voa até ele. Fora dela é só texto `sessão/nó` — o
+ * desenho está noutra prancheta, e trocar de sessão é gesto da topbar, não um
+ * efeito colateral de clicar numa tarefa.
+ */
+function Elo({
+  tarefa,
+  session,
+  nosDaSessao,
+  onIrParaNo
+}: {
+  tarefa: TaskItem
+  session: string
+  nosDaSessao: NosDaSessao
+  onIrParaNo: (id: string) => void
+}): JSX.Element | null {
+  const elo = tarefa.node
+  if (!elo) return null
+  const aqui = elo.session === session
+  const no = aqui ? nosDaSessao.get(elo.id) : undefined
+  if (!aqui) {
+    return (
+      <span className="tk-elo fora neon-mono" title={`esta etapa está no desenho "${elo.session}" — abra essa sessão lá em cima para vê-la`}>
+        ↳ {elo.session}/{elo.id}
+      </span>
+    )
+  }
+  if (!no) {
+    // o agente ligou a tarefa a um nó que ainda não existe (ou que foi apagado):
+    // o elo fica visível, dizendo o que houve, em vez de sumir sem explicação
+    return (
+      <span className="tk-elo orfao neon-mono" title="o elo aponta um nó que esta sessão não tem (ainda não foi desenhado, ou foi apagado)">
+        ↳ {elo.id} · sem nó
+      </span>
+    )
+  }
+  return (
+    <button className="tk-elo neon-mono" onClick={() => onIrParaNo(elo.id)} title={`ir até "${no.rotulo}" no desenho`}>
+      ↳ {no.rotulo}
+    </button>
+  )
+}
+
+function Item({
+  tarefa,
+  n,
+  agora,
+  rastro,
+  session,
+  nosDaSessao,
+  onIrParaNo
+}: {
+  tarefa: TaskItem
+  n: number
+  agora: number
+  rastro?: Rastro
+  session: string
+  nosDaSessao: NosDaSessao
+  onIrParaNo: (id: string) => void
+}): JSX.Element {
   const andando = tarefa.status === 'in_progress'
   return (
     <li className={'tk-item st-' + tarefa.status} title={ROTULO[tarefa.status]}>
@@ -241,6 +338,7 @@ function Item({ tarefa, n, agora, rastro }: { tarefa: TaskItem; n: number; agora
       <div className="tk-corpo">
         <div className="tk-nome">{tarefa.title}</div>
         {tarefa.note && <div className="tk-nota">{tarefa.note}</div>}
+        <Elo tarefa={tarefa} session={session} nosDaSessao={nosDaSessao} onIrParaNo={onIrParaNo} />
         {rastro && (
           <div className="tk-rastro neon-mono">
             {/* na tarefa viva, o que ele está fazendo AGORA; nas outras, só o saldo */}

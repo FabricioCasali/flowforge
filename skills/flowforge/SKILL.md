@@ -104,6 +104,7 @@ O pedido pode vir como:
    ```
    node "${CLAUDE_PLUGIN_ROOT}/adapters/tasks.js" plan "<objetivo>" "<tarefa 1>" "<tarefa 2>" …
    node "${CLAUDE_PLUGIN_ROOT}/adapters/tasks.js" start <n> "<o que está fazendo, em uma linha>"
+   node "${CLAUDE_PLUGIN_ROOT}/adapters/tasks.js" start <n> --node <sessão>/<id do nó>   # e acende a etapa no desenho
    node "${CLAUDE_PLUGIN_ROOT}/adapters/tasks.js" done <n>
    node "${CLAUDE_PLUGIN_ROOT}/adapters/tasks.js" block <n> "<o que falta: decisão, acesso…>"
    node "${CLAUDE_PLUGIN_ROOT}/adapters/tasks.js" add "<tarefa que apareceu>"
@@ -113,6 +114,13 @@ O pedido pode vir como:
    Tarefas curtas e concretas. Marque `done` na hora, não em lote no fim. O `start` também
    organiza a linha do tempo, porque cada ação sua sai associada à tarefa em andamento. (A linha
    do tempo é alimentada por um hook que vem com o plugin; você não precisa ligá-la.)
+
+   **Quando a tarefa for uma etapa do desenho, diga qual.** Com `--node <sessão>/<id do nó>` o nó
+   correspondente acende no canvas enquanto você trabalha nele (e aparece travado se você der
+   `block`), e o usuário vê no DESENHO onde você está — sem ler lista nenhuma. Use o `id` do nó como
+   está no `workspace.json` e o slug da sessão (a pasta em `.flowforge/`). Tarefa que já existe se
+   liga com `link <n> <sessão>/<nó>`; `unlink <n>` desfaz. Tarefa que não é etapa de desenho fica
+   sem elo, e nada muda.
 
    - Dúvida que **trava a task** → `block` na tarefa.
    - Dúvida **sobre o desenho** → nó `questioned` com um comment `kind: "question"`.

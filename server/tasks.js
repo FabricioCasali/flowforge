@@ -19,6 +19,18 @@ const STATUSES = ['pending', 'in_progress', 'completed', 'blocked'];
 
 function tasksPath(dataDir) { return path.join(dataDir, 'tasks.json'); }
 
+/**
+ * O elo da tarefa com um no do desenho (issue #8): { session, id }, ou nada.
+ * Meio elo e lixo e some — um id sem sessao nao diz em qual prancheta procurar,
+ * e uma sessao sem id nao aponta etapa nenhuma. Nunca derruba a leitura.
+ */
+function normalizeTaskNode(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const session = typeof raw.session === 'string' ? raw.session.trim() : '';
+  const id = typeof raw.id === 'string' ? raw.id.trim() : '';
+  return session && id ? { session, id } : undefined;
+}
+
 function normalizeTasks(raw) {
   if (!raw || typeof raw !== 'object') return { rev: 0, lists: [] };
   const lists = Array.isArray(raw.lists) ? raw.lists : [];
@@ -39,6 +51,7 @@ function normalizeTasks(raw) {
             status: STATUSES.includes(t.status) ? t.status : 'pending',
             ...(typeof t.note === 'string' && t.note.trim() ? { note: t.note } : {}),
             ...(Number.isFinite(t.updatedAt) ? { updatedAt: Number(t.updatedAt) } : {}),
+            ...(normalizeTaskNode(t.node) ? { node: normalizeTaskNode(t.node) } : {}),
           })),
       })),
   };
@@ -83,4 +96,4 @@ function updateTasks(dataDir, mutate) {
   }
 }
 
-module.exports = { STATUSES, tasksPath, normalizeTasks, readTasks, updateTasks };
+module.exports = { STATUSES, tasksPath, normalizeTasks, normalizeTaskNode, readTasks, updateTasks };

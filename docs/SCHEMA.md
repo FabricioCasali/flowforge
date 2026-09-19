@@ -137,7 +137,8 @@ sessão aberta.
       "tasks": [
         { "id": "t1", "title": "ler o código", "status": "completed" },
         { "id": "t2", "title": "escrever o teste", "status": "in_progress",
-          "note": "cobrindo o refresh do token", "updatedAt": 1789760000000 },
+          "note": "cobrindo o refresh do token", "updatedAt": 1789760000000,
+          "node": { "session": "login", "id": "n7" } },   // opcional: a etapa do desenho
         { "id": "t3", "title": "trocar a lib", "status": "blocked", "note": "falta decidir qual" }
       ] }
   ]
@@ -147,6 +148,19 @@ sessão aberta.
 `status`: `pending`, `in_progress`, `completed` ou `blocked`. `note` é uma linha curta — o que está
 sendo feito agora, ou por que travou. Uma **lista por publicador**: dois agentes no mesmo projeto
 não pisam um no outro.
+
+`node` é **opcional** e liga a tarefa a uma etapa do desenho: o nó apontado por uma tarefa
+`in_progress` aparece **vivo** no canvas daquela sessão (travado, se a tarefa estiver `blocked`), e
+volta ao normal quando ela conclui. Tarefa sem `node` se comporta exatamente como antes.
+
+- Leva o `session` porque `tasks.json` é do **projeto** e o desenho é de uma **sessão**: só o id do
+  nó não diria em qual prancheta procurar.
+- **Não leva o modelo** (`process`/`state`/`er`/`mind`), de propósito: o id é procurado na sessão
+  aberta, e um id que não existe ali simplesmente não acende nada. Guardar a lente obrigaria o
+  agente a saber em qual delas o usuário desenhou.
+- É **estado derivado**: o realce sai daqui, nunca do `workspace.json` — ligar uma tarefa, mudar o
+  status dela ou desligá-la **não sobe o `rev` do desenho** nem grava nada nele.
+- Meio elo (só `session`, só `id`) é descartado na leitura, como qualquer outro lixo do arquivo.
 
 **Não é um modelo do `workspace.json`, de propósito.** O agente escreve aqui várias vezes por
 minuto enquanto você edita o diagrama; dentro do workspace, cada tarefa concluída subiria o `rev`
@@ -161,7 +175,15 @@ node <flowforge>/adapters/tasks.js start 2 "cobrindo o refresh do token"
 node <flowforge>/adapters/tasks.js done 2
 node <flowforge>/adapters/tasks.js block 3 "falta decidir qual"
 node <flowforge>/adapters/tasks.js add "avisar o time"      # também: reset, note, clear, show
+node <flowforge>/adapters/tasks.js start 2 --node login/n7  # marca e já liga à etapa do desenho
+node <flowforge>/adapters/tasks.js link 3 login/n9          # liga uma tarefa que já existe
+node <flowforge>/adapters/tasks.js unlink 3                 # desfaz o elo
 ```
+
+`--node <sessão>/<nó>` vale em `add` e `start`; o `plan` não tem sintaxe de elo (marcar o nó dentro
+do título comeria texto de verdade — "revisar o handler @auth/login"), então ali se liga depois com
+`link`. A validação é só de **formato**: a sessão e o nó não precisam existir ainda (dá para planejar
+antes de desenhar), e sessão inexistente vira **aviso** no stdout, não erro.
 
 Ele acha o `.flowforge/` subindo a partir do diretório atual e adivinha o publicador pelo ambiente
 (`--list <id>` e `--label <nome>` mandam, e são o jeito de ter dois terminais do mesmo harness com
