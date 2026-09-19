@@ -18,3 +18,10 @@ module.exports = {
 
 O resto não muda: a ponte registra no `/agent`, manda `progress`, e a sessão fecha o pedido com
 `live.js done <requestId>`.
+
+Quem entrega por um comando precisa montar a mensagem inteira, e não só repassar a `line`: a sessão
+recebe um texto solto, sem o contexto de que aquilo veio do canvas. Diga onde estão os arquivos,
+peça o `reply.json` e **entregue o comando do `done` pronto, com a url da ponte** — o `done` acha a
+ponte pela porta, e sem ela o canvas fica travado.
+
+Feito: [`codex.js`](codex.js) (`codex queue`, detalhes e limites no [README dos adapters](../README.md)).

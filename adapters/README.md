@@ -59,6 +59,42 @@ Outros harnesses: a ponte serve a qualquer um que consiga transformar o stdout d
 evento na conversa. O OpenCode expõe um servidor HTTP na própria TUI (`/tui/append-prompt`,
 `/session/:id/prompt_async`) que permitiria entregar o pedido na sessão aberta — ainda não feito.
 
+### Codex
+
+O Codex não tem nada parecido com o Monitor — nenhum modo em que o stdout de um processo vire
+evento na conversa. Tem o **caminho inverso**, e ele serve melhor: `codex queue` enfileira uma
+mensagem numa sessão que já existe. Com a sessão ociosa, a mensagem **abre um turno novo**, sem
+ninguém digitar nada.
+
+```
+node adapters/activity.js install codex          # (uma vez) o hook anota qual sessão está aberta
+node adapters/live.js --deliver codex            # a ponte, num terminal ao lado
+```
+
+A cada Analisar a ponte roda `codex queue --thread <sessão> --message "…"`; a sessão aberta acorda,
+lê `workspace.json` e `thread.json`, grava `reply.json` e roda o `live.js done`. Provado ponta a
+ponta na versão `codex-cli 0.154.0`: o canvas travou no clique, a sessão respondeu sem receber nada
+digitado, e o `done` destravou.
+
+Em qual sessão entregar, nesta ordem: `FLOWFORGE_CODEX_THREAD`; `CODEX_THREAD_ID` (a ponte aberta de
+dentro da própria sessão — o Codex exporta essa variável para o que ele roda); ou o que o hook da
+linha do tempo anotou em `~/.flowforge/codex-threads.json`, por projeto. É por isso que instalar o
+hook basta: o `session_id` que chega no hook **é** o id que o `codex queue --thread` aceita.
+
+Limites, com a evidência:
+
+- **A sessão precisa ter pelo menos um turno gravado.** Thread recém-criado, sem nada respondido:
+  `thread/queue/add failed: … no rollout found for thread id`.
+- **No meio de um turno a mensagem espera** o turno acabar e vira o turno seguinte; com a sessão
+  fechada ela fica na fila para a próxima vez que aquele thread for retomado — e até lá o canvas
+  fica travado.
+- **A ponte fora da porta 4317 precisa passar a url**, e ela vai na mensagem: o `done` acha a ponte
+  pela porta. Sem isso o `done` falha e o canvas não destrava (aconteceu na primeira prova).
+- **`codex agents` e `codex resume` são telas**, não API: não dá para listar de forma programável
+  qual sessão está viva. O que existe de máquina é o app-server
+  (`codex app-server --listen`, métodos `thread/start`, `thread/queue/add`, `thread/loaded/list`);
+  o `codex queue` é o atalho de linha de comando para o mesmo `thread/queue/add`.
+
 ## Execução à parte
 
 Com o servidor no ar e o CLI do harness instalado e autenticado na sua máquina (um adapter por
@@ -173,8 +209,18 @@ Cada ação sai carimbada com a tarefa `in_progress` de quem publica — então 
 nenhuma mostra: `node adapters/activity.js note "decidi X porque Y"`.
 
 Harness novo: um módulo em [`hooks/`](hooks/) com `SOURCE`, `EVENTS`, `map(payload, projectDir)` e
-`settingsEntries(command)`. O `map` devolve `{ kind, summary, files? }` ou `null` — e é onde mora a
-regra de **não vazar**: nada de pedido do usuário, conteúdo, saída ou comando cru.
+`install({ global, remove, projectDir, scriptPath })`. O `map` devolve `{ kind, summary, files? }`
+ou `null` — e é onde mora a regra de **não vazar**: nada de pedido do usuário, conteúdo, saída ou
+comando cru. O módulo é descoberto pelo nome do arquivo; `activity.js` não muda.
+
+**Codex** ([`hooks/codex.js`](hooks/codex.js)): `install` escreve em `<projeto>/.codex/hooks.json`
+(ou `$CODEX_HOME/hooks.json` com `--global`) — a configuração de hook do Codex é JSON, não TOML.
+Depois de instalar, **o Codex pede para confiar no hook**: abra a sessão e rode `/hooks`, senão ele
+sai calado. Duas particularidades do payload real (conferidas na 0.154.0): o shell chega como
+ferramenta `Bash` com a linha inteira em `tool_input.command`, e a edição chega como `apply_patch`
+com **o patch inteiro** em `tool_input.command` — dele sai só o *nome* dos arquivos. O `Bash` do
+Codex devolve a saída crua, sem código de retorno, então ali `failed` fica indefinido em vez de ser
+adivinhado no texto.
 
 ## Escrever um driver
 
@@ -205,8 +251,9 @@ node scripts/prova-adapter.mjs meu-harness  # o loop inteiro com o CLI de verdad
 
 ## Limites conhecidos
 
-- **A sessão viva só existe, por enquanto, no Claude Code** (pela ferramenta Monitor, que expira
-  em no máximo 30 min; o canvas avisa e o usuário pede a reconexão). Para OpenCode e Codex só há a execução à parte.
+- **A sessão viva existe no Claude Code** (pela ferramenta Monitor, que expira em no máximo 30 min;
+  o canvas avisa e o usuário pede a reconexão) **e no Codex** (por `codex queue`, acima, com os
+  limites dali). Para o OpenCode só há a execução à parte.
 - **O adapter só trata `analyze`.** O caminho inverso existe para **tarefas** (acima), e é o
   agente quem publica, por comando. Ações do CLI narradas sozinhas no canvas (o que ele leu,
   editou, rodou) ainda não existem.

@@ -73,6 +73,13 @@ O pedido pode vir como:
      frase — ou ao receber o aviso de que o Monitor expirou, com o canvas ainda em uso — arme o
      Monitor de novo. Nada se perde: pedido feito com o agente fora fica guardado e chega na
      reconexão.
+   - **No Codex** não existe o Monitor, e a escuta é ao contrário: rode uma vez
+     `node "${CLAUDE_PLUGIN_ROOT}/adapters/activity.js" install codex` (e confie no hook com
+     `/hooks`, senão o Codex o ignora), e peça ao usuário que deixe
+     `node "${CLAUDE_PLUGIN_ROOT}/adapters/live.js" --deliver codex` rodando num terminal ao lado.
+     O clique em Analisar chega **nesta sessão** como um pedido novo, começando com
+     `FLOWFORGE analisar <requestId>` — trate-o como o evento do Monitor descrito abaixo. A
+     mensagem já traz o comando do `done` pronto; rode-o exatamente como veio.
    - Harness sem uma ferramenta que transforme o stdout de um processo em evento na conversa:
      diga que a sessão viva ainda não existe ali. Só use
      `node "${CLAUDE_PLUGIN_ROOT}/adapters/index.js" <harness>` (execução à parte: outra conversa,
