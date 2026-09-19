@@ -9,6 +9,7 @@
 //   recebe   { type:'tasks', tasks }   ← <data-dir>/tasks.json, por PROJETO (vale em toda sessão)
 //   recebe   { type:'activity', events } ← o fim do <data-dir>/activity.jsonl: a linha do tempo do CLI
 //   envia    { type:'patch',  session, lens, diagram }   ← lens-aware (lei 4)
+//   envia    { type:'rename', session, title }           ← título da SESSÃO (topo do workspace)
 //   envia    { type:'analyze', session, note }
 //
 // O campo `diagram` do patch é o nome do PROTOCOLO, não do tipo: na lente `seq`
@@ -73,6 +74,8 @@ export type ServerMsg = StateMsg | BusyMsg | AgentMsg | TasksMsg | ActivityMsg |
 
 export type ClientMsg =
   | { type: 'patch'; session: string; lens: ModelKey; diagram: Diagram | SeqModel }
+  /** O título é da SESSÃO, não da lente: mensagem própria, uma escrita, um `rev`. */
+  | { type: 'rename'; session: string; title: string }
   | { type: 'analyze'; session: string; note?: string }
   | { type: 'ping' }
 
@@ -208,6 +211,18 @@ export class FlowForgeSocket {
     return this.send({ type: 'patch', session: this.session, lens, diagram: model })
   }
 
+  /**
+   * Renomeia a SESSÃO. Vai numa mensagem própria porque o título mora no topo do
+   * workspace: UMA escrita e UM `rev`, em vez de um patch por lente com conteúdo.
+   * O servidor grava e o `state` de volta traz o nome novo (o arquivo é a verdade).
+   */
+  rename(title: string): boolean {
+    if (this.busy) return false // lei 7: durante o trabalho do agente, só leitura
+    const limpo = title.trim()
+    if (!limpo) return false // apagar o nome da sessão nunca foi o que se quis
+    return this.send({ type: 'rename', session: this.session, title: limpo })
+  }
+
   /** Despacha o "Analisar". O servidor liga o busy e avisa todo mundo. */
   analyze(note?: string): boolean {
     if (this.busy) return false
@@ -258,6 +273,8 @@ export interface Live {
   activity: ActivityEvent[]
   /** grava uma lente (não sai quando busy — lei 7) */
   patch: (lens: ModelKey, model: Diagram | SeqModel) => void
+  /** renomeia a sessão inteira numa escrita só (também não sai quando busy) */
+  rename: (title: string) => void
   analyze: (note?: string) => void
 }
 
@@ -309,9 +326,12 @@ export function useFlowForge(session: string): Live {
   const patch = useCallback((lens: ModelKey, model: Diagram | SeqModel) => {
     sockRef.current?.patch(lens, model)
   }, [])
+  const rename = useCallback((title: string) => {
+    sockRef.current?.rename(title)
+  }, [])
   const analyze = useCallback((note?: string) => {
     sockRef.current?.analyze(note)
   }, [])
 
-  return { workspace, carregado, thread, busy, conn, agentOnline, agentLabel, tasks, activity, patch, analyze }
+  return { workspace, carregado, thread, busy, conn, agentOnline, agentLabel, tasks, activity, patch, rename, analyze }
 }

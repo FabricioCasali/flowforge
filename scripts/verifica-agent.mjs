@@ -119,6 +119,21 @@ async function main() {
     assert.equal(initial.agentOnline, false);
     assert.equal(initial.agentLabel, null);
 
+    // Renomear a sessao e UMA escrita e UM rev: o titulo mora no topo do workspace,
+    // e nao dentro de cada modelo (antes eram um patch e um rev por lente com conteudo).
+    const workspaceFile = path.join(dataDir, 'protocolo', 'workspace.json');
+    const antesRename = JSON.parse(fs.readFileSync(workspaceFile, 'utf8'));
+    const renomeado = nextJson(browser, (m) => m.type === 'state' && m.workspace.title === 'Sessao renomeada');
+    send(browser, { type: 'rename', title: 'Sessao renomeada' });
+    const depoisRename = await renomeado;
+    assert.equal(depoisRename.workspace.rev, (antesRename.rev || 0) + 1, 'renomear deve custar exatamente um rev');
+    assert.equal(depoisRename.workspace.process.title, antesRename.process.title,
+      'renomear nao pode mexer no title de dentro do modelo');
+    const renameNoDisco = JSON.parse(fs.readFileSync(workspaceFile, 'utf8'));
+    assert.equal(renameNoDisco.title, 'Sessao renomeada', 'o titulo tem de chegar ao topo do arquivo');
+    send(browser, { type: 'rename', title: '   ' });
+    await assertNoJson(browser, (m) => m.type === 'state' && m.workspace.title !== 'Sessao renomeada');
+
     const adapter = await open(`ws://127.0.0.1:${port}/agent`);
     assert.deepEqual(await nextJson(adapter), { type: 'hello', protocol: 1 });
     const presence = nextJson(browser, (m) => m.type === 'agent' && m.online);
@@ -158,6 +173,14 @@ async function main() {
     await rejectedPatch;
     assert.equal(JSON.parse(fs.readFileSync(first.workspacePath, 'utf8')).process.title, beforeForbidden.process.title,
       'servidor nao pode aceitar patch durante busy');
+    // renomear tem a mesma trava do patch (lei 7): tambem e escrita de origem-usuario
+    const rejectedRename = nextJson(browser, (m) => m.type === 'state' && m.busy
+      && m.workspace.title === beforeForbidden.title);
+    send(browser, { type: 'rename', title: 'Renomeado durante busy' });
+    await rejectedRename;
+    const duranteBusy = JSON.parse(fs.readFileSync(first.workspacePath, 'utf8'));
+    assert.equal(duranteBusy.title, beforeForbidden.title, 'servidor nao pode renomear durante busy');
+    assert.equal(duranteBusy.rev, beforeForbidden.rev, 'renomear recusado nao pode gastar rev');
     send(adapter, { type: 'accepted', requestId: first.requestId });
     const workspace = JSON.parse(fs.readFileSync(first.workspacePath, 'utf8'));
     workspace.rev += 1;
@@ -298,7 +321,7 @@ async function main() {
     assert(inbox.some((entry) => entry.type === 'dispatched' && entry.requestId === restartRequest.requestId));
     assert(inbox.some((entry) => entry.type === 'failed' && entry.requestId === restartRequest.requestId));
 
-    console.log('VEREDITO: OK - registro, unlock atomico, patch bloqueado, fila/rev serial, queda, timeout, restart, replay e alias validados.');
+    console.log('VEREDITO: OK - registro, unlock atomico, rename num rev so, patch e rename bloqueados no busy, fila/rev serial, queda, timeout, restart, replay e alias validados.');
   } finally {
     for (const ws of sockets) ws.terminate();
     sockets.clear();

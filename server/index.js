@@ -511,6 +511,23 @@ wss.on('connection', (ws) => {
       return;
     }
 
+    // Renomear a sessao. O titulo e da SESSAO, nao da lente: mora no topo do
+    // workspace, entao isto e UMA escrita e UM rev (antes era um patch por modelo
+    // com conteudo). Mesma trava do patch (lei 7): durante o busy o browser e so
+    // leitura, e a recusa devolve o estado do disco pra tela voltar pro que vale.
+    if (msg.type === 'rename') {
+      if (isSessionBusy(slug)) {
+        console.error('[rename] recusado: sessao ocupada pelo agente:', slug);
+        const current = safeReadState(slug);
+        if (current && ws.readyState === ws.OPEN) ws.send(statePayload(slug, current));
+        return;
+      }
+      const title = String(msg.title == null ? '' : msg.title).slice(0, 200).trim();
+      if (!title) { console.error('[rename] recusado: titulo vazio em', slug); return; }
+      S.renameWorkspace(slug, title, 'user');
+      return;
+    }
+
     if (msg.type === 'analyze') {
       const note = String(msg.note || '').slice(0, 4000);
       const workspace = S.readWorkspace(slug);

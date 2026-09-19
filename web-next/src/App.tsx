@@ -25,7 +25,7 @@ export function App(): JSX.Element {
   const [session, setSession] = useState<string>(sessionFromUrl)
   const [sessions, setSessions] = useState<string[]>([])
   const [lens, setLens] = useState<LensKey>('flow')
-  const { workspace, carregado, thread, busy, conn, agentOnline, agentLabel, tasks, activity, patch, analyze } = useFlowForge(session)
+  const { workspace, carregado, thread, busy, conn, agentOnline, agentLabel, tasks, activity, patch, rename, analyze } = useFlowForge(session)
   const agentName = agentLabel || 'agente'
 
   /**
@@ -79,21 +79,20 @@ export function App(): JSX.Element {
   }, [title])
 
   /**
-   * Renomear a sessão. O título NÃO mora no workspace — mora dentro de cada um
-   * dos 5 modelos (é o FF-009, decisão de contrato ainda em aberto). Enquanto
-   * ela não é tomada, renomear grava em TODOS os modelos com conteúdo, senão as
-   * lentes passariam a mostrar nomes diferentes do mesmo assunto. Custa um
-   * patch por modelo — feio, e é exatamente o argumento pra fechar o FF-009.
+   * Renomear a sessão: UMA escrita e UM `rev`. O título mora no topo do
+   * workspace — é da sessão, não da lente (contrato fechado na issue #7).
+   *
+   * Antes ele morava dentro de cada um dos 5 modelos, e renomear precisava
+   * gravar em TODOS os que tinham conteúdo, senão as lentes passavam a mostrar
+   * nomes diferentes do mesmo assunto: um patch e um `rev` por modelo.
    */
   const renomear = useCallback(
     (novo: string) => {
       const limpo = novo.trim()
       if (!limpo || limpo === title || busy) return
-      const modelos = (['process', 'state', 'er', 'mind'] as const).filter((m) => workspace[m].nodes.length > 0)
-      const alvos = modelos.length ? modelos : (['process'] as const)
-      for (const m of alvos) patch(m, { ...workspace[m], title: limpo })
+      rename(limpo)
     },
-    [title, busy, workspace, patch]
+    [title, busy, rename]
   )
 
   return (

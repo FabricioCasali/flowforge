@@ -58,8 +58,9 @@ function buildPrompt(evt, { continuing }) {
     '  o que voce contesta.',
     '- No novo nao leva x/y. Nao apague nem reescreva o que e do usuario sem ele pedir.',
     '',
-    'Excecao: o que o arquivo de resposta nao cobre (fields de entidade ER, lanes, o modelo seq) voce',
-    'edita direto no workspace, seguindo ' + SCHEMA_PATH + ' — "rev": ' + (Number(evt.workspaceRev) + 1) + ', "updatedBy": "agent".',
+    'Excecao: o que o arquivo de resposta nao cobre (fields de entidade ER, lanes, o modelo seq e o',
+    '"title" do topo, que e o titulo da sessao) voce edita direto no workspace, seguindo',
+    SCHEMA_PATH + ' — "rev": ' + (Number(evt.workspaceRev) + 1) + ', "updatedBy": "agent".',
   ].join('\n');
 }
 

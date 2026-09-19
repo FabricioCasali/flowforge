@@ -4,7 +4,7 @@
 // o servidor (index.js) apenas espelha arquivo <-> browser.
 //
 // workspace.json e o arquivo-verdade: os 5 modelos coexistem num arquivo so
-// { process, state, er, mind, seq, rev, updatedBy } e o editor web-next escreve por lente.
+// { title, process, state, er, mind, seq, rev, updatedBy } e o editor web-next escreve por lente.
 // diagram.json e apenas legado: ensureSession faz a migracao LAZY e NAO DESTRUTIVA e
 // preserva o arquivo antigo como backup (lei 5).
 
@@ -58,7 +58,8 @@ function writeJson(p, obj) {
 
 // ===========================================================================
 // WORKSPACE — o novo arquivo-verdade (lei 4)
-// Os 5 modelos coexistem: { process, state, er, mind, seq, rev, updatedBy }.
+// Os 5 modelos coexistem: { title, process, state, er, mind, seq, rev, updatedBy }.
+// O 'title' do topo e o titulo da SESSAO (opcional no arquivo, ver topTitle).
 // As 6 lentes leem esses 5 modelos: 'process' serve Fluxograma E Swimlane (mesmo
 // grafo, layout diferente) — por isso o 'type' de dentro do Diagram continua vivo,
 // e e ele que mantem as formas BPM e as raias.
@@ -94,11 +95,13 @@ function emptyModel(title, type) {
 
 function emptySeq() { return { participants: [], messages: [] }; }
 
-// Workspace zerado. Todo modelo nasce com o MESMO titulo: um workspace e UM assunto
-// visto por 6 lentes — o titulo pertence a sessao, nao a lente.
+// Workspace zerado. O titulo pertence a SESSAO, nao a lente: mora no topo. Os
+// modelos nascem com o mesmo texto porque o arquivo continua legivel por quem so
+// conhece o formato antigo (agente de uma versao anterior, por exemplo).
 function emptyWorkspace(title) {
   const t = title || 'Novo diagrama';
   return {
+    title: t,
     process: emptyModel(t, 'flowchart'),
     state: emptyModel(t, 'flowchart'),
     er: emptyModel(t, 'er'),
@@ -137,12 +140,37 @@ function normalizeSeq(raw) {
   return s;
 }
 
-// Garante os 5 modelos + rev + updatedBy num objeto que veio do disco ou do browser.
-// Nunca escreve: e so leitura defensiva (arquivo editado a mao nao derruba o canvas).
+// Titulo da SESSAO de um workspace cru. O do TOPO manda; sem ele (arquivo anterior
+// ao campo, ou escrito por agente que so conhece o 'title' de dentro do modelo) vale
+// a derivacao de sempre, na mesma ordem — e o que faz o arquivo antigo abrir igual.
+// Migracao LAZY: a leitura preenche o campo do topo, e o 'title' de dentro dos
+// modelos fica onde esta (lei 5 — nunca perder campo).
+function topTitle(base, fallback) {
+  if (base && typeof base.title === 'string' && base.title) return base.title;
+  const order = ['process', 'state', 'er', 'mind'];
+  for (let i = 0; i < order.length; i++) {
+    const m = base && base[order[i]];
+    if (m && typeof m.title === 'string' && m.title) return m.title;
+  }
+  return fallback || 'Novo diagrama';
+}
+
+// Garante title + os 5 modelos + rev + updatedBy num objeto que veio do disco ou do
+// browser. Nunca escreve: e so leitura defensiva (arquivo editado a mao nao derruba
+// o canvas).
 function normalizeWorkspace(raw, title) {
   const base = (raw && typeof raw === 'object' && !Array.isArray(raw)) ? raw : {};
-  const t = title || (base.process && typeof base.process.title === 'string' && base.process.title) || 'Novo diagrama';
-  const ws = Object.assign({}, base);
+  // Um titulo so para o arquivo todo: modelo que chega sem 'title' herda o da sessao.
+  // (Antes o fallback dos modelos era so o title do 'process', e um workspace com
+  // titulo apenas no 'mind' — o que um agente escreve — saia daqui como 'Novo diagrama'.)
+  const t = title || topTitle(base, 'Novo diagrama');
+  // o parametro 'title' e fallback dos MODELOS; no topo quem decide e topTitle,
+  // senao uma escrita de lente sobrescreveria o nome da sessao com o da lente.
+  const tituloDaSessao = topTitle(base, t);
+  // 'title' como primeira chave: o arquivo se le de cima pra baixo, e e la que o
+  // titulo da sessao mora. Object.assign a partir dele fixa a posicao da chave.
+  const ws = Object.assign({ title: tituloDaSessao }, base);
+  ws.title = tituloDaSessao;
   ws.process = normalizeModel(base.process, t, 'flowchart');
   ws.state = normalizeModel(base.state, t, 'flowchart');
   ws.er = normalizeModel(base.er, t, 'er');
@@ -153,15 +181,10 @@ function normalizeWorkspace(raw, title) {
   return ws;
 }
 
-// Titulo da sessao vindo do workspace. O workspace nao tem campo 'title' proprio
-// (o contrato sao os 5 modelos + rev + updatedBy); o titulo mora nos modelos.
+// Titulo da sessao vindo do workspace: o 'title' do TOPO. Sem ele, derivado dos
+// modelos. Espelha o workspaceTitle() de web-next/src/types.ts.
 function workspaceTitle(ws) {
-  const order = ['process', 'state', 'er', 'mind'];
-  for (let i = 0; i < order.length; i++) {
-    const m = ws && ws[order[i]];
-    if (m && typeof m.title === 'string' && m.title) return m.title;
-  }
-  return 'Novo diagrama';
+  return topTitle(ws, 'Novo diagrama');
 }
 
 // ---- migracao LAZY e NAO DESTRUTIVA (lei 5) -------------------------------
@@ -176,6 +199,8 @@ function workspaceTitle(ws) {
 function workspaceFromDiagram(diagram) {
   const d = (diagram && typeof diagram === 'object' && !Array.isArray(diagram)) ? diagram : {};
   const title = (typeof d.title === 'string' && d.title) ? d.title : 'Novo diagrama';
+  // o titulo do diagrama antigo vira o titulo da SESSAO (topo) e continua dentro do
+  // modelo copiado: a migracao nao tira nada de lugar nenhum.
   const ws = emptyWorkspace(title);
 
   const key = TYPE_TO_MODEL[String(d.type || 'flowchart')] || 'process';
@@ -234,6 +259,22 @@ function writeWorkspaceLens(slug, lens, model, by) {
 
   ws.rev = rev;
   ws.updatedBy = updatedBy;
+  writeJson(workspacePath(slug), ws);
+  return ws;
+}
+
+// Renomeia a SESSAO: UMA escrita, UM rev (lei 6). O titulo vai pro topo do
+// workspace e so pra la — o 'title' de dentro de cada modelo continua no arquivo
+// (lei 5), so deixa de mandar. Antes o browser precisava de um patch por modelo
+// com conteudo pra nao deixar as lentes com nomes diferentes do mesmo assunto.
+// Titulo vazio nao renomeia: apagar o nome da sessao nunca e o que o usuario quis.
+function renameWorkspace(slug, title, by) {
+  const t = String(title == null ? '' : title).trim();
+  if (!t) return null;
+  const ws = readWorkspace(slug);
+  ws.title = t;
+  ws.rev = (Number(ws.rev) || 0) + 1;
+  ws.updatedBy = normalizeUpdatedBy(by);
   writeJson(workspacePath(slug), ws);
   return ws;
 }
@@ -363,7 +404,7 @@ module.exports = {
   // arquivo-verdade novo (editor web-next/, rota /v2) — lei 4
   workspacePath, MODEL_KEYS, isModelKey, emptyWorkspace, emptySeq, emptyModel,
   normalizeWorkspace, normalizeSeq, normalizeModel, workspaceTitle,
-  workspaceFromDiagram, readWorkspace, writeWorkspace, writeWorkspaceLens,
+  workspaceFromDiagram, readWorkspace, writeWorkspace, writeWorkspaceLens, renameWorkspace,
   // comuns
   ensureSession, readThread, readState, appendThread, appendInbox, readInbox, pendingAnalyze, pendingDispatchedAnalyze,
   threadPath, readJson, writeJson,

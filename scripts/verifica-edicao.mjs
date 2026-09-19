@@ -15,6 +15,8 @@
 //   4. o resto nao mexe   — os outros 4 modelos ficam identicos, e o no editado
 //                           preserva x/y, comments, fields e lane
 //   5. o diagram.json fica intacto — lei 5, migracao nao destrutiva
+//   6. renomear custa UMA escrita — o titulo da sessao mora no topo do workspace,
+//                           sobe UM rev e nao apaga o `title` de dentro dos modelos
 //
 // Nao toca nos dados reais: tudo sobre copia.
 //
@@ -181,7 +183,37 @@ function avalia(alvo, raizCopia) {
     problemas.push({ msg: 'escrita do agente nao incrementou o rev' });
   }
 
-  return { alvo, problemas, lens, revAntes, revDepois: doAgent.rev, nos: depois[lens].nodes.length };
+  // 7) renomear e UMA escrita: o titulo e da SESSAO e mora no topo. Antes custava
+  // um patch e um rev POR modelo com conteudo. O `title` de dentro dos modelos
+  // continua onde esta (lei 5) — so deixa de mandar.
+  const tituloAntes = S.workspaceTitle(doAgent);
+  const tituloDoModelo = doAgent[lens].title;
+  const NOVO_TITULO = 'TITULO RENOMEADO PELO TESTE';
+  const renomeado = S.renameWorkspace(alvo.slug, NOVO_TITULO, 'user');
+  if (!renomeado) {
+    problemas.push({ msg: 'renameWorkspace recusou um titulo valido' });
+  } else {
+    if (renomeado.title !== NOVO_TITULO) problemas.push({ msg: `renomear nao gravou o titulo no topo: '${renomeado.title}'` });
+    if (S.workspaceTitle(renomeado) !== NOVO_TITULO) problemas.push({ msg: 'o titulo do topo nao venceu o dos modelos' });
+    if ((Number(renomeado.rev) || 0) !== (Number(doAgent.rev) || 0) + 1) {
+      problemas.push({ msg: `renomear deveria custar UM rev e foi de ${doAgent.rev} para ${renomeado.rev}` });
+    }
+    if (renomeado[lens].title !== tituloDoModelo) {
+      problemas.push({ msg: `renomear mexeu no title de dentro de '${lens}': '${tituloDoModelo}' -> '${renomeado[lens].title}'` });
+    }
+    if (JSON.stringify(renomeado[lens].nodes) !== JSON.stringify(doAgent[lens].nodes)) {
+      problemas.push({ msg: 'renomear mexeu nos nos do modelo' });
+    }
+    // titulo vazio nao pode renomear nem gastar rev
+    const vazio = S.renameWorkspace(alvo.slug, '   ', 'user');
+    if (vazio !== null) problemas.push({ msg: 'renomear com titulo vazio foi aceito' });
+    if (S.workspaceTitle(S.readWorkspace(alvo.slug)) !== NOVO_TITULO) {
+      problemas.push({ msg: `titulo vazio sobrescreveu o nome da sessao (era '${tituloAntes}')` });
+    }
+  }
+
+  const revFinal = renomeado ? renomeado.rev : doAgent.rev;
+  return { alvo, problemas, lens, revAntes, revDepois: revFinal, nos: depois[lens].nodes.length };
 }
 
 // ---------------------------------------------------------------------------
@@ -207,6 +239,11 @@ function autoteste(raizCopia) {
   const ws = S.readWorkspace(slug);
   casos.push(['o rev do diagrama antigo e herdado na migracao', (Number(ws.rev) || 0) === 7]);
   casos.push(['autoria legada claude e normalizada para agent', S.normalizeWorkspace({ ...ws, updatedBy: 'claude' }).updatedBy === 'agent']);
+
+  // o titulo do diagrama antigo vira o titulo da SESSAO (topo) sem sair do modelo
+  const wsNoDisco = JSON.parse(fs.readFileSync(path.join(dir, 'workspace.json'), 'utf8'));
+  casos.push(['a migracao poe o titulo do diagrama antigo no TOPO do workspace', wsNoDisco.title === 'T']);
+  casos.push(['a migracao nao tira o title de dentro do modelo', wsNoDisco.process.title === 'T']);
 
   // edicao normal
   const m = clone(ws.process);
@@ -348,6 +385,70 @@ function autoteste(raizCopia) {
     const ids = new Set(dl2.process.lanes.map((l) => l.id));
     return dl2.process.nodes.every((n) => !n.lane || ids.has(n.lane));
   })()]);
+
+  // ---- issue #7: o `title` e da SESSAO e mora no TOPO do workspace ----------
+  // Tudo aqui roda sem nenhum diagrama real: e a prova de que o arquivo antigo
+  // continua abrindo com o mesmo titulo, e de que renomear e UMA escrita.
+
+  const slugT = 'autoteste-titulo';
+  const dirT = path.join(raizCopia, slugT);
+  fs.mkdirSync(dirT, { recursive: true });
+  const modeloAntigo = (type, title) => ({ type, title, rev: 0, updatedBy: 'user', lanes: [], nodes: [], edges: [] });
+  // workspace ANTERIOR ao campo: titulo so dentro dos modelos, nada no topo
+  fs.writeFileSync(path.join(dirT, 'workspace.json'), JSON.stringify({
+    process: { ...modeloAntigo('flowchart', 'Assunto antigo'), rev: 2,
+      nodes: [{ id: 'n1', label: 'A', kind: 'task', status: 'proposed', comments: [], x: 1, y: 2 }] },
+    state: modeloAntigo('flowchart', 'Assunto antigo'),
+    er: modeloAntigo('er', 'Assunto antigo'),
+    mind: modeloAntigo('mindmap', 'Assunto antigo'),
+    seq: { participants: [], messages: [] },
+    rev: 2, updatedBy: 'user',
+  }, null, 2));
+  S.ensureSession(slugT); // nao pode mexer: o workspace.json ja existe
+
+  const wsT = S.readWorkspace(slugT);
+  casos.push(['arquivo sem `title` no topo abre com o titulo derivado dos modelos', S.workspaceTitle(wsT) === 'Assunto antigo']);
+
+  const ren = S.renameWorkspace(slugT, 'Assunto novo', 'user');
+  casos.push(['renomear custa UM rev', (Number(ren.rev) || 0) === 3]);
+  casos.push(['renomear grava o titulo no TOPO', ren.title === 'Assunto novo']);
+  casos.push(['com os dois titulos no arquivo, o do topo manda', S.workspaceTitle(ren) === 'Assunto novo']);
+  casos.push(['renomear NAO apaga o title de dentro dos modelos',
+    ren.process.title === 'Assunto antigo' && ren.state.title === 'Assunto antigo' && ren.mind.title === 'Assunto antigo']);
+  casos.push(['renomear nao encosta no desenho',
+    ren.process.nodes.length === 1 && ren.process.nodes[0].x === 1 && ren.process.nodes[0].y === 2]);
+  const discoT = JSON.parse(fs.readFileSync(path.join(dirT, 'workspace.json'), 'utf8'));
+  casos.push(['o titulo novo chega ao arquivo, no topo, e o do modelo fica',
+    discoT.title === 'Assunto novo' && discoT.process.title === 'Assunto antigo']);
+  casos.push(['renomear marca a autoria de quem renomeou', ren.updatedBy === 'user']);
+
+  // titulo vazio nao renomeia nem gasta rev: apagar o nome da sessao nunca foi o pedido
+  casos.push(['renomear com titulo vazio e recusado', S.renameWorkspace(slugT, '   ', 'user') === null]);
+  const depoisDoVazio = S.readWorkspace(slugT);
+  casos.push(['titulo vazio nao gastou rev nem mudou o nome',
+    (Number(depoisDoVazio.rev) || 0) === 3 && S.workspaceTitle(depoisDoVazio) === 'Assunto novo']);
+
+  // editar uma lente depois do rename nao pode ressuscitar o titulo velho
+  const mT = clone(depoisDoVazio.process);
+  mT.nodes[0].label = 'A editado';
+  const dT = S.writeWorkspaceLens(slugT, 'process', mT, 'user');
+  casos.push(['editar uma lente depois de renomear mantem o titulo da sessao', S.workspaceTitle(dT) === 'Assunto novo']);
+
+  // arquivo escrito por um agente que so conhece o `title` de dentro do modelo —
+  // e nem sempre e o `process`: um mapa mental costuma nascer so no `mind`
+  const slugA = 'autoteste-titulo-agente';
+  const dirA = path.join(raizCopia, slugA);
+  fs.mkdirSync(dirA, { recursive: true });
+  fs.writeFileSync(path.join(dirA, 'workspace.json'), JSON.stringify({
+    mind: { type: 'mindmap', title: 'Mapa do agente', rev: 1, updatedBy: 'agent', lanes: [],
+      nodes: [{ id: 'm1', label: 'Ideia', kind: 'idea', status: 'proposed', comments: [] }], edges: [] },
+    rev: 1, updatedBy: 'agent',
+  }, null, 2));
+  S.ensureSession(slugA);
+  const wsA = S.readWorkspace(slugA);
+  casos.push(['arquivo do agente com title so no modelo da o titulo certo', S.workspaceTitle(wsA) === 'Mapa do agente']);
+  casos.push(['os modelos que faltavam herdam o titulo da sessao, nao "Novo diagrama"', wsA.process.title === 'Mapa do agente']);
+  casos.push(['completar o arquivo do agente nao perde o desenho dele', wsA.mind.nodes.length === 1]);
 
   let falhas = 0;
   for (const [nome, ok] of casos) {
