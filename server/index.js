@@ -23,6 +23,8 @@ const path = require('path');
 const url = require('url');
 const { WebSocketServer } = require('ws');
 const S = require('./state');
+const Tasks = require('./tasks');
+const Activity = require('./activity');
 
 // ---- args -----------------------------------------------------------------
 const argv = process.argv.slice(2);
@@ -297,6 +299,54 @@ function ensureWatcher(slug) {
   }
 }
 
+// ---- tarefas ao vivo do CLI (<data-dir>/tasks.json) -------------------------
+// Por PROJETO, nao por sessao: vai pra TODO browser aberto, em qualquer sessao.
+// O servidor so le — quem escreve e o agente, pelo `adapters/tasks.js`. E um
+// arquivo como os outros (lei 2): vigiado, e o que esta no disco e o que o canvas mostra.
+// A linha do tempo (activity.jsonl, FF-035) segue a mesma regra: por projeto, so leitura,
+// vai pra todo browser. Manda as ultimas ACTIVITY_TAIL — o arquivo e append-only e cresce.
+const ACTIVITY_TAIL = 200;
+function activityPayload() {
+  return JSON.stringify({ type: 'activity', events: Activity.readTail(S.getRoot(), ACTIVITY_TAIL) });
+}
+function broadcastAll(payload) {
+  for (const set of browsersBySession.values()) {
+    for (const ws of set) { if (ws.readyState === ws.OPEN) ws.send(payload); }
+  }
+}
+let activityTimer = null;
+
+function tasksPayload() {
+  return JSON.stringify({ type: 'tasks', tasks: Tasks.readTasks(S.getRoot()) });
+}
+function broadcastTasks() {
+  const payload = tasksPayload();
+  for (const set of browsersBySession.values()) {
+    for (const ws of set) { if (ws.readyState === ws.OPEN) ws.send(payload); }
+  }
+}
+let tasksTimer = null;
+function watchTasks() {
+  try {
+    fs.mkdirSync(S.getRoot(), { recursive: true });
+    // vigia a RAIZ, nao o arquivo: a escrita e por rename atomico, e no Windows
+    // o watch de um arquivo morre quando ele e substituido.
+    fs.watch(S.getRoot(), (evt, filename) => {
+      const f = String(filename || '');
+      if (f === 'tasks.json') {
+        clearTimeout(tasksTimer);
+        tasksTimer = setTimeout(broadcastTasks, 80);
+      } else if (f === 'activity.jsonl') {
+        // um turno do agente dispara varias acoes em rajada: junta um pouco mais
+        clearTimeout(activityTimer);
+        activityTimer = setTimeout(() => broadcastAll(activityPayload()), 150);
+      }
+    });
+  } catch (e) {
+    console.error('[tasks] nao consegui vigiar', S.getRoot(), e.message);
+  }
+}
+
 // ---- HTTP server ----------------------------------------------------------
 const server = http.createServer((req, res) => {
   const parsed = url.parse(req.url, true);
@@ -309,6 +359,9 @@ const server = http.createServer((req, res) => {
     S.ensureSession(slug);
     return sendJson(res, 200, { session: slug, ...safeReadState(slug) });
   }
+
+  if (pathname === '/api/tasks') return sendJson(res, 200, Tasks.readTasks(S.getRoot()));
+  if (pathname === '/api/activity') return sendJson(res, 200, { events: Activity.readTail(S.getRoot(), ACTIVITY_TAIL) });
 
   if (pathname === '/api/health') return sendJson(res, 200, { ok: true, port: PORT, dataDir: S.getRoot() });
 
@@ -379,6 +432,16 @@ wss.on('connection', (ws) => {
         return;
       }
 
+      // Batimento do adapter: "ainda estou trabalhando neste pedido". Rearma o
+      // prazo da trava sem registrar nada — uma analise de verdade passa facil dos
+      // 3 minutos, e sem isso o servidor derrubava o adapter no meio do trabalho.
+      if (msg.type === 'progress') {
+        if (!activeAdapter || activeAdapter.ws !== ws || typeof msg.requestId !== 'string') return;
+        const busy = busyByRequest.get(msg.requestId);
+        if (busy && busy.adapterWs === ws) armBusyTimer(msg.requestId, busy);
+        return;
+      }
+
       if (msg.type === 'accepted' || msg.type === 'completed' || msg.type === 'failed') {
         if (!activeAdapter || activeAdapter.ws !== ws || typeof msg.requestId !== 'string') return;
         const busy = busyByRequest.get(msg.requestId);
@@ -422,6 +485,8 @@ wss.on('connection', (ws) => {
   // estado inicial (inclui busy, pra quem conecta durante o processamento)
   const st = safeReadState(slug);
   if (st) ws.send(statePayload(slug, st));
+  ws.send(tasksPayload());
+  ws.send(activityPayload());
 
   ws.on('message', (raw) => {
     let msg;
@@ -495,6 +560,7 @@ wss.on('connection', (ws) => {
 
 // ---- start ----------------------------------------------------------------
 restoreDispatchedBusy();
+watchTasks();
 if (INITIAL_SESSION) S.ensureSession(S.slugify(INITIAL_SESSION));
 // Sem host -> dual-stack (:: com IPv4 mapeado): aceita tanto localhost=IPv6(::1)
 // quanto 127.0.0.1. No Windows o Chrome resolve localhost pra ::1 primeiro, e
