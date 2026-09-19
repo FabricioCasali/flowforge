@@ -152,8 +152,16 @@ function install({ global, remove, projectDir, scriptPath }) {
   if (!Object.keys(config.hooks).length) delete config.hooks;
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify(config, null, 2) + '\n');
-  return (remove ? 'hook removido de ' : 'hook instalado em ') + file
-    + (remove ? '' : '\no Codex so roda hook em que voce confiou: abra a sessao e rode /hooks para confiar neste.');
+  if (remove) return 'hook removido de ' + file;
+  // Duas confiancas diferentes, e as duas falham EM SILENCIO (provado na 0.154.0, em 19/09/2026):
+  //  - o hook: o Codex so roda hook em que o usuario confiou (/hooks);
+  //  - o PROJETO: o .codex/ de um projeto so e lido se o projeto esta marcado como confiavel no
+  //    config.toml do Codex. Sem isso o hooks.json de projeto nem e carregado — estar num repo git
+  //    nao basta. O global ($CODEX_HOME/hooks.json) nao tem essa segunda exigencia.
+  return 'hook instalado em ' + file
+    + '\no Codex so roda hook em que voce confiou: abra a sessao e rode /hooks para confiar neste.'
+    + (global ? '' : '\natencao: o Codex so le o .codex/ de projeto CONFIAVEL. Abra o Codex nesta pasta e aceite confiar no projeto'
+      + '\n(ou use --global, que dispensa isso e e seguro: o hook nao faz nada em projeto sem .flowforge/).');
 }
 
 /** Entradas de hook no formato do hooks.json do Codex. `command` ja vem pronto. */

@@ -313,7 +313,12 @@ programa + subcomando.
 **Codex** ([`hooks/codex.js`](hooks/codex.js)): `install` escreve em `<projeto>/.codex/hooks.json`
 (ou `$CODEX_HOME/hooks.json` com `--global`) — a configuração de hook do Codex é JSON, não TOML.
 Depois de instalar, **o Codex pede para confiar no hook**: abra a sessão e rode `/hooks`, senão ele
-sai calado. Duas particularidades do payload real (conferidas na 0.154.0): o shell chega como
+sai calado. E há uma segunda confiança, só para a instalação por projeto: o Codex **só lê o `.codex/`
+de projeto marcado como confiável** no `config.toml` dele (`[projects.'<pasta>'] trust_level =
+"trusted"`, que é o que ele grava quando você aceita confiar na pasta). Provado na 0.154.0: no mesmo
+projeto, sem a marca a linha do tempo ficou vazia; com ela, gravou. Estar num repositório git não
+basta. O `--global` não tem essa exigência, e é seguro — o hook não faz nada em projeto sem
+`.flowforge/`. Duas particularidades do payload real (conferidas na 0.154.0): o shell chega como
 ferramenta `Bash` com a linha inteira em `tool_input.command`, e a edição chega como `apply_patch`
 com **o patch inteiro** em `tool_input.command` — dele sai só o *nome* dos arquivos. O `Bash` do
 Codex devolve a saída crua, sem código de retorno, então ali `failed` fica indefinido em vez de ser
