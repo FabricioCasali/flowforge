@@ -32,14 +32,13 @@ O pedido pode vir como:
 2. **Servidor no ar?** `curl -s http://localhost:4317/api/health`.
    - Sem resposta → confira antes se a instalação está **pronta para rodar**. O repositório não
      versiona dependências nem o front compilado, então uma instalação nova (plugin recém-baixado
-     ou clone limpo) chega sem eles. Se faltar `${CLAUDE_PLUGIN_ROOT}/node_modules/ws` ou
-     `${CLAUDE_PLUGIN_ROOT}/web-next/dist/index.html`, avise o usuário que vai preparar (leva
-     um ou dois minutos, uma vez por instalação) e rode:
+     ou clone limpo) chega sem eles. Um comando confere e prepara só o que falta — avise o
+     usuário antes, porque na primeira vez leva um ou dois minutos:
      ```
-     npm install --prefix "${CLAUDE_PLUGIN_ROOT}"
-     npm install --prefix "${CLAUDE_PLUGIN_ROOT}/web-next"
-     npm run build --prefix "${CLAUDE_PLUGIN_ROOT}/web-next"
+     node "${CLAUDE_PLUGIN_ROOT}/scripts/setup.mjs"
      ```
+     Se já estiver pronto ele responde na hora. Se falhar, diz qual passo e o motivo provável
+     (sem `npm`, sem rede): repasse isso ao usuário em vez de tentar contornar.
    - Pronto → **suba** em segundo plano:
      ```
      node "${CLAUDE_PLUGIN_ROOT}/server/index.js" --data-dir "<cwd>/.flowforge" --port 4317

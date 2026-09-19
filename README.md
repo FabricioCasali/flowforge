@@ -127,8 +127,8 @@ desenhar, publicar as tarefas e responder ao Analisar) e o hook da linha do temp
 ```
 
 É preciso ter Node e `npm`: o repositório não versiona dependências nem o front compilado, então na
-primeira vez a skill prepara a instalação sozinha (um ou dois minutos). Veja a
-[issue #15](https://github.com/FabricioCasali/flowforge/issues/15).
+primeira vez a skill prepara a instalação sozinha com `node scripts/setup.mjs` (um ou dois minutos;
+confere e faz só o que falta). Veja a [issue #15](https://github.com/FabricioCasali/flowforge/issues/15).
 
 Para experimentar sem instalar: `claude --plugin-dir <pasta do clone>`. Depois é só pedir —
 "abre o flowforge e me mostra o andamento desta task". O hook da linha do tempo é global, mas não

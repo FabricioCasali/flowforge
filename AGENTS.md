@@ -180,6 +180,7 @@ protocolo de `/agent`.
 ## 4. Comandos
 
 ```
+node scripts/setup.mjs                                              # prepara a instalação (deps + build), só o que falta
 node server/index.js --data-dir "<projeto>/.flowforge" --port 4317   # servidor
 claude --plugin-dir .                                               # carrega ESTE repo como plugin (skill + hooks) numa sessão
 claude plugin validate .                                            # valida plugin.json, hooks e a skill
@@ -187,6 +188,7 @@ node adapters/live.js                                               # SESSÃO VI
 node adapters/index.js <claude-code|opencode|codex>                 # execução à parte (sem sessão aberta)
 node adapters/tasks.js plan "objetivo" "tarefa" ...                  # o agente publica as tarefas dele (lente Tarefas)
 node adapters/activity.js install claude-code                       # liga o hook da linha do tempo neste projeto
+node scripts/verifica-opencode.mjs                                  # prova a sessão viva e a linha do tempo do OpenCode
 node scripts/verifica-activity.mjs                                  # prova a linha do tempo, do hook ao browser
 node scripts/verifica-tasks.mjs                                     # prova as tarefas ao vivo, do comando ao browser
 node scripts/verifica-adapter.mjs                                   # prova o núcleo do adapter (driver falso)
