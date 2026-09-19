@@ -13,6 +13,9 @@
 //   5. erro de uso nao deixa trava orfa, e arquivo torto escrito a mao nao derruba nada
 //   6. o ELO com um no do desenho (issue #8): entra pelo comando, chega ao browser,
 //      aguenta lixo no campo, e ligar/mudar de status nao mexe no workspace.json
+//   7. o PLANO aprovado (issue #9): `from-plan` tira a lista do fluxograma revisado
+//      pelo usuario (so as etapas aprovadas, na ordem do fluxo, ja ligadas ao no),
+//      reconcilia sem perder andamento, e o `start` recusa etapa nao aprovada
 //
 // Uso: node scripts/verifica-tasks.mjs      (exit 1 se algo falhar)
 // =============================================================================
@@ -37,8 +40,54 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const CLI = path.join(ROOT, 'adapters', 'tasks.js');
 // ambiente limpo: o palpite de "quem sou eu" nao pode depender de onde o teste roda
 const envLimpo = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(CLAUDE|OPENCODE|CODEX|FLOWFORGE_TASKS)/.test(k)));
-const tasks = (args, { cwd = projectPath, env = {} } = {}) =>
-  spawnSync(process.execPath, [CLI, ...args], { cwd, env: { ...envLimpo, ...env }, encoding: 'utf8' });
+// `timeout` nao e luxo: um percurso de fluxo com laco que rodasse pra sempre
+// penduraria o verificador inteiro em vez de acusar a falha.
+const tasks = (args, { cwd = projectPath, env = {}, timeout = 20000 } = {}) =>
+  spawnSync(process.execPath, [CLI, ...args], { cwd, env: { ...envLimpo, ...env }, encoding: 'utf8', timeout });
+
+// ---- o plano desenhado numa sessao (issue #9) ------------------------------
+// O plano nao tem formato proprio: e o modelo `process`, com as etapas de trabalho
+// levando o veredito que o usuario deu no browser.
+const no = (id, label, kind, status, texto) => ({
+  id, label, kind, status,
+  comments: texto ? [{ author: 'user', kind: status === 'rejected' ? 'reject' : 'question', text: texto, ts: 1 }] : [],
+});
+const seta = (id, source, target, label) => ({ id, source, target, label: label || '', status: 'proposed' });
+
+function escrevePlano(dataDir, slug, nodes, edges) {
+  const dir = path.join(dataDir, slug);
+  fs.mkdirSync(dir, { recursive: true });
+  const t = 'Plano ' + slug;
+  fs.writeFileSync(path.join(dir, 'workspace.json'), JSON.stringify({
+    title: t,
+    process: { type: 'flowchart', title: t, rev: 1, updatedBy: 'agent', lanes: [], nodes, edges },
+    state: { type: 'flowchart', title: t, rev: 0, updatedBy: 'user', lanes: [], nodes: [], edges: [] },
+    er: { type: 'er', title: t, rev: 0, updatedBy: 'user', lanes: [], nodes: [], edges: [] },
+    // uma ideia solta no mapa mental: e o no de OUTRA lente, que a trava nao pode travar
+    mind: { type: 'mindmap', title: t, rev: 0, updatedBy: 'user', lanes: [], nodes: [no('m1', 'ideia solta', 'idea', 'proposed')], edges: [] },
+    seq: { participants: [], messages: [] },
+    rev: 1, updatedBy: 'agent',
+  }, null, 2));
+}
+
+// O desenho do plano: inicio, uma decisao com caminho principal (n4) e desvio (n5),
+// um laco de volta (e8) e uma anotacao solta. So `task` e `subprocess` sao trabalho.
+const planoNos = (statusN4, statusN6) => [
+  no('n1', 'Inicio', 'start', 'approved'),
+  no('n2', 'ler o codigo', 'task', 'approved'),
+  no('n3', 'passou?', 'decision', 'approved'),
+  no('n4', 'escrever o teste', 'task', statusN4, statusN4 === 'questioned' ? 'e o refresh do token?' : ''),
+  no('n5', 'trocar a lib', 'task', 'rejected', 'nao quero dependencia nova'),
+  no('n6', 'refatorar o handler', 'subprocess', statusN6),
+  no('n7', 'nota de rodape', 'annotation', 'approved'),
+  no('n8', 'Fim', 'end', 'approved'),
+];
+const planoSetas = [
+  seta('e1', 'n1', 'n2'), seta('e2', 'n2', 'n3'),
+  seta('e3', 'n3', 'n4', 'sim'), seta('e4', 'n3', 'n5', 'nao'),
+  seta('e5', 'n4', 'n6'), seta('e6', 'n6', 'n8'), seta('e7', 'n5', 'n8'),
+  seta('e8', 'n4', 'n3'), // laco de volta: o percurso tem de terminar mesmo assim
+];
 
 function freePort() {
   return new Promise((resolve) => {
@@ -183,6 +232,105 @@ async function main() {
       tasks(['unlink', '3'], { env: { CLAUDECODE: '1' } });
       const e5 = await a.until((t) => !t.lists[0]?.tasks[2]?.node, 'unlink');
       ok('unlink desfaz o elo e deixa o resto da tarefa em paz', e5.lists[0].tasks[2].status === 'completed');
+    }
+
+    // ---- 3d. o PLANO aprovado no canvas antes de executar (issue #9) ----
+    {
+      const LP = ['--list', 'plano', '--label', 'Plano'];
+      const lp = (t) => t.lists.find((l) => l.id === 'plano');
+      const wsPlano = path.join(dataDir, 'plano-x', 'workspace.json');
+
+      // --- da revisao no canvas para a lista de tarefas ---
+      escrevePlano(dataDir, 'plano-x', planoNos('approved', 'proposed'), planoSetas);
+      const fp1 = tasks(['from-plan', 'plano-x', 'Levar o login', ...LP]);
+      const p1 = await a.until((t) => lp(t)?.tasks.length === 2, 'plano no browser');
+      const t1p = lp(p1).tasks;
+      ok('from-plan cria UMA tarefa por etapa aprovada, com o label do no e o objetivo dado',
+        fp1.status === 0 && lp(p1).title === 'Levar o login'
+        && t1p[0].title === 'ler o codigo' && t1p[1].title === 'escrever o teste');
+      ok('as tarefas do plano ja nascem ligadas ao no (session + id) e pendentes',
+        t1p.every((t) => t.node?.session === 'plano-x' && t.status === 'pending')
+        && t1p[0].node.id === 'n2' && t1p[1].node.id === 'n4');
+      ok('inicio, fim, decisao e anotacao NAO viram tarefa',
+        !t1p.some((t) => ['n1', 'n3', 'n7', 'n8'].includes(t.node.id)));
+      ok('etapa reprovada e etapa ainda proposta ficam de fora da lista',
+        !t1p.some((t) => ['n5', 'n6'].includes(t.node.id)));
+      ok('from-plan imprime o que ficou de fora e POR QUE',
+        /trocar a lib/.test(fp1.stdout) && /reprovada/.test(fp1.stdout)
+        && /refatorar o handler/.test(fp1.stdout) && /ainda proposta/.test(fp1.stdout));
+
+      // --- o andamento, e uma tarefa que o agente acrescentou a mao ---
+      ok('start numa etapa APROVADA passa direto', tasks(['start', '1', 'lendo auth.ts', ...LP]).status === 0);
+      tasks(['add', 'avisar o time', ...LP]);
+      await a.until((t) => lp(t)?.tasks.length === 3, 'add manual');
+
+      // --- o usuario revisa de novo: questiona a n4 e aprova a n6 ---
+      escrevePlano(dataDir, 'plano-x', planoNos('questioned', 'approved'), planoSetas);
+      const wsIntacto = fs.readFileSync(wsPlano, 'utf8');
+      const fp2 = tasks(['from-plan', 'plano-x', ...LP]);
+      const p2 = await a.until((t) => lp(t)?.tasks.length === 4, 'reconciliacao');
+      const t2p = lp(p2).tasks;
+      ok('rodar de novo preserva o andamento e a nota da etapa que continua aprovada',
+        fp2.status === 0 && t2p[0].node.id === 'n2' && t2p[0].status === 'in_progress' && t2p[0].note === 'lendo auth.ts');
+      ok('etapa que virou questionada vira `blocked` com o motivo (o comentario do usuario), em vez de sumir',
+        t2p[1].node.id === 'n4' && t2p[1].status === 'blocked' && t2p[1].note === 'etapa questionada: e o refresh do token?');
+      ok('etapa nova aprovada entra no lugar certo da ordem do fluxo',
+        t2p[2].node.id === 'n6' && t2p[2].title === 'refatorar o handler' && t2p[2].status === 'pending');
+      ok('tarefa que o agente acrescentou a mao (sem elo) e preservada',
+        t2p[3].title === 'avisar o time' && t2p[3].node === undefined);
+      // a ordem sai do GRAFO, nao do array: no `nodes[]` a n5 (desvio) vem antes da n6
+      // (continuacao do caminho principal), e o percurso inverte as duas. E o laco
+      // e8 (n4 -> n3) prova de quebra que o percurso termina em vez de rodar pra sempre.
+      ok('a ordem sai do percurso do fluxo (principal antes do desvio), e o laco nao vira loop infinito',
+        fp1.status === 0 && fp2.status === 0
+        && fp1.stdout.indexOf('refatorar o handler') < fp1.stdout.indexOf('trocar a lib'));
+
+      // --- a trava: so se executa o que o usuario aprovou ---
+      const trava = tasks(['start', '2', ...LP]);
+      ok('start numa etapa NAO aprovada e recusado com exit 2, dizendo o status e o que fazer',
+        trava.status === 2 && /questioned/.test(trava.stderr) && /from-plan plano-x/.test(trava.stderr) && /--force/.test(trava.stderr));
+      ok('a recusa nao mexe na tarefa nem deixa trava orfa',
+        lp(a.tasks).tasks[1].status === 'blocked' && !fs.existsSync(path.join(dataDir, 'tasks.json.lock')));
+      ok('--force executa assim mesmo (o usuario mandou seguir)', tasks(['start', '2', '--force', ...LP]).status === 0);
+      await a.until((t) => lp(t)?.tasks[1].status === 'in_progress', 'start forcado');
+
+      ok('start numa tarefa SEM elo nao e travado', tasks(['start', '4', ...LP]).status === 0);
+      tasks(['link', '4', 'plano-x/m1', ...LP]);
+      ok('start numa tarefa ligada a no de MAPA MENTAL nao e travado (a trava e do plano)',
+        tasks(['start', '4', ...LP]).status === 0);
+      tasks(['link', '4', 'nem-existe/n1', ...LP]);
+      ok('sessao inexistente nao trava o start (continua so o aviso)', tasks(['start', '4', ...LP]).status === 0);
+
+      // --- recusas do from-plan: sempre com a lista INTACTA ---
+      const listaAntes = fs.readFileSync(path.join(dataDir, 'tasks.json'), 'utf8');
+      const semSessao = tasks(['from-plan', 'nem-existe', ...LP]);
+      ok('from-plan de sessao inexistente: exit 2 e mensagem clara',
+        semSessao.status === 2 && /nao existe/.test(semSessao.stderr));
+      escrevePlano(dataDir, 'plano-vazio', [], []);
+      const vazio = tasks(['from-plan', 'plano-vazio', ...LP]);
+      ok('sessao sem `process` desenhado: exit 2, mandando desenhar o plano antes',
+        vazio.status === 2 && /process/.test(vazio.stderr) && /desenhe/.test(vazio.stderr));
+      escrevePlano(dataDir, 'plano-so-fluxo',
+        [no('n1', 'Inicio', 'start', 'approved'), no('n2', 'deu certo?', 'decision', 'approved'), no('n3', 'Fim', 'end', 'approved')],
+        [seta('e1', 'n1', 'n2'), seta('e2', 'n2', 'n3')]);
+      const soFluxo = tasks(['from-plan', 'plano-so-fluxo', ...LP]);
+      ok('fluxo so com inicio, decisao e fim: exit 2, dizendo que nao ha etapa de trabalho',
+        soFluxo.status === 2 && /etapa de trabalho/.test(soFluxo.stderr));
+      escrevePlano(dataDir, 'plano-cru',
+        [no('n1', 'Inicio', 'start', 'approved'), no('n2', 'pensar', 'task', 'proposed'), no('n3', 'Fim', 'end', 'approved')],
+        [seta('e1', 'n1', 'n2'), seta('e2', 'n2', 'n3')]);
+      const cru = tasks(['from-plan', 'plano-cru', ...LP]);
+      ok('nenhuma etapa aprovada: exit 2, com o motivo de cada uma e a lembranca de que aprovar e gesto do usuario',
+        cru.status === 2 && /nenhuma/.test(cru.stderr) && /ainda proposta/.test(cru.stderr) && /gesto do usuario/.test(cru.stderr));
+      ok('recusa do from-plan nao toca na lista que ja existe',
+        fs.readFileSync(path.join(dataDir, 'tasks.json'), 'utf8') === listaAntes);
+
+      // --- e o desenho nunca e escrito por estes comandos ---
+      ok('from-plan, start e a trava NUNCA escrevem no workspace.json (arquivo intacto byte a byte)',
+        fs.readFileSync(wsPlano, 'utf8') === wsIntacto && JSON.parse(wsIntacto).rev === 1);
+
+      tasks(['clear', ...LP]);
+      await a.until((t) => !lp(t), 'clear do plano');
     }
 
     // ---- 4. nao toca no desenho ----

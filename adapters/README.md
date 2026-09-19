@@ -206,6 +206,7 @@ node adapters/tasks.js start <n> ["nota"]        done <n>        block <n> "<mot
 node adapters/tasks.js add "<tarefa>"            reset <n>       note <n> "<texto>"
 node adapters/tasks.js show                      clear
 node adapters/tasks.js link <n> <sessão>/<nó>    unlink <n>
+node adapters/tasks.js from-plan <sessão> ["<objetivo>"]            a lista sai do plano aprovado
 ```
 
 `<n>` é a posição ou o id da tarefa. O comando acha o `.flowforge/` subindo a partir do diretório
@@ -216,6 +217,16 @@ apontado por uma tarefa `in_progress` aparece vivo no canvas daquela sessão, e 
 `blocked`. É estado derivado — não escreve nada no `workspace.json`. O `plan` não tem sintaxe de elo
 de propósito (marcar o nó dentro do título comeria texto de verdade); ali se usa `link` depois.
 A sessão e o nó não precisam existir ainda: sessão que falta vira aviso, não erro.
+
+**Plano antes de executar.** Em trabalho de vários passos o agente desenha o plano no canvas — um
+fluxograma comum, o `process` de uma sessão, com cada etapa como nó `task`/`subprocess` — e você
+aprova, questiona ou reprova etapa por etapa no browser. `from-plan <sessão>` lê esse desenho e
+monta a lista com uma tarefa por etapa **aprovada**, na ordem de leitura do fluxo e já ligada ao nó;
+imprime o que ficou de fora e por quê. Rodar de novo depois de uma revisão nova **reconcilia**: o
+que está em andamento continua como está, a etapa que deixou de estar aprovada vira `blocked` com o
+motivo em vez de sumir, e a tarefa acrescentada à mão é preservada. `start` numa tarefa cuja etapa
+não está aprovada é recusado (exit 2) — aprovar é gesto seu, e `--force` é para quando você mandar
+seguir assim mesmo.
 
 Para o agente manter a lista sem você pedir, cole isto no `AGENTS.md` / `CLAUDE.md` do projeto
 (troque o caminho):
