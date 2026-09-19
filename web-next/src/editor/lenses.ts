@@ -2,6 +2,8 @@
 // o tipo de NÓ e o estilo de ARESTA. Lentes de "lente" compartilham grafo
 // (flow/swimlane sobre `process`); lentes de "conteúdo" têm modelo próprio.
 
+import type { Workspace } from '../types.js'
+
 export type LensKey = 'flow' | 'swimlane' | 'state' | 'er' | 'mind' | 'seq' | 'tasks'
 export type ModelKey = 'process' | 'state' | 'er' | 'mind' | 'seq'
 
@@ -54,3 +56,35 @@ export const LENS_BY_KEY: Record<LensKey, LensDef> = Object.fromEntries(LENSES.m
   LensKey,
   LensDef
 >
+
+/**
+ * A lente com que a sessão ABRE, decidida pelo CONTEÚDO do workspace.
+ *
+ * Abrir sempre no Fluxograma deixava o canvas em branco em toda sessão cujo
+ * desenho mora noutra lente — um mapa mental, por exemplo — e quem abriu tinha
+ * de adivinhar que bastava trocar de lente. Aqui vale a primeira lente da barra
+ * que tem algo desenhado, na MESMA ordem em que ela aparece na tela.
+ *
+ * Duas regras que não saem dessa ordem:
+ *   · `process` serve duas lentes: quando o diagrama se declara `swimlane` e tem
+ *     raias, a Swimlane é o desenho que a pessoa montou; senão, Fluxograma;
+ *   · `tasks` NUNCA é escolhida. Ela é a única que não lê o workspace (o
+ *     conteúdo dela é o `tasks.json` do projeto), então abrir nela trocaria o
+ *     desenho da sessão por outra coisa.
+ *
+ * É PURA de propósito: a regra se prova sem browser, no
+ * `scripts/verifica-layout.mjs`.
+ */
+export function lenteInicial(ws: Workspace): LensKey {
+  const temNos = (m: 'process' | 'state' | 'er' | 'mind'): boolean => (ws?.[m]?.nodes?.length ?? 0) > 0
+  if (temNos('process')) {
+    const p = ws.process
+    return p.type === 'swimlane' && (p.lanes?.length ?? 0) > 0 ? 'swimlane' : 'flow'
+  }
+  if (temNos('state')) return 'state'
+  if (temNos('er')) return 'er'
+  if (temNos('mind')) return 'mind'
+  const seq = ws?.seq
+  if ((seq?.participants?.length ?? 0) > 0 || (seq?.messages?.length ?? 0) > 0) return 'seq'
+  return 'flow' // nada desenhado: a prancheta abre no Fluxograma, como sempre
+}

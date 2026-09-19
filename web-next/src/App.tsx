@@ -17,7 +17,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { EditorView } from './editor/EditorView.js'
-import type { LensKey } from './editor/lenses.js'
+import { lenteInicial, type LensKey } from './editor/lenses.js'
 import { workspaceTitle, type Thread } from './types.js'
 import { sessionFromUrl, sessionToUrl, useFlowForge, type ConnStatus } from './ws.js'
 
@@ -27,6 +27,29 @@ export function App(): JSX.Element {
   const [lens, setLens] = useState<LensKey>('flow')
   const { workspace, carregado, thread, busy, conn, agentOnline, agentLabel, tasks, activity, patch, analyze } = useFlowForge(session)
   const agentName = agentLabel || 'agente'
+
+  /**
+   * A LENTE DE ABERTURA (a regra mora em `lenteInicial`, em `lenses.ts`).
+   *
+   * Só pode acontecer depois que o workspace CARREGA: antes disso o que existe é
+   * o marcador vazio da troca de sessão, e todo diagrama pareceria vazio. E só
+   * UMA vez por sessão — se a pessoa já escolheu uma lente, o conteúdo que chega
+   * depois (o agente desenhando noutra lente, por exemplo) não pode puxar a tela
+   * de baixo dela.
+   */
+  const escolheuLente = useRef(false)
+  const escolheLente = useCallback((l: LensKey) => {
+    escolheuLente.current = true
+    setLens(l)
+  }, [])
+  useEffect(() => {
+    escolheuLente.current = false // trocar de sessão reavalia
+  }, [session])
+  useEffect(() => {
+    if (!carregado || escolheuLente.current) return
+    escolheuLente.current = true
+    setLens(lenteInicial(workspace))
+  }, [carregado, workspace])
 
   // lista de sessões pro seletor. Recarrega quando a sessão muda porque abrir
   // uma sessão nova a CRIA no servidor (ensureSession) — ela precisa aparecer.
@@ -100,7 +123,7 @@ export function App(): JSX.Element {
       {/* `key` por sessão: trocar de sessão REMONTA o editor. Sem isso o histórico de
           desfazer atravessava a troca — Ctrl+Z na sessão B gravava nela um diagrama
           da sessão A — e seleção, card aberto e enquadramento vinham de carona. */}
-      <EditorView key={session} workspace={workspace} carregado={carregado} lens={lens} onLens={setLens} busy={busy} onPatch={patch} tasks={tasks} activity={activity} />
+      <EditorView key={session} workspace={workspace} carregado={carregado} lens={lens} onLens={escolheLente} busy={busy} onPatch={patch} tasks={tasks} activity={activity} />
 
       <ChatPanel
         thread={thread}
