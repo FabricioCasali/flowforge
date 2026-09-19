@@ -57,8 +57,15 @@ moram lá), e **não recebe cards novos**.
    local do modelo — sem `@neon/shared`, sem import cruzando repo.
 
 4. **`workspace.json` é o novo arquivo-verdade**, com os 5 modelos coexistindo:
-   `{ process, state, er, mind, seq, rev, updatedBy }`. As 6 lentes leem esses 5 modelos —
+   `{ title, process, state, er, mind, seq, rev, updatedBy }`. As 6 lentes leem esses 5 modelos —
    `process` serve Fluxograma **e** Swimlane (mesmo grafo, layout diferente).
+
+   **O `title` é da SESSÃO e mora no topo** (issue #7): um workspace é um assunto só visto
+   por 6 lentes, e renomear custa **uma** escrita e **um** `rev`. Antes o título morava
+   dentro de cada modelo e a topbar gravava em todos os que tinham conteúdo. O campo é
+   opcional: arquivo sem ele abre com o título derivado dos modelos (`process`, `state`,
+   `er`, `mind`, nessa ordem) e **quando os dois existem o do topo manda**. O `title` de
+   dentro dos modelos continua no arquivo — migração lazy não apaga nada (lei 5).
 
    **EXCEÇÃO À REGRA DA POSIÇÃO — sobreposição.** O editor afasta nós que se sobrepõem
    ao abrir, e **grava**. É a única coisa que move um nó sem o usuário pedir, e existe
@@ -154,6 +161,9 @@ Browser ↔ servidor em `/ws?session=<slug>`:
   (aconteceu na validação de 06/08/2026)
 - envia `{type:'patch', session, lens, diagram}` — **lens-aware**: `lens` ∈
   `process|state|er|mind|seq` diz qual modelo do workspace o patch altera
+- envia `{type:'rename', session, title}` — o título da **sessão** (o `title` do topo do
+  workspace). Não é um patch de lente porque o título não é da lente: uma escrita, um `rev`.
+  Mesma trava do patch (lei 7) — durante o `busy` é recusado, e título vazio não renomeia
 - envia `{type:'analyze', session, note}`
 
 Adapter externo em `/agent`: registra `adapterId` e `label`, recebe o evento `analyze`

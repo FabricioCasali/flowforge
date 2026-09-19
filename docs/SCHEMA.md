@@ -22,6 +22,7 @@ de ser consumido por qualquer lado.
 
 ```jsonc
 {
+  "title": "O assunto da sessão",
   "process": { "type": "flowchart|bpm|swimlane", "title": "…",
                "rev": 3, "updatedBy": "user", "lanes": [], "nodes": [], "edges": [] },
   "state":   { "type": "flowchart", "title": "…", "lanes": [], "nodes": [], "edges": [] },
@@ -41,8 +42,15 @@ um diagrama — é participantes e mensagens, sem `nodes`/`edges`.
 Preencha só as lentes que fazem sentido para o assunto. Lente vazia (`nodes: []`) é o
 normal, e é melhor que lente inventada para não ficar vazia.
 
-O `title` de cada modelo é o título da sessão. O `rev` que vale é o **do topo**; o `rev`
-de dentro de cada modelo é um espelho de quando aquela lente foi tocada pela última vez.
+O `title` que vale é o **do topo**: é o título da SESSÃO, e um workspace é um assunto só
+visto por 6 lentes. Ele é opcional — arquivo sem ele (escrito antes do campo, ou por um
+agente que só conhece o `title` de dentro do modelo) abre com o título derivado dos
+modelos, na ordem `process`, `state`, `er`, `mind`. **Quando os dois existem, o do topo
+manda**, e o de dentro dos modelos continua no arquivo: nada é apagado. Renomear no
+editor é uma escrita só, no topo.
+
+O `rev` que vale também é o do topo; o `rev` de dentro de cada modelo é um espelho de
+quando aquela lente foi tocada pela última vez.
 
 ### Nó
 
@@ -248,7 +256,11 @@ assíncrono. O arquivo é podado sozinho (fica o fim) — é linha do tempo, nã
 | recebe | `{ type:'tasks', tasks }` — o `tasks.json` do projeto; ao conectar e a cada mudança, em toda sessão |
 | recebe | `{ type:'activity', events }` — as últimas 200 ações do `activity.jsonl`; ao conectar e a cada ação |
 | envia | `{ type:'patch', session, lens, diagram }` — `lens` ∈ `process\|state\|er\|mind\|seq` |
+| envia | `{ type:'rename', session, title }` — o título da SESSÃO (o `title` do topo); uma escrita, um `rev` |
 | envia | `{ type:'analyze', session, note }` |
+
+`rename` obedece à mesma trava do `patch`: durante o `busy` o servidor recusa e devolve o
+estado do disco. Título vazio não renomeia.
 
 `/agent` — o adapter externo: recebe `{type:'hello', protocol:1}`, registra-se com
 `{type:'register', protocol:1, adapterId, label}` e recebe eventos `analyze` com
@@ -274,4 +286,9 @@ primeira abertura de uma sessão assim, o servidor converte para `workspace.json
 `process` (o `type` de dentro é preservado, e é ele que sustenta as raias e as formas
 BPM), `er` → `er`, `mindmap` → `mind`; `state` e `seq` nascem vazios. A conversão é por
 cópia integral do diagrama para dentro do modelo de destino, então nenhum campo se perde
-no caminho — inclusive os que este documento não nomeia.
+no caminho — inclusive os que este documento não nomeia. O `title` do diagrama antigo vira
+o título da sessão, no topo, **sem sair de dentro do modelo copiado**.
+
+A mesma ideia vale para um `workspace.json` anterior ao `title` do topo: ele abre com o
+título derivado dos modelos, e o campo do topo aparece na primeira escrita — nada é
+convertido em massa e nada é apagado.

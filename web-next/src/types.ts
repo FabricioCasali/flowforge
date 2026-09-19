@@ -258,6 +258,19 @@ export interface SeqModel {
 }
 
 export interface Workspace {
+  /**
+   * O título da SESSÃO, no topo do arquivo. Um workspace é UM assunto visto por
+   * 6 lentes — o título nunca foi da lente, mas morava dentro de cada modelo, e
+   * renomear custava um patch e um `rev` POR modelo com conteúdo.
+   *
+   * É opcional porque arquivo escrito antes deste campo (ou por um agente que só
+   * conhece o `title` de dentro do modelo) continua abrindo: a leitura deriva o
+   * título dos modelos, como sempre fez. **Quando os dois existem, o do topo
+   * manda** — é ele que a topbar escreve.
+   *
+   * O `title` de dentro dos modelos NÃO é apagado por causa deste campo (lei 5).
+   */
+  title?: string
   process: Diagram
   state: Diagram
   er: Diagram
@@ -278,6 +291,7 @@ export function emptySeq(): SeqModel {
 
 export function emptyWorkspace(): Workspace {
   return {
+    title: 'Novo diagrama',
     process: emptyDiagram('Fluxo', 'flowchart'),
     state: emptyDiagram('Estados', 'flowchart'),
     er: emptyDiagram('Entidades', 'er'),
@@ -328,9 +342,20 @@ function normalizeSeqModel(raw: unknown): SeqModel {
 export function normalizeWorkspace(raw: unknown): Workspace {
   const base: Record<string, unknown> =
     raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {}
-  const t = rawTitle(base.process) ?? rawTitle(base.state) ?? rawTitle(base.er) ?? rawTitle(base.mind) ?? 'Novo diagrama'
+  // O título do TOPO manda; sem ele (arquivo anterior ao campo, ou escrito por um
+  // agente que só conhece o `title` do modelo) vale a derivação de sempre. O que
+  // está dentro dos modelos continua intacto — só serve de fallback para quem
+  // não tem título nenhum.
+  const t =
+    rawTitle(base) ??
+    rawTitle(base.process) ??
+    rawTitle(base.state) ??
+    rawTitle(base.er) ??
+    rawTitle(base.mind) ??
+    'Novo diagrama'
   return {
     ...base,
+    title: t,
     process: normalizeModel(base.process, t, 'flowchart'),
     state: normalizeModel(base.state, t, 'flowchart'),
     er: normalizeModel(base.er, t, 'er'),
@@ -358,12 +383,16 @@ function rawTitle(m: unknown): string | null {
 }
 
 /**
- * Título da SESSÃO. O workspace não tem campo `title` próprio (o contrato são os
- * 5 modelos + rev + updatedBy) — o título mora nos modelos, e um workspace é UM
- * assunto visto por 6 lentes. Mesma ordem do `workspaceTitle` do servidor.
+ * Título da SESSÃO: o `title` do TOPO do workspace. Um workspace é UM assunto
+ * visto por 6 lentes, e renomear é uma escrita só.
+ *
+ * Sem o campo do topo (arquivo anterior a ele, ou escrito por agente que só
+ * conhece o `title` de dentro do modelo) o título é derivado dos modelos, na
+ * mesma ordem de sempre — é o que mantém o arquivo antigo abrindo igual.
+ * Mesma precedência do `workspaceTitle` do servidor.
  */
 export function workspaceTitle(ws: Workspace): string {
-  return ws.process.title || ws.state.title || ws.er.title || ws.mind.title || 'Novo diagrama'
+  return ws.title || ws.process.title || ws.state.title || ws.er.title || ws.mind.title || 'Novo diagrama'
 }
 
 // ---------- Co-decisão: propagação de status nó→aresta ----------

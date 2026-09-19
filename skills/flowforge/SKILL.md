@@ -165,6 +165,7 @@ preserve integralmente os outros:
 
 ```json
 {
+  "title": "Assunto",
   "process": {
     "type": "flowchart", "title": "Assunto", "rev": 1, "updatedBy": "agent", "lanes": [],
     "nodes": [
@@ -184,6 +185,9 @@ preserve integralmente os outros:
 }
 ```
 
+- O `"title"` do **topo** é o título da sessão — é ele que aparece na barra do canvas. Sessão
+  nova: escreva-o. Arquivo antigo, sem ele, continua abrindo (o título sai dos modelos), e o do
+  topo manda quando os dois existem; não apague o `title` de dentro dos modelos.
 - `process` serve Fluxograma **e** Swimlane; `state`, `er`, `mind` e `seq` têm modelos próprios.
   Lente vazia é normal: não invente conteúdo para preenchê-la.
 - Kinds de fluxo: `start`, `task`, `decision`, `end`, `idea`. BPM: `event-start`,
