@@ -14,6 +14,8 @@ de ser consumido por qualquer lado.
     workspace.json   os 5 modelos + rev + updatedBy
     thread.json      a conversa
     inbox.jsonl      log append-only dos cliques em "Analisar"
+<data-dir>/tasks.json      as tarefas ao vivo do agente — do PROJETO, não de uma sessão
+<data-dir>/activity.jsonl  o que o agente fez, na ordem (linha do tempo)
 ```
 
 ## workspace.json
@@ -110,6 +112,89 @@ array**: quem grava reescreve `lanes` inteiro, senão as raias somem.
 { "messages": [ { "author": "user|agent|system", "text": "…", "ts": 1754400000000 } ] }
 ```
 
+## tasks.json — as tarefas ao vivo do agente
+
+Fica na **raiz** do `<data-dir>`, não dentro de uma sessão: é do **projeto**. O que o agente
+está fazendo no terminal não pertence a um desenho, e aparece na lente **Tarefas** de qualquer
+sessão aberta.
+
+```jsonc
+{
+  "rev": 12,
+  "lists": [
+    { "id": "claude-code",            // quem publica — estável entre escritas
+      "label": "Claude Code",         // o nome mostrado no canvas
+      "title": "Migrar o login",      // o objetivo desta leva (opcional)
+      "updatedAt": 1789760000000,
+      "tasks": [
+        { "id": "t1", "title": "ler o código", "status": "completed" },
+        { "id": "t2", "title": "escrever o teste", "status": "in_progress",
+          "note": "cobrindo o refresh do token", "updatedAt": 1789760000000 },
+        { "id": "t3", "title": "trocar a lib", "status": "blocked", "note": "falta decidir qual" }
+      ] }
+  ]
+}
+```
+
+`status`: `pending`, `in_progress`, `completed` ou `blocked`. `note` é uma linha curta — o que está
+sendo feito agora, ou por que travou. Uma **lista por publicador**: dois agentes no mesmo projeto
+não pisam um no outro.
+
+**Não é um modelo do `workspace.json`, de propósito.** O agente escreve aqui várias vezes por
+minuto enquanto você edita o diagrama; dentro do workspace, cada tarefa concluída subiria o `rev`
+do desenho e disputaria a escrita com o arrasto de um nó.
+
+**Não edite este arquivo à mão — use o comando.** Mais de um processo escreve nele (um por agente),
+e o comando faz leitura-modificação-gravação sob trava, com rename atômico:
+
+```
+node <flowforge>/adapters/tasks.js plan "Migrar o login" "ler o código" "escrever o teste" "trocar a lib"
+node <flowforge>/adapters/tasks.js start 2 "cobrindo o refresh do token"
+node <flowforge>/adapters/tasks.js done 2
+node <flowforge>/adapters/tasks.js block 3 "falta decidir qual"
+node <flowforge>/adapters/tasks.js add "avisar o time"      # também: reset, note, clear, show
+```
+
+Ele acha o `.flowforge/` subindo a partir do diretório atual e adivinha o publicador pelo ambiente
+(`--list <id>` e `--label <nome>` mandam, e são o jeito de ter dois terminais do mesmo harness com
+listas separadas). O browser **só lê**; um arquivo torto é normalizado, não derruba o canvas.
+
+## activity.jsonl — a linha do tempo do agente
+
+Irmão do `tasks.json`: na raiz do `<data-dir>`, por projeto, fora do workspace. **Append-only**,
+uma linha JSON por ação:
+
+```jsonc
+{ "ts": 1789760000000,
+  "source": "claude-code", "label": "Claude Code",   // o mesmo publicador do tasks.json
+  "kind": "edit",          // read | edit | run | search | web | agent | tool | note | prompt | stop
+  "summary": "editou web-next/src/editor/layout.ts",  // UMA linha
+  "files": ["web-next/src/editor/layout.ts"],         // relativos ao projeto
+  "task": "t3",            // a tarefa in_progress do publicador naquele instante
+  "failed": true }         // só quando a ação falhou
+```
+
+`task` é o elo com as tarefas, carimbado na hora da escrita: é dele que saem "arquivos tocados por
+tarefa" e "o que ele está fazendo agora", sem o agente declarar nada. `prompt` e `stop` são marcos de
+turno, sem texto.
+
+**É narração, não transcrição.** Nunca entram: o texto do pedido do usuário, a resposta do agente,
+o conteúdo de arquivo, a saída de ferramenta, o comando cru (só a descrição dele, ou o programa e o
+subcomando), a query de uma URL, os argumentos de uma ferramenta MCP. Arquivo fora do projeto
+aparece só pelo nome. Isto é um arquivo dentro do seu projeto — trate como tal.
+
+Quem escreve é o comando, chamado por um hook do harness ou pelo próprio agente:
+
+```
+node <flowforge>/adapters/activity.js install claude-code      # liga o hook NESTE projeto
+node <flowforge>/adapters/activity.js install claude-code --global
+node <flowforge>/adapters/activity.js note "decidi trocar a lib só depois do teste"
+node <flowforge>/adapters/activity.js show
+```
+
+O hook nunca atrapalha o harness: projeto sem `.flowforge/` sai calado, qualquer erro sai `0`, e roda
+assíncrono. O arquivo é podado sozinho (fica o fim) — é linha do tempo, não auditoria.
+
 ## Regras que quebram o desenho se forem ignoradas
 
 1. **Sempre suba o `rev` do topo em 1 e marque `updatedBy: "agent"`.** O servidor é a
@@ -160,13 +245,18 @@ array**: quem grava reescreve `lanes` inteiro, senão as raias somem.
 | recebe | `{ type:'state', session, workspace, thread, busy, agentOnline, agentLabel }` |
 | recebe | `{ type:'busy', session, busy }` |
 | recebe | `{ type:'agent', online, label }` |
+| recebe | `{ type:'tasks', tasks }` — o `tasks.json` do projeto; ao conectar e a cada mudança, em toda sessão |
+| recebe | `{ type:'activity', events }` — as últimas 200 ações do `activity.jsonl`; ao conectar e a cada ação |
 | envia | `{ type:'patch', session, lens, diagram }` — `lens` ∈ `process\|state\|er\|mind\|seq` |
 | envia | `{ type:'analyze', session, note }` |
 
 `/agent` — o adapter externo: recebe `{type:'hello', protocol:1}`, registra-se com
 `{type:'register', protocol:1, adapterId, label}` e recebe eventos `analyze` com
 `requestId`, `workspacePath`, `threadPath` e `projectPath` absolutos. Responde com
-`accepted`, `completed` ou `failed`, sempre repetindo o `requestId`. Pedidos sem terminal
+`accepted`, `completed` ou `failed`, sempre repetindo o `requestId`. Enquanto trabalha, pode mandar
+`{type:'progress', requestId}` quantas vezes quiser: é um batimento que **rearma o prazo da trava**
+(3 min por padrão, `FLOWFORGE_BUSY_TIMEOUT_MS`) e não registra nada — sem ele, uma análise mais
+longa que o prazo tem o adapter desconectado no meio do trabalho. Pedidos sem terminal
 ficam no `inbox.jsonl` e são reenviados. Dentro de uma sessão os pedidos são entregues em
 série; sessões diferentes podem avançar em paralelo. `/claude` é apenas um alias temporário
 de URL e exige o mesmo registro de `/agent`.

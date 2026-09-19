@@ -3,3 +3,6 @@ sessions/
 *.log
 *.tmp
 .flowforge/
+# estado de ferramentas locais de quem desenvolve — nunca vai pro repo
+.nodeterm/
+.orca/

@@ -2,7 +2,7 @@
 // =============================================================================
 // verifica-migracao.mjs — a PROVA da lei 5 (migracao lazy e NAO destrutiva).
 //
-// Pega TODOS os diagram.json reais do Fabricio (sessions/ + os .flowforge/ dos
+// Pega TODOS os diagram.json reais do usuario (sessions/ + os .flowforge/ dos
 // projetos), copia cada um para uma pasta temporaria, roda a migracao DE VERDADE
 // (o ensureSession do server/state.js, o mesmo caminho que roda em producao) e
 // confere que NADA se perdeu no caminho.
@@ -35,13 +35,7 @@ const MANTER_COPIA = process.argv.includes('--keep');
 
 // Onde moram os diagramas reais. Cada entrada e uma raiz de sessoes: dentro dela
 // cada subpasta e uma sessao com seu diagram.json.
-const RAIZES = [
-  { rotulo: 'flowforge/sessions', dir: 'C:/desenv/particular/flowforge/sessions' },
-  { rotulo: 'flowforge', dir: 'C:/desenv/particular/flowforge/.flowforge' },
-  { rotulo: 'context_builder', dir: 'C:/desenv/particular/context_builder/.flowforge' },
-  { rotulo: 'poe2', dir: 'C:/desenv/particular/poe2 - overlay + pob/.flowforge' },
-  { rotulo: 'th_framework', dir: 'C:/desenv/thealth_projects/th_framework/.flowforge' },
-];
+import { RAIZES } from './raizes.mjs'; // so o repo + FLOWFORGE_VERIFY_DIRS; nada de pasta de maquina
 
 // Campos que a lei 5 nomeia por escrito. Perder qualquer um deles e falha grave.
 // (O teste real e mais duro que esta lista: compara o diagrama INTEIRO campo a

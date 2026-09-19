@@ -109,9 +109,55 @@ série.
 
 O formato dos arquivos está em [`docs/SCHEMA.md`](docs/SCHEMA.md).
 
-O FlowForge não executa nem escolhe Claude Code, OpenCode, Codex ou outro produto. O
+Enquanto trabalha, o adapter pode enviar `{"type":"progress","requestId":"…"}`: é um batimento
+que rearma o prazo da trava (3 minutos por padrão), para análises longas.
+
+O servidor e o editor não executam nem escolhem Claude Code, OpenCode, Codex ou outro produto. O
 adapter traduz este protocolo para o harness preferido do usuário e registra o nome que a
 interface deve mostrar. Apenas um adapter fica ativo por vez.
+
+### Instalar como plugin do Claude Code
+
+O repositório **é** um plugin: traz a skill `/flowforge` (que ensina o agente a subir o servidor,
+desenhar, publicar as tarefas e responder ao Analisar) e o hook da linha do tempo.
+
+```
+/plugin marketplace add FabricioCasali/flowforge
+/plugin install flowforge@flowforge
+```
+
+É preciso ter Node e `npm`: o repositório não versiona dependências nem o front compilado, então na
+primeira vez a skill prepara a instalação sozinha (um ou dois minutos). Veja a
+[issue #15](https://github.com/FabricioCasali/flowforge/issues/15).
+
+Para experimentar sem instalar: `claude --plugin-dir <pasta do clone>`. Depois é só pedir —
+"abre o flowforge e me mostra o andamento desta task". O hook da linha do tempo é global, mas não
+faz nada em projeto que não tenha uma pasta `.flowforge/`; quem não quiser, desabilita o plugin.
+
+### Quem responde
+
+O melhor respondedor é a sessão de CLI que você **já tem aberta** no projeto: ela sabe o que está
+sendo feito. O [`adapters/live.js`](adapters/README.md#sessão-viva) é uma ponte que não chama
+ninguém — imprime cada pedido numa linha, e o harness que vigia o processo acorda a sessão. No
+Claude Code isso é a ferramenta Monitor.
+
+A escuta do agente **cai sozinha** de tempos em tempos (no Claude Code, a cada 30 minutos). O canvas
+não esconde isso: o indicador vira **"agente desconectado"** e um aviso diz o que fazer — no terminal
+do seu agente, peça **"reconecte o FlowForge"**. Nada se perde: o Analisar clicado nesse intervalo
+fica guardado e é entregue na reconexão.
+
+### Adapters prontos (execução à parte)
+
+O repositório traz, em [`adapters/`](adapters/README.md), um adapter para três harnesses. Com o
+servidor no ar e o CLI do harness instalado e autenticado:
+
+```
+node adapters/index.js claude-code     # ou: opencode | codex
+```
+
+A barra do topo passa a mostrar o agente conectado, e o **Analisar** chega nele. Cada sessão do
+FlowForge mantém a própria conversa no harness: o segundo pedido lembra do primeiro. Para outro
+harness, escreva um driver — são ~40 linhas, e o [README dos adapters](adapters/README.md) explica.
 
 Para conferir que o canal está de pé, sem agente nenhum:
 
@@ -132,9 +178,9 @@ pendente no `inbox.jsonl` e é reenviado com o mesmo `requestId` quando um adapt
 `/claude` existe somente como alias temporário de URL e usa exatamente o mesmo protocolo
 de registro de `/agent`.
 
-## As 6 lentes
+## As lentes
 
-O mesmo assunto, visto de seis jeitos. Elas leem 5 modelos que convivem no mesmo
+O mesmo assunto, visto de seis jeitos — mais uma sétima lente, **Tarefas**, que não é desenho. Elas leem 5 modelos que convivem no mesmo
 `workspace.json`, e trocar de lente não converte nada: cada modelo tem o conteúdo dele.
 
 - **Fluxograma** — o processo passo a passo, de cima para baixo, com o vocabulário de
@@ -147,6 +193,36 @@ O mesmo assunto, visto de seis jeitos. Elas leem 5 modelos que convivem no mesmo
 - **Mind map** — ideias abrindo a partir de um centro, para a fase em que o problema
   ainda não tem forma de processo.
 - **Sequência** — participantes e as mensagens trocadas entre eles, na ordem do tempo.
+- **Tarefas** — o que o agente tem para fazer no projeto e em que pé está, ao vivo. Não lê o
+  `workspace.json`: o conteúdo vem de um `tasks.json` que o próprio agente mantém (abaixo).
+
+## Tarefas ao vivo
+
+O agente que está trabalhando no seu projeto publica o plano dele e vai marcando o andamento; a
+lente **Tarefas** atualiza sozinha, e o botão dela mostra o placar (`3/8`) de dentro de qualquer
+diagrama. É um arquivo como os outros — `<data-dir>/tasks.json` — escrito por um comando que
+qualquer agente com shell consegue chamar:
+
+```
+node <flowforge>/adapters/tasks.js plan "Migrar o login" "ler o código" "escrever o teste"
+node <flowforge>/adapters/tasks.js start 1 "lendo auth.ts"
+node <flowforge>/adapters/tasks.js done 1
+```
+
+A mesma lente mostra a **linha do tempo**: o que o agente leu, editou e rodou, na ordem, e — dentro
+de cada tarefa — os arquivos que ela tocou e o que ele está fazendo agora. Quem alimenta é um hook do
+harness, que você liga por projeto:
+
+```
+node <flowforge>/adapters/activity.js install claude-code
+```
+
+É narração, não transcrição: ficam de fora o seu pedido, o conteúdo dos arquivos, a saída das
+ferramentas e o comando cru.
+
+Para o agente fazer isso sem você pedir toda vez, cole no `AGENTS.md` (ou `CLAUDE.md`) do projeto
+o trecho que está no [README dos adapters](adapters/README.md#tarefas-ao-vivo). O formato do
+arquivo está em [`docs/SCHEMA.md`](docs/SCHEMA.md).
 
 ## O que dá para fazer no canvas
 
@@ -170,11 +246,13 @@ O mesmo assunto, visto de seis jeitos. Elas leem 5 modelos que convivem no mesmo
 server/            a ponte: HTTP + WebSocket + estado em arquivo (Node puro + ws)
   index.js         rotas, WS /ws (browser) e /agent (adapter), fs.watch por sessão
   state.js         leitura/escrita da sessão, autoridade do `rev`, migração
+  tasks.js         o `tasks.json` do projeto: leitura, normalização, escrita sob trava
+adapters/          o lado do agente: liga um harness ao /agent e publica tarefas
 web-next/          o editor (Vite + React + TypeScript + @xyflow/react + elkjs)
   src/types.ts     o contrato do modelo — campo novo entra aqui antes de ser usado
   src/editor/      canvas, lentes, layout, formas, roteamento, export
 scripts/           verificadores: migração sem perda, layout fiel, caminho de escrita
-docs/              notas do projeto (BOARD.md é o quadro de tarefas)
+docs/              SCHEMA.md (o formato dos arquivos) e HISTORICO.md (o que foi feito, e por quê)
 sessions/          dados, quando você não passa --data-dir (fora do git)
 ```
 
@@ -185,16 +263,20 @@ Uma pasta por sessão dentro do `--data-dir`:
     workspace.json   os 5 modelos + rev + updatedBy — o arquivo-verdade
     thread.json      a conversa entre você e o agente
     inbox.jsonl      log append-only dos cliques em "Analisar" (recuperação)
+<data-dir>/tasks.json   as tarefas ao vivo do agente (do projeto, não de uma sessão)
 ```
 
 Sessão criada por uma versão antiga tem um `diagram.json`. Na primeira abertura ele é
 convertido para `workspace.json` e **preservado como está** — a conversão não apaga nem
 reescreve o arquivo antigo.
 
-O servidor também expõe `GET /api/health`, `/api/sessions` e `/api/state?session=<slug>`,
+O servidor também expõe `GET /api/health`, `/api/sessions`, `/api/tasks` e `/api/state?session=<slug>`,
 úteis para script e para checar em que diretório de dados ele subiu.
 
 ## Contribuir
+
+O controle do projeto é pelas **[issues do GitHub](https://github.com/FabricioCasali/flowforge/issues)**: o que está por fazer, em andamento
+e em discussão está lá.
 
 Ver [CONTRIBUTING.md](CONTRIBUTING.md). É um projeto pessoal, aberto porque é útil para
 mais gente que só o autor — issues e PRs são bem-vindos, com a ressalva de que o rumo

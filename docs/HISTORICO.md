@@ -1,16 +1,32 @@
-# Quadro do projeto
+# Histórico do projeto (quadro congelado)
 
-Toda tarefa combinada vira um **card** com ID estável (`FF-###`).
-Status: 🗂️ Backlog · 📋 A fazer · 🔄 Fazendo · ✅ Feito · ⏸️ Pausado
-Tamanho: **P** (uma sessão) · **M** (poucas) · **G** (frente maior)
-Classe: **importante** · **melhoria**
-Épico entre [colchetes].
+> **Este arquivo não é mais o controle do projeto.** Desde 18/09/2026 o que está por fazer, em
+> andamento ou em discussão vive nas **[issues do GitHub](https://github.com/FabricioCasali/flowforge/issues)**. Aqui ficou o registro do
+> que foi feito até essa data e — o que mais importa — **por quê**: cada card conta o defeito que
+> motivou a mudança, a alternativa descartada e como a solução foi provada. O `AGENTS.md` e
+> comentários do código citam estes ids (`FF-###`).
+>
+> Não acrescente cards aqui. Trabalho novo é uma issue; o raciocínio de uma mudança vai na issue
+> e no commit que a fecha.
 
-> Contexto do épico [porte] — **encerrado em 06/08/2026**: o canvas Cytoscape do `web/` foi
-> substituído pelo editor React Flow + elkjs vindo do Context Builder. As leis estão em
-> `CLAUDE.md` na raiz. O corte saiu no FF-008: o `web/` foi removido, o editor novo é servido
-> em `/` e o `/v2` responde 301 para `/`. O que vem agora é o épico `[uso]` — melhoria vinda
-> do uso diário — e o `[aberto]`, o projeto como software público.
+O que estava na fila quando o quadro foi congelado virou issue:
+
+| Era | Virou |
+| --- | --- |
+| FF-009 `title` no nível do workspace | [#7](https://github.com/FabricioCasali/flowforge/issues/7) |
+| FF-035, o que faltou: etapa viva no diagrama | [#8](https://github.com/FabricioCasali/flowforge/issues/8) |
+| FF-035, o que faltou: plano aprovado no canvas | [#9](https://github.com/FabricioCasali/flowforge/issues/9) |
+| FF-032 / FF-036, o que faltou: sessão viva e linha do tempo no OpenCode | [#10](https://github.com/FabricioCasali/flowforge/issues/10) |
+| FF-033 / FF-036, o que faltou: o mesmo para o Codex | [#11](https://github.com/FabricioCasali/flowforge/issues/11) |
+| FF-038 rearme automático da escuta (hook `Stop` + `asyncRewake`) | [#12](https://github.com/FabricioCasali/flowforge/issues/12) |
+| FF-037, o que ficou por decidir: identidade visual própria (prefixo `neon-`) | [#6](https://github.com/FabricioCasali/flowforge/issues/6) |
+| achado de uso: sessão abre no Fluxograma vazio | [#13](https://github.com/FabricioCasali/flowforge/issues/13) |
+| achado de uso: painéis sobre nós, rótulo cortado, barra de rolagem clara | [#14](https://github.com/FabricioCasali/flowforge/issues/14) |
+
+Legenda dos cards — tamanho: **P** (uma sessão) · **M** (poucas) · **G** (frente maior); classe:
+**importante** · **melhoria**; épico entre [colchetes]: `[porte]` (troca do editor, encerrado em
+06/08/2026), `[uso]` (melhoria vinda do uso diário), `[aberto]` (o projeto como software
+público), `[cli]` (o FlowForge conectado ao CLI).
 
 ## ✅ Feito
 
@@ -18,7 +34,7 @@ Classe: **importante** · **melhoria**
   só calcula quem não tem, e o resultado dele é transladado para o referencial do desenho
   salvo (nó novo do Claude nasce perto dos vizinhos, e desce se cair em cima de alguém).
   Arrastar grava a posição de **todos** os nós, como o editor antigo faz. A **Swimlane é
-  lente derivada** — recalcula sempre e não grava (decisão do Fabricio em 06/08/2026, lei 4);
+  lente derivada** — recalcula sempre e não grava (decisão de projeto de 06/08/2026, lei 4);
   sem `lanes` ela avisa "sem raias definidas" em vez de fingir uma faixa. Prova nova:
   `scripts/verifica-layout.mjs` (com `--autoteste`) — 20 combinações diagrama×lente, todas
   fiéis. · `[porte/fase-1]` · M · importante
@@ -77,7 +93,7 @@ Classe: **importante** · **melhoria**
   manuais** voltaram — `waypoints` + `routing` entraram em `types.ts` (lei 3), com alças
   arrastáveis na aresta selecionada: cheia move, duplo-clique remove, fantasma no meio do
   trecho cria. Precedência: quebra manual > L/Z limpo > desvio. Paridade total com o editor
-  antigo, escolhida pelo Fabricio em 06/08/2026 mesmo com 0 de 143 arestas usando quebra. ·
+  antigo, escolhida em 06/08/2026 mesmo com 0 de 143 arestas usando quebra. ·
   `[porte]` · M · melhoria
 
 - **FF-012** **Card do nó em diagrama denso** — o card mede a si mesmo depois de montado e
@@ -110,7 +126,7 @@ Classe: **importante** · **melhoria**
 - **FF-015** **Modo guiado** — painel de etapas em cartões à esquerda; clicar num cartão
   seleciona o nó e voa a tela até ele, e clicar num nó no canvas rola o painel até o cartão
   (é de mão dupla, senão você perde o fio ao navegar). Campo novo `concept` em `types.ts`:
-  **painel = teoria, card = exemplo real** — duas frentes, decisão do Fabricio em
+  **painel = teoria, card = exemplo real** — duas frentes, decisão de projeto de
   06/08/2026. Ordem por **posição** (`y`, `x` de desempate), não topológica: 3 dos 11
   diagramas têm ciclo e 4 têm mais de uma raiz. Anotações vão pro fim (não são etapas).
   Só nas lentes de percurso (Fluxograma, Swimlane, Máq. estados) — `mind`, `er` e `seq`
@@ -225,7 +241,7 @@ Classe: **importante** · **melhoria**
   cima, em vez de subir por dentro da própria coluna colada no tronco. `ladosDe` virou a fonte
   única de "por onde a seta sai e chega" pro traço, pro desvio e pras âncoras distribuídas. Muda
   a lei implícita do FF-005 ("o lado gravado manda") pra "manda enquanto fizer sentido" —
-  decisão do Fabricio em 17/09/2026, depois de ver o defeito no exemplo do Pedro. O enquadramento
+  decisão de projeto de 17/09/2026, depois de ver o defeito num exemplo de uso. O enquadramento
   passou a incluir as SETAS (o conector entre colunas passa por cima dos nós e ficava cortado),
   com botão próprio no lugar do `fitView` do React Flow. · `[uso]` · M · importante
 
@@ -240,8 +256,8 @@ Classe: **importante** · **melhoria**
   não alcança. Abrir uma sessão também deixou de contar como "o agente mexeu em N etapas". ·
   `[uso]` · P · importante
 
-- **FF-028** **Um roteador só, e setas que encostam** — achados do Fabricio usando o exemplo do
-  Pedro e o do vínculo do agente. (1) Diagrama recém-aberto (sem `x`/`y`) usava as setas do
+- **FF-028** **Um roteador só, e setas que encostam** — achados de uso com dois
+  diagramas de exemplo. (1) Diagrama recém-aberto (sem `x`/`y`) usava as setas do
   **elk**, que enxerga todo nó como retângulo: no losango a seta parava na caixa invisível, sem
   encostar, e "consertava" ao mover um nó — porque aí o `routeAll` assumia. Agora o elk só dá as
   posições; as setas são sempre do `routeAll`, e o desenho não pula no primeiro arrasto. (2) O
@@ -263,16 +279,125 @@ Classe: **importante** · **melhoria**
   bem), e lado gravado no arquivo continua mandando. A âncora de chegada passou a mirar o toco
   por onde a seta saiu, não o centro do nó (senão saía pela direita, descia e voltava pra
   esquerda). `distribuirAncoras` virou a fonte única dos lados; `routeAll`/`routeMoved` traçam a
-  partir dela. Pedido do Fabricio em 18/09/2026, com 3 casos no autoteste. · `[uso]` · P ·
+  partir dela. Pedido de uso de 18/09/2026, com 3 casos no autoteste. · `[uso]` · P ·
   importante
 
-## 📋 A fazer
+## 🧪 Implementado em 18/09/2026
 
-_(vazio — o que sobra está no backlog.)_
+> Os cards abaixo foram implementados e verificados em 18/09/2026 (os verificadores de
+> `scripts/` e, onde diz, prova com o harness real e conferência na tela).
 
-## 🗂️ Backlog
 
-- **FF-009** **`title` no nível do workspace** — hoje cada um dos 5 modelos tem `title`
-  próprio. Decisão de contrato ainda em aberto; enquanto isso, o FF-007 **mitigou**: renomear
-  na topbar grava em todos os modelos com conteúdo, ao custo de um patch (e um `rev`) por
-  modelo. É esse custo que justifica fechar o card. · `[porte]` · P · melhoria
+- **FF-030** **Mind map: arranjo de dois lados, e a linha que se soltava do nó** — dois achados no
+  teste de 18/09/2026 (sessão `melhorias-flowforge`, 33 nós). **Arranjo:** o radial
+  de anel fixo (230px por nível) punha 26 folhas num anel de 460px — 111px de arco pra nó de até
+  210px; metade nascia sobreposta e o `desempilhar` espalhava sem critério. E o menu de arranjo
+  oferecia os de grafo, que não entendem "raiz no centro" (Árvore: tira de 6600px; Força: 57
+  cruzamentos). Agora a lente usa `mindLayout` — árvore horizontal de dois lados, o arranjo
+  clássico de mapa mental (XMind, markmap): irmãos empilhados custam a ALTURA do nó, não a
+  largura. No mesmo mapa: 0 sobreposições, 0 curva sobre nó, caixa de 1338×1020. O menu da lente
+  virou `LAYOUTS_MIND` (Mapa, Radial), e o Radial ganhou raio que cresce até caber. **Linha:**
+  depois do primeiro arrasto o editor recalculava as arestas com o roteador ORTOGONAL
+  (`routeAll`/`routeMoved`) também no Mind map, e a `MindEdge` lia `points[0]` e `points[1]` —
+  ou seja, a bézier ia da borda do nó até a primeira QUEBRA da rota: um toco reto solto no canvas.
+  Agora `mindEdgePoints` é a fonte única (lateral do pai → lateral do filho, pelo lado em que o
+  filho está), a `MindEdge` lê primeiro e último ponto, e a tangente segue o sentido do filho (com
+  `abs` o ramo da esquerda fazia laço). Build e `verifica-layout` OK; **falta validar na tela** — a extensão do Chrome estava desconectada e o agente não viu o canvas. · `[uso]` · P ·
+  importante
+
+- **FF-031** **Adapter: núcleo comum + driver do Claude Code** — o protocolo `/agent` existia só
+  no papel: sem ninguém conectado, o "Analisar" ficava pendente no `inbox.jsonl` e o canvas travava
+  em modo leitura (achado do teste de 18/09/2026). O adapter mora em `adapters/`, FORA do núcleo
+  (servidor e editor continuam sem saber que harness existe — lei do `AGENTS.md` §5). O núcleo do
+  adapter fala o protocolo (registro, `accepted`/`completed`/`failed`, reconexão, deduplicação de
+  `requestId`, fila serial por sessão) e monta o pedido; o **driver** só sabe chamar o harness em
+  modo não-interativo e retomar a conversa daquela sessão do FlowForge (`claude -p --resume`).
+  Depois do harness, o núcleo **sela os arquivos**: sobe o `rev` esquecido e, se o agente não
+  escreveu no thread, grava a fala final dele — os dois esquecimentos que fazem o canvas ignorar a
+  resposta em silêncio. O protocolo ganhou `progress` (batimento que rearma o prazo da trava): sem
+  ele uma análise de mais de 3 min tinha o adapter derrubado no meio.
+  **Validado no canvas em 18/09 — funcionou, mas levou 113 s.** O transcript mostrou
+  onde: ~50 s em 13 `Edit` em sequência no `workspace.json` de 22 KB (um por nó) e ~30 s pensando em
+  Fable/esforço alto. Saiu o `adapters/reply.js`: o agente grava UM `reply.json` com a mensagem e as
+  operações, e o adapter aplica (rev, setas do nó mexido, thread; item inválido é pulado e
+  relatado). Mais padrão `sonnet`/`medium` no driver (`--model`/`--effort` sobem) e um pedido que
+  manda responder NA MEDIDA do que foi pedido. No mesmo mapa: **113 s → 18 s** no pedido de teste,
+  56 s num pedido que questiona 3 nós, comenta e cria outro. `verifica-adapter.mjs`: 22 casos
+  (selo, reply.json, falha, retomada, queda no meio sem execução dupla, pedido longo).
+  · `[cli]` · M · importante
+
+- **FF-032** **Driver do OpenCode** — `adapters/drivers/opencode.js`, ~30 linhas sobre o núcleo do
+  FF-031: `opencode run --format json`, pedido por stdin, `--session <id>` na retomada. Prova real
+  OK (66s no primeiro pedido; o segundo lembrou do primeiro). Fica pra depois o modo "sessão viva"
+  pelo servidor HTTP do próprio OpenCode (`POST /session/:id/prompt_async`, `/tui/append-prompt`),
+  que entregaria o pedido na TUI aberta em vez de numa execução à parte. · `[cli]` · P · importante
+
+- **FF-033** **Driver do Codex** — `adapters/drivers/codex.js`: `codex exec --json` com o pedido por
+  stdin e `codex exec resume <thread_id>` na retomada. O `resume` não aceita `-s` nem `-C`, então o
+  sandbox vai por `-c sandbox_mode=workspace-write` e o diretório pelo `cwd` do processo. Prova real
+  OK (87s + 26s, retomada confirmada). · `[cli]` · P · importante
+
+- **FF-034** **Tarefas ao vivo** — a lente **Tarefas** mostra o que o agente tem pra fazer no
+  projeto e em que pé está, e o botão dela leva o placar (`3/8`) pra dentro de qualquer diagrama.
+  O plano era espelhar a lista de tarefas do CLI por hook; a sonda mostrou que **o Claude Code
+  desta máquina não tem ferramenta de lista de tarefas** (nem `TodoWrite` nem `TaskCreate`), e as
+  dos outros harnesses não se parecem. Então o FlowForge não espelha a de ninguém: oferece um
+  ARQUIVO — `<data-dir>/tasks.json`, por projeto, uma lista por publicador — e um comando que
+  qualquer agente com shell chama (`adapters/tasks.js`: plan/start/done/block/add/reset/note/
+  clear/show). É a lei 2 aplicada ao que não é desenho. **Decisões de projeto (18/09/2026):**
+  arquivo próprio e NÃO 6º modelo do workspace (o agente escreve várias vezes por minuto; dentro
+  do workspace cada tarefa subiria o `rev` do desenho e disputaria com o arrasto de um nó — virou
+  adendo da lei 4); e o `BOARD.md` fica FORA desta versão. Contrato em `types.ts` (`TasksFile`)
+  com cópia em `server/tasks.js`; escrita sob trava + rename atômico; servidor vigia a raiz do
+  data-dir e manda `{type:'tasks'}` a todo browser, em toda sessão. `verifica-tasks.mjs`: 18 casos
+  (subpasta, dois publicadores, 12 escritas simultâneas sem perda, `rev` do workspace intacto, erro
+  de uso sem trava órfã, arquivo torto normalizado). Os 6 verificadores OK. Conferido num browser de verdade, pelo DOM: a lente renderiza a lista, e um `start` no terminal virou `8/9` + estado
+  "viva" sem recarregar. **Falta ver
+  a lente na tela**, e colar no `AGENTS.md` dos projetos o trecho que faz o agente manter a lista
+  (está em `adapters/README.md`). Fica pro FF-035: o agente ainda precisa LEMBRAR de publicar —
+  sinal automático (sessão ativa/ociosa, ação em curso) é de lá. · `[cli]` · M · importante
+
+- **FF-036** **Quem abriu o FlowForge responde (sessão viva)** — regra de projeto de 18/09/2026,
+  depois de ver o Analisar por execução à parte: quem responde tem de ser o próprio CLI que abriu o
+  FlowForge, porque ele já tem todo o contexto; qualquer outra forma é gastar token à toa. Saiu o `adapters/live.js`: uma ponte que NÃO chama harness — conecta no `/agent`, imprime
+  uma linha por pedido (no Claude Code a ferramenta Monitor transforma a linha em evento e acorda a
+  sessão), segura o socket com `progress` e, no `live.js done <requestId>`, aplica o `reply.json`,
+  sela os arquivos e manda `completed`. **Provado com um clique real no canvas**: o clique chegou nesta
+  sessão e a resposta saiu da conversa viva em 25 s, sem reler o projeto. A prova achou um defeito
+  — a linha com todos os caminhos chegou TRUNCADA —, e a linha virou `analisar <requestId>
+  sessao= dir= nota=`, com o resto por convenção. `verifica-live.mjs`: 12 casos. A execução à
+  parte (FF-031/032/033) vira caminho secundário. Falta: OpenCode pelo servidor HTTP da TUI; Codex
+  (não se sabe se há como); o Monitor expira em 30 min e precisa ser rearmado; e o passo 5 da skill
+  `/flowforge` ainda não arma a ponte. · `[cli]` · M · importante
+
+- **FF-035** **Explicar o que o CLI está fazendo — 1ª fatia: a linha do tempo** — das quatro peças
+  do card (linha do tempo, etapa viva no diagrama, arquivos por etapa, plano aprovado no canvas) saiu
+  a primeira, que as outras consomem — e ela já trouxe a terceira de carona. Molde do FF-034: ARQUIVO
+  + comando. `<data-dir>/activity.jsonl`, append-only, uma linha por ação; quem escreve é
+  `adapters/activity.js hook claude-code`, chamado por hooks do harness (`PostToolUse`,
+  `UserPromptSubmit`, `Stop`) que o `install` liga no settings do projeto. Cada ação é CARIMBADA
+  com a tarefa `in_progress` do publicador — é daí que a lente Tarefas tira "editou: a.ts, b.ts" e
+  "o que ele está fazendo agora" dentro de cada tarefa, sem o agente declarar nada. **Narração, não
+  transcrição**: nunca o pedido do usuário, conteúdo, saída nem comando cru (só a descrição, ou
+  programa + subcomando); `verifica-activity.mjs` (23 casos) planta segredos nos payloads e confere
+  que nenhum chega ao arquivo. O hook nunca atrapalha: fora de projeto sai calado, erro sai 0,
+  assíncrono. Provado com `claude` real e, de surpresa, NESTA sessão — o Claude Code recarrega o
+  settings a quente, e a lente passou a narrar o próprio agente que a construía. A tela mostrou o
+  defeito seguinte (dez "usou …: computer" seguidos) e repetições consecutivas viraram `×N`.
+  **Falta do card:** etapa viva no DIAGRAMA (precisa de um elo tarefa ↔ nó, que não existe) e plano
+  aprovado no canvas antes de executar. Hook só para Claude Code. · `[cli]` · G · importante
+
+- **FF-037** **Projeto distribuível: plugin no repositório, e nada com vínculo pessoal** — o
+  projeto vai ser usado por outras pessoas, então a skill deixou de morar no ambiente de quem
+  desenvolve: o repositório É o plugin (`.claude-plugin/plugin.json` + `marketplace.json`,
+  `skills/flowforge/SKILL.md`, `hooks/hooks.json`). Validado com `claude plugin validate` e provado
+  com `claude --plugin-dir` num projeto temporário: a skill chega com `${CLAUDE_PLUGIN_ROOT}`
+  resolvido e o hook do plugin narra a sessão sem configuração nenhuma no projeto. O hook da linha
+  do tempo passou a ser global (não faz nada sem `.flowforge/`). **Limpeza:** os três verificadores
+  tinham uma lista fixa de pastas da máquina do autor — saiu, entra `scripts/raizes.mjs` (o repo +
+  `FLOWFORGE_VERIFY_DIRS`); nome próprio saiu de 18 arquivos de código, do `AGENTS.md` e deste
+  quadro; `.nodeterm/` e `.orca/` foram pro `.gitignore`; e a regra virou lei no `AGENTS.md` §1.
+  **Escuta que cai:** em vez de um mecanismo de rearme, o canvas avisa — indicador "agente
+  desconectado" + a frase a pedir ao CLI ("reconecte o FlowForge"), que a skill reconhece. **Decidido
+  depois:** o prefixo CSS `neon-` fica até a refatoração da interface (issue #6), e o histórico
+  do git não é reescrito. · `[aberto]` · M · importante

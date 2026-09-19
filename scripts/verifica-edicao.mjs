@@ -5,7 +5,7 @@
 // Todo card de edicao (FF-004 inspector, FF-005 criar/ligar, FF-006 aresta/ER/
 // raias) termina no mesmo lugar: um patch lens-aware que o servidor grava com
 // `writeWorkspaceLens`. Se esse caminho perder campo ou errar o rev, o loop vivo
-// quebra e o Fabricio perde trabalho — entao ele e testado aqui, com os
+// quebra e o usuario perde trabalho — entao ele e testado aqui, com os
 // diagramas REAIS, e nao so na mao.
 //
 // O que este script prova, por diagrama:
@@ -35,13 +35,7 @@ const AQUI = path.dirname(fileURLToPath(import.meta.url));
 const RAIZ = path.resolve(AQUI, '..');
 const S = require(path.join(RAIZ, 'server', 'state.js'));
 
-const RAIZES = [
-  { rotulo: 'flowforge/sessions', dir: 'C:/desenv/particular/flowforge/sessions' },
-  { rotulo: 'flowforge', dir: 'C:/desenv/particular/flowforge/.flowforge' },
-  { rotulo: 'context_builder', dir: 'C:/desenv/particular/context_builder/.flowforge' },
-  { rotulo: 'poe2', dir: 'C:/desenv/particular/poe2 - overlay + pob/.flowforge' },
-  { rotulo: 'th_framework', dir: 'C:/desenv/thealth_projects/th_framework/.flowforge' },
-];
+import { RAIZES } from './raizes.mjs'; // so o repo + FLOWFORGE_VERIFY_DIRS; nada de pasta de maquina
 
 const OUTROS_MODELOS = { process: ['state', 'er', 'mind', 'seq'], er: ['process', 'state', 'mind', 'seq'], mind: ['process', 'state', 'er', 'seq'] };
 
@@ -290,7 +284,7 @@ function autoteste(raizCopia) {
   casos.push(['rotulo da seta sobrevive', !!ex && ex.label === 'se falhar']);
 
   // FF-011: quebras manuais tem de sobreviver ao round-trip. Se o servidor
-  // podar `waypoints`, a linha que o Fabricio ajustou na mao volta torta.
+  // podar `waypoints`, a linha que o usuario ajustou na mao volta torta.
   const mwp = clone(d8.process);
   mwp.edges[0].waypoints = [{ x: 900, y: 200 }, { x: 900, y: 420 }];
   mwp.edges[0].routing = 'segments';

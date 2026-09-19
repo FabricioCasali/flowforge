@@ -4,7 +4,7 @@
 //
 // A lei 2 diz que o arquivo e a verdade. Isso vale tambem para a GEOMETRIA: se o
 // no tem x/y no workspace.json, o editor tem de desenha-lo ali — e nao no lugar
-// que o elkjs achou bonito. Este script pega os diagramas REAIS do Fabricio,
+// que o elkjs achou bonito. Este script pega os diagramas REAIS do usuario,
 // roda o layout DE VERDADE (o layout.ts que o browser usa, transpilado na hora
 // pelo esbuild) e confere quatro coisas:
 //
@@ -36,14 +36,7 @@ const WEBNEXT = path.join(RAIZ, 'web-next');
 const S = require(path.join(RAIZ, 'server', 'state.js'));
 
 // Mesmas raizes do verifica-migracao.mjs: onde moram os diagramas de verdade.
-const RAIZES = [
-  { rotulo: 'flowforge/sessions', dir: 'C:/desenv/particular/flowforge/sessions' },
-  { rotulo: 'flowforge', dir: 'C:/desenv/particular/flowforge/.flowforge' },
-  { rotulo: 'context_builder', dir: 'C:/desenv/particular/context_builder/.flowforge' },
-  { rotulo: 'poe2', dir: 'C:/desenv/particular/poe2 - overlay + pob/.flowforge' },
-  { rotulo: 'th_framework', dir: 'C:/desenv/thealth_projects/th_framework/.flowforge' },
-  { rotulo: 'iforyou_nfse', dir: 'C:/desenv/thealth_projects/IForYou.Nfse/.flowforge' },
-];
+import { RAIZES } from './raizes.mjs'; // so o repo + FLOWFORGE_VERIFY_DIRS; nada de pasta de maquina
 
 // Quais lentes de grafo rodam sobre qual modelo, e se a lente e DONA da posicao.
 // Espelha `web-next/src/editor/lenses.ts` — se divergir, o teste mente.
@@ -52,7 +45,7 @@ const LENTES = [
   { key: 'swimlane', modelo: 'process', layout: 'swimlane', honra: false },
   { key: 'state', modelo: 'state', layout: 'layered', honra: true },
   { key: 'er', modelo: 'er', layout: 'er', honra: true },
-  { key: 'mind', modelo: 'mind', layout: 'radial', honra: true },
+  { key: 'mind', modelo: 'mind', layout: 'mind', honra: true },
 ];
 
 // ---------------------------------------------------------------------------
@@ -127,7 +120,7 @@ async function rodarLayout(L, diagrama, lente) {
   switch (lente.layout) {
     case 'swimlane': return L.swimlaneLayout(diagrama);
     case 'er': return L.layoutDiagram(diagrama, 'RIGHT', 110);
-    case 'radial': return L.radialLayout(diagrama);
+    case 'mind': return L.mindLayout(diagrama);
     default: return L.layoutDiagram(diagrama, 'DOWN', 70);
   }
 }
@@ -176,7 +169,7 @@ function confere(diagrama, lente, res) {
   if (lente.honra) {
     // Nó em `ajustados` foi movido de PROPOSITO, pra desfazer sobreposicao — e
     // essa posicao nova vai pro arquivo (excecao da lei 4). Cobrar fidelidade
-    // dele seria cobrar que o editor ignorasse o que o Fabricio pediu.
+    // dele seria cobrar que o editor ignorasse o que o usuario pediu.
     const movidos = new Set(res.ajustados || []);
     for (const [id, p] of salvos) {
       if (movidos.has(id)) continue;
@@ -327,7 +320,7 @@ function pontoNaBorda(pt, p, s) {
  * A LINHA VOLTA EM CIMA DE SI MESMA?
  *
  * Dois trechos consecutivos na mesma orientacao e em sentidos OPOSTOS: a linha
- * anda e desanda pelo mesmo eixo. Foi o que o Fabricio viu depois do FF-011, e
+ * anda e desanda pelo mesmo eixo. Foi o que o usuario viu depois do FF-011, e
  * acontecia quando a dobra do meio ignorava a direcao dos lados ancorados.
  * Fica como teste permanente: e o tipo de feiura que so aparece na tela.
  */
@@ -448,7 +441,7 @@ async function testaRoteamento(L) {
   casos.push(['a checagem NAO acusa um traco normal em Z',
     !voltaSobreSi([{ x: 0, y: 0 }, { x: 50, y: 0 }, { x: 50, y: 90 }, { x: 120, y: 90 }])]);
 
-  // SOBREPOSICAO (excecao da lei 4). Isto REESCREVE o desenho do Fabricio, entao
+  // SOBREPOSICAO (excecao da lei 4). Isto REESCREVE o desenho do usuario, entao
   // as tres garantias do comentario precisam valer de fato — senao o arquivo dele
   // muda sozinho a cada abertura, que seria bem pior que dois nos colados.
   {
@@ -560,7 +553,7 @@ async function testaFerramentas(L, M, X, base) {
   }
 
   // ---- arranjos nomeados ----
-  for (const nome of ['vertical', 'horizontal', 'arvore', 'forca', 'radial']) {
+  for (const nome of ['vertical', 'horizontal', 'arvore', 'forca', 'radial', 'mapa']) {
     const d = base();
     const r = await L.namedLayout(d, nome);
     const todos = d.nodes.every((n) => r.positions[n.id] && Number.isFinite(r.positions[n.id].x));
@@ -774,7 +767,7 @@ async function autoteste(L, M, X) {
   }
   // 6d. ANCORA VELHA: o mesmo left->right com `b` logo ABAIXO de `a` custa uma volta
   //     inteira (sai pela esquerda, contorna, chega pela direita). Foi o defeito que o
-  //     Fabricio mostrou depois de um arranjo automatico: a ancora e ignorada no traco.
+  //     usuario mostrou depois de um arranjo automatico: a ancora e ignorada no traco.
   {
     const d = base();
     d.edges[0].sourceSide = 'left';

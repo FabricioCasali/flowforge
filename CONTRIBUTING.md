@@ -66,8 +66,11 @@ Co-Authored-By: <nome do modelo> <email informado pelo harness>
 
 ## Onde ficam as coisas
 
-- `docs/BOARD.md` — o quadro de tarefas do projeto, com o que está em andamento e o que
-  está no backlog. Vale olhar antes de propor algo grande.
+- **[Issues do GitHub](https://github.com/FabricioCasali/flowforge/issues)** — o controle do projeto: o que está por fazer, em andamento e
+  em discussão. Vale olhar antes de propor algo grande, e abrir uma antes de começar. Não existe
+  quadro paralelo em arquivo.
+- `docs/HISTORICO.md` — o quadro antigo, congelado: o que foi feito até 18/09/2026 e por quê.
+  Não recebe cards novos.
 - `docs/SCHEMA.md` — o formato dos arquivos, para quem quer plugar outro agente no loop.
 - `AGENTS.md` — instruções para agentes que trabalham neste repositório. É um documento de
   trabalho interno, com decisões e datas; não é documentação de usuário.
