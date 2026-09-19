@@ -5,7 +5,7 @@
 // diagrama de 22 nós não sabe por onde começar. Este painel dá o percurso — os
 // nós viram cartões numerados, clicar num cartão voa a tela até o nó.
 //
-// A DIVISÃO DE CONTEÚDO é o coração da coisa (decisão do Fabricio, 06/08/2026):
+// A DIVISÃO DE CONTEÚDO é o coração da coisa (decisão de projeto, 06/08/2026):
 //     painel → `concept`      = a TEORIA, pra entender o fluxo
 //     card   → `description`  = o EXEMPLO REAL, pra implementar
 // São duas frentes, não dois recortes do mesmo texto. Por isso o cartão daqui

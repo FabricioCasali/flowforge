@@ -6,6 +6,8 @@
 //   recebe   { type:'state',  session, workspace, thread, busy, agentOnline, agentLabel }
 //   recebe   { type:'busy',   session, busy }
 //   recebe   { type:'agent', online, label }
+//   recebe   { type:'tasks', tasks }   ← <data-dir>/tasks.json, por PROJETO (vale em toda sessão)
+//   recebe   { type:'activity', events } ← o fim do <data-dir>/activity.jsonl: a linha do tempo do CLI
 //   envia    { type:'patch',  session, lens, diagram }   ← lens-aware (lei 4)
 //   envia    { type:'analyze', session, note }
 //
@@ -23,12 +25,17 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
+  emptyTasks,
   emptyWorkspace,
+  normalizeActivity,
   normalizeMessageAuthor,
+  normalizeTasks,
   normalizeWorkspace,
+  type ActivityEvent,
   type Diagram,
   type ModelKey,
   type SeqModel,
+  type TasksFile,
   type Thread,
   type Workspace
 } from './types.js'
@@ -54,7 +61,15 @@ export interface AgentMsg {
   online: boolean
   label?: string | null
 }
-export type ServerMsg = StateMsg | BusyMsg | AgentMsg | { type: 'pong' }
+export interface TasksMsg {
+  type: 'tasks'
+  tasks?: unknown
+}
+export interface ActivityMsg {
+  type: 'activity'
+  events?: unknown
+}
+export type ServerMsg = StateMsg | BusyMsg | AgentMsg | TasksMsg | ActivityMsg | { type: 'pong' }
 
 export type ClientMsg =
   | { type: 'patch'; session: string; lens: ModelKey; diagram: Diagram | SeqModel }
@@ -70,6 +85,8 @@ export interface Handlers {
   onBusy: (busy: boolean) => void
   onConn: (c: ConnStatus) => void
   onAgent: (online: boolean, label: string | null) => void
+  onTasks: (t: TasksFile) => void
+  onActivity: (events: ActivityEvent[]) => void
 }
 
 const RETRY_BASE = 800
@@ -95,7 +112,7 @@ function wsUrl(session: string): string {
 
 /**
  * Cano vivo com uma sessão. Reconecta sozinho com backoff (800ms → ×1.6 → 10s),
- * porque o servidor reinicia bastante durante o desenvolvimento e o Fabricio não
+ * porque o servidor reinicia bastante durante o desenvolvimento e o usuário não
  * pode ter que apertar F5 no meio de um desenho.
  */
 export class FlowForgeSocket {
@@ -159,6 +176,14 @@ export class FlowForgeSocket {
     }
     if (msg.type === 'agent') {
       this.h.onAgent(!!msg.online, msg.label ?? null)
+      return
+    }
+    if (msg.type === 'tasks') {
+      this.h.onTasks(normalizeTasks(msg.tasks))
+      return
+    }
+    if (msg.type === 'activity') {
+      this.h.onActivity(normalizeActivity(msg.events))
       return
     }
   }
@@ -227,6 +252,10 @@ export interface Live {
   /** Adapter externo registrado. Sem ele, "Analisar" fica pendente no inbox. */
   agentOnline: boolean
   agentLabel: string | null
+  /** Tarefas ao vivo do CLI. É do PROJETO: não zera ao trocar de sessão. */
+  tasks: TasksFile
+  /** As últimas ações do CLI, da mais antiga pra mais nova. Do PROJETO, como as tarefas. */
+  activity: ActivityEvent[]
   /** grava uma lente (não sai quando busy — lei 7) */
   patch: (lens: ModelKey, model: Diagram | SeqModel) => void
   analyze: (note?: string) => void
@@ -244,6 +273,8 @@ export function useFlowForge(session: string): Live {
   const [conn, setConn] = useState<ConnStatus>('conectando')
   const [agentOnline, setAgentOnline] = useState(false)
   const [agentLabel, setAgentLabel] = useState<string | null>(null)
+  const [tasks, setTasks] = useState<TasksFile>(emptyTasks)
+  const [activity, setActivity] = useState<ActivityEvent[]>([])
   const sockRef = useRef<FlowForgeSocket | null>(null)
 
   useEffect(() => {
@@ -264,7 +295,9 @@ export function useFlowForge(session: string): Live {
       onAgent: (online, label) => {
         setAgentOnline(online)
         setAgentLabel(label)
-      }
+      },
+      onTasks: setTasks,
+      onActivity: setActivity
     })
     sockRef.current = sock
     return () => {
@@ -280,5 +313,5 @@ export function useFlowForge(session: string): Live {
     sockRef.current?.analyze(note)
   }, [])
 
-  return { workspace, carregado, thread, busy, conn, agentOnline, agentLabel, patch, analyze }
+  return { workspace, carregado, thread, busy, conn, agentOnline, agentLabel, tasks, activity, patch, analyze }
 }

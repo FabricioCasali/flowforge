@@ -57,7 +57,7 @@ export interface DNode {
    * A TEORIA: o conceito por trás da etapa, para quem está entendendo o fluxo
    * pela primeira vez. Aparece no painel guiado, não no card.
    *
-   * Campo separado de propósito (decisão do Fabricio, 06/08/2026): são duas
+   * Campo separado de propósito (decisão de projeto, 06/08/2026): são duas
    * frentes distintas, não dois recortes do mesmo texto. Quem lê para aprender
    * quer o conceito; quem lê para implementar quer o exemplo.
    */
@@ -87,7 +87,7 @@ export interface DEdge {
   /**
    * Quebras MANUAIS, em coordenadas do canvas. Quem tem waypoints manda: o
    * roteador automático não é consultado. Mesmo formato do editor antigo, que
-   * grava `routing:'segments'` junto — decisão do Fabricio em 06/08/2026, pela
+   * grava `routing:'segments'` junto — decisão de projeto de 06/08/2026, pela
    * paridade com o `web/`.
    */
   waypoints?: Pt[]
@@ -120,6 +120,124 @@ export interface ThreadMessage {
 
 export interface Thread {
   messages: ThreadMessage[]
+}
+
+// ---------- Tarefas ao vivo do CLI (<data-dir>/tasks.json) ----------
+// NÃO é um modelo do workspace, de propósito (decisão de projeto, 18/09/2026):
+// quem escreve aqui é o agente no terminal, várias vezes por minuto, enquanto o
+// usuário edita o diagrama. Dentro do `workspace.json` cada tarefa concluída
+// subiria o `rev` e disputaria a escrita com o arrasto de um nó. Arquivo próprio,
+// `rev` próprio, e é POR PROJETO (raiz do data-dir), não por sessão de diagrama:
+// o que o CLI está fazendo não pertence a um desenho.
+//
+// Uma LISTA por publicador (harness + sessão de terminal): dois CLIs abertos no
+// mesmo projeto não pisam um no outro. O browser só lê.
+export type TaskStatus = 'pending' | 'in_progress' | 'completed' | 'blocked'
+
+export interface TaskItem {
+  id: string
+  title: string
+  status: TaskStatus
+  /** Detalhe curto: o que está fazendo agora, ou por que travou. */
+  note?: string
+  updatedAt?: number
+}
+
+export interface TaskList {
+  /** Quem publica, estável entre escritas — ex.: `claude-code`, `codex:pane-2`. */
+  id: string
+  /** Nome mostrado no canvas — ex.: `Claude Code`. */
+  label: string
+  /** O objetivo desta leva de tarefas. */
+  title?: string
+  updatedAt: number
+  tasks: TaskItem[]
+}
+
+export interface TasksFile {
+  rev: number
+  lists: TaskList[]
+}
+
+const TASK_STATUSES: TaskStatus[] = ['pending', 'in_progress', 'completed', 'blocked']
+
+export function emptyTasks(): TasksFile {
+  return { rev: 0, lists: [] }
+}
+
+/** Lê o que vier do disco sem confiar: arquivo escrito à mão por agente erra formato. */
+export function normalizeTasks(raw: unknown): TasksFile {
+  if (!raw || typeof raw !== 'object') return emptyTasks()
+  const r = raw as Record<string, unknown>
+  const lists = Array.isArray(r.lists) ? r.lists : []
+  return {
+    rev: Number.isFinite(r.rev) ? Number(r.rev) : 0,
+    lists: lists
+      .filter((l): l is Record<string, unknown> => !!l && typeof l === 'object' && typeof (l as { id?: unknown }).id === 'string')
+      .map((l) => ({
+        id: String(l.id),
+        label: typeof l.label === 'string' && l.label.trim() ? l.label : String(l.id),
+        title: typeof l.title === 'string' && l.title.trim() ? l.title : undefined,
+        updatedAt: Number.isFinite(l.updatedAt) ? Number(l.updatedAt) : 0,
+        tasks: (Array.isArray(l.tasks) ? l.tasks : [])
+          .filter((t): t is Record<string, unknown> => !!t && typeof t === 'object')
+          .map((t, i) => ({
+            id: typeof t.id === 'string' && t.id ? t.id : 't' + (i + 1),
+            title: String(t.title ?? ''),
+            status: TASK_STATUSES.includes(t.status as TaskStatus) ? (t.status as TaskStatus) : 'pending',
+            note: typeof t.note === 'string' && t.note.trim() ? t.note : undefined,
+            updatedAt: Number.isFinite(t.updatedAt) ? Number(t.updatedAt) : undefined
+          }))
+      }))
+  }
+}
+
+// ---------- Atividade do CLI (<data-dir>/activity.jsonl) ----------
+// O que o agente FEZ, na ordem: a linha do tempo (FF-035). Append-only, uma linha
+// JSON por ação, por PROJETO — irmão do `tasks.json` e pelos mesmos motivos fora do
+// workspace. Quem escreve é um hook do harness (`adapters/activity.js hook …`) ou o
+// próprio agente (`… note "texto"`); o browser só lê as últimas.
+//
+// `task` é o elo com as tarefas: no momento da escrita, o comando olha qual tarefa
+// daquele publicador está `in_progress` e carimba o id. É daí que saem "arquivos
+// tocados por etapa" e "o que ele fez nesta tarefa" — sem o agente declarar nada.
+//
+// O texto do pedido do usuário NUNCA entra aqui, nem a saída das ferramentas: só o
+// verbo, o alvo e um resumo curto. Isto é narração, não transcrição.
+export type ActivityKind = 'read' | 'edit' | 'run' | 'search' | 'web' | 'agent' | 'tool' | 'note' | 'prompt' | 'stop'
+
+export interface ActivityEvent {
+  ts: number
+  /** Publicador — o mesmo `id` da lista dele em `tasks.json`. */
+  source: string
+  label: string
+  kind: ActivityKind
+  /** Uma linha: "editou layout.ts", "rodou os testes", "buscou `radial`". */
+  summary: string
+  /** Caminhos relativos ao projeto que a ação leu ou gravou. */
+  files?: string[]
+  /** Id da tarefa `in_progress` do publicador quando a ação aconteceu. */
+  task?: string
+  /** A ação falhou (comando com erro, edição recusada…). */
+  failed?: boolean
+}
+
+const ACTIVITY_KINDS: ActivityKind[] = ['read', 'edit', 'run', 'search', 'web', 'agent', 'tool', 'note', 'prompt', 'stop']
+
+export function normalizeActivity(raw: unknown): ActivityEvent[] {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .filter((e): e is Record<string, unknown> => !!e && typeof e === 'object' && Number.isFinite((e as { ts?: unknown }).ts))
+    .map((e) => ({
+      ts: Number(e.ts),
+      source: typeof e.source === 'string' && e.source ? e.source : 'cli',
+      label: typeof e.label === 'string' && e.label ? e.label : String(e.source ?? 'CLI'),
+      kind: ACTIVITY_KINDS.includes(e.kind as ActivityKind) ? (e.kind as ActivityKind) : 'tool',
+      summary: String(e.summary ?? ''),
+      files: Array.isArray(e.files) ? e.files.filter((f): f is string => typeof f === 'string') : undefined,
+      task: typeof e.task === 'string' && e.task ? e.task : undefined,
+      failed: e.failed === true ? true : undefined
+    }))
 }
 
 // ---------- Workspace multi-lente: o arquivo-verdade do editor ----------

@@ -17,7 +17,7 @@ export const STLBL: Record<NodeStatus, string> = {
 }
 
 /**
- * Status que ACENDEM o nó no canvas — só o que ainda pede a atenção do Fabricio.
+ * Status que ACENDEM o nó no canvas — só o que ainda pede a atenção do usuário.
  *
  * `approved` saiu daqui: aprovado é assunto RESOLVIDO, e a regra-mãe da pele é
  * "só brilha o que está vivo". Com ele dentro, um diagrama maduro (20 de 21 nós

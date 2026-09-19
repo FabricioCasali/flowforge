@@ -178,7 +178,7 @@ export function novaEdge(source: string, target: string, sourceSide?: Side, targ
  * A regra do consenso é a de sempre: a aresta herda o status só se as duas
  * pontas têm o MESMO status não-neutro; senão volta pra 'proposed'.
  *
- * O RAIO é que importa, e é decisão do Fabricio (06/08/2026): a seta tem status
+ * O RAIO é que importa, e é decisão de projeto (06/08/2026): a seta tem status
  * PRÓPRIO e editável (o editor antigo sempre teve — `#edge-status`), então a
  * propagação só pode tocar nas arestas do nó que acabou de receber veredito,
  * como o `propagateFrom` do antigo (`app.js:831`). Recalcular o diagrama inteiro

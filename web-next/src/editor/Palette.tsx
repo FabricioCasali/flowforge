@@ -1,6 +1,6 @@
 // ============================================================================
 // Palette — de onde saem os nós novos. Porte da paleta da fase 3 do editor
-// antigo, incluindo o que o Fabricio pediu lá: **mini-SVG da forma real** em vez
+// antigo, incluindo o que o usuário pediu lá: **mini-SVG da forma real** em vez
 // de um ícone genérico, para escolher pela silhueta e não pela leitura.
 //
 // Gesto: arrastar o item e soltar no canvas (`app.js:995-1012`). O duplo-clique

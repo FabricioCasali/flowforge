@@ -2,17 +2,18 @@
 // layout.ts — posicionamento + roteamento por lente.
 //  • layoutDiagram  → elk `layered` ortogonal (Fluxograma, Máq. estados, ER)
 //  • swimlaneLayout → colunas do elk + bandas por raia (ator×ação)
-//  • radialLayout   → árvore radial (Mind map)
+//  • mindLayout     → árvore horizontal de dois lados (Mind map)
+//  • radialLayout   → anéis (arranjo alternativo do Mind map)
 // Coordenadas = coords do React Flow. edgePoints alimentam a aresta custom.
 //
 // LEI 2 (arquivo é a verdade) aplicada à geometria: **quem tem `x`/`y` no
 // arquivo manda**. O elk só calcula quem não tem — e o que ele calcular é
 // transladado para o referencial do desenho salvo, senão o nó novo do agente
-// aparece a mil pixels do diagrama que o Fabricio arrastou. Ver `anchorToSaved`.
+// aparece a mil pixels do diagrama que o usuário arrastou. Ver `anchorToSaved`.
 //
 // A Swimlane é a exceção declarada (`savesPos: false` em `lenses.ts`): ela
 // recalcula sempre, porque divide o `process` — e o par `x`/`y` — com o
-// Fluxograma. Decisão do Fabricio em 06/08/2026.
+// Fluxograma. Decisão de projeto de 06/08/2026.
 // ============================================================================
 
 import type { Diagram, DNode, Pt, Side } from '../types.js'
@@ -45,7 +46,7 @@ export interface LayoutResult {
   /**
    * Ids que o layout MOVEU para desfazer sobreposição. Quem chama grava essas
    * posições no arquivo — é a exceção da lei 4, e a única vez que um nó anda sem
-   * o Fabricio pedir. Vazio na esmagadora maioria das aberturas.
+   * o usuário pedir. Vazio na esmagadora maioria das aberturas.
    */
   ajustados?: string[]
 }
@@ -178,7 +179,7 @@ function overlaps(a: Pt, as: Size, b: Pt, bs: Size, gap: number): boolean {
  * preservadas fielmente, e as caixas engordaram em cima delas — 25 pares
  * sobrepostos nos diagramas reais, 6 envolvendo anotação.
  *
- * Três garantias, porque isto reescreve o desenho do Fabricio:
+ * Três garantias, porque isto reescreve o desenho do usuário:
  *   · DETERMINÍSTICO — varre em ordem de posição, então a mesma entrada dá
  *     sempre a mesma saída (senão o arquivo mudaria a cada abertura);
  *   · MÍNIMO — empurra só pra baixo, e só o quanto falta pra descolar;
@@ -291,7 +292,7 @@ function anchorToSaved(
 
 /**
  * Traço ortogonal L/Z entre dois nós — o mesmo desenho do `curve-style: taxi` do
- * editor antigo, que é o que o Fabricio aprovou na fase 3. Sai pelo lado mais
+ * editor antigo, que é o que o usuário aprovou na fase 3. Sai pelo lado mais
  * curto e dobra na metade do caminho.
  */
 export function orthRoute(
@@ -588,7 +589,7 @@ const VOLTA = 26
  * lado. Devolve de `s1` a `t1`, inclusive.
  *
  * A regra que faltava aqui — e que produzia a linha voltando em cima de si
- * mesma, que o Fabricio viu — é que a dobra tem de estar ao mesmo tempo:
+ * mesma, que o usuário viu — é que a dobra tem de estar ao mesmo tempo:
  *   · À FRENTE da saída (na direção pra onde o stub aponta), e
  *   · ATRÁS da entrada (a linha precisa chegar em `t1` pelo lado certo).
  *
@@ -735,7 +736,7 @@ function ladosDe(
   // ÂNCORA VELHA. O lado é gravado pra UMA geometria — o gesto de ligar, ou o
   // agente compondo o desenho. Quando os nós mudam de lugar ele pode passar a
   // custar uma volta inteira: sair pela esquerda, contornar por cima e chegar na
-  // direita de quem agora está logo ali embaixo (foi o que o Fabricio mostrou).
+  // direita de quem agora está logo ali embaixo (foi o que o usuário mostrou).
   // Se obedecer custa MUITO mais traço que o caminho natural, a âncora não vale.
   // A exceção é o par de ida-e-volta (A→B e B→A): ali o desvio é DE PROPÓSITO,
   // pra seta de volta não deitar em cima da de ida.
@@ -1597,7 +1598,7 @@ export async function swimlaneLayout(diagram: Diagram): Promise<LayoutResult> {
  * pra mim". O resultado é gravado no arquivo pelo chamador — senão o desenho
  * voltaria ao antigo no próximo reload, que é justamente o que o FF-001 garante.
  */
-export type LayoutNome = 'vertical' | 'horizontal' | 'arvore' | 'radial' | 'forca'
+export type LayoutNome = 'vertical' | 'horizontal' | 'arvore' | 'radial' | 'forca' | 'mapa'
 
 export const LAYOUTS: { nome: LayoutNome; label: string }[] = [
   { nome: 'vertical', label: 'Vertical' },
@@ -1607,7 +1608,18 @@ export const LAYOUTS: { nome: LayoutNome; label: string }[] = [
   { nome: 'forca', label: 'Força' }
 ]
 
+/**
+ * Os arranjos do Mind map. Os de grafo (elk layered/mrtree/force) não entendem
+ * "raiz no centro": num mapa de 33 nós o Árvore dava uma tira de 6600px e o
+ * Força, 57 cruzamentos. Na lente Mind map o menu oferece só estes.
+ */
+export const LAYOUTS_MIND: { nome: LayoutNome; label: string }[] = [
+  { nome: 'mapa', label: 'Mapa (dois lados)' },
+  { nome: 'radial', label: 'Radial' }
+]
+
 export async function namedLayout(diagram: Diagram, nome: LayoutNome): Promise<LayoutResult> {
+  if (nome === 'mapa') return mindLayout(diagram, false)
   if (nome === 'radial') return radialLayout(diagram, false)
   if (nome === 'vertical') return layoutDiagram(diagram, 'DOWN', 70, false)
   if (nome === 'horizontal') return layoutDiagram(diagram, 'RIGHT', 90, false)
@@ -1629,14 +1641,147 @@ export async function namedLayout(diagram: Diagram, nome: LayoutNome): Promise<L
   return { positions, sizes, edgePoints: routeAll(diagram, positions, sizes) }
 }
 
-/** Mind map: árvore radial a partir da raiz (nó sem arestas de entrada). */
-export function radialLayout(diagram: Diagram, honorSaved = true): LayoutResult {
-  const sizes = sizesOf(diagram)
+/** Raiz (nó sem aresta de entrada) e filhos por nó, na ordem do arquivo. */
+function arvoreDe(diagram: Diagram): { root: DNode | undefined; children: Record<string, string[]> } {
   const targets = new Set(diagram.edges.map((e) => e.target))
   const root = diagram.nodes.find((n) => !targets.has(n.id)) ?? diagram.nodes[0]
-  const computed: Record<string, Pt> = {}
+  const ids = new Set(diagram.nodes.map((n) => n.id))
   const children: Record<string, string[]> = {}
-  for (const e of diagram.edges) (children[e.source] ??= []).push(e.target)
+  const visto = new Set<string>(root ? [root.id] : [])
+  // cada nó entra UMA vez (a primeira aresta que chega nele): ciclo ou pai duplo
+  // no arquivo não pode virar recursão infinita nem nó desenhado duas vezes
+  for (const e of diagram.edges) {
+    if (!ids.has(e.source) || !ids.has(e.target) || visto.has(e.target)) continue
+    visto.add(e.target)
+    ;(children[e.source] ??= []).push(e.target)
+  }
+  return { root, children }
+}
+
+/**
+ * O fim comum dos dois arranjos do mind map: o arquivo manda (o usuário arruma
+ * o mapa na mão), quem sobrar em cima de alguém é afastado, e as arestas saem
+ * de `mindEdgePoints`.
+ */
+function fechaMind(diagram: Diagram, computed: Record<string, Pt>, sizes: LayoutResult['sizes'], honorSaved: boolean): LayoutResult {
+  // nó fora da árvore (solto, sem aresta) não pode ficar sem posição
+  let yOrfao = Math.max(0, ...Object.keys(computed).map((id) => computed[id]!.y + sizes[id]!.height)) + 60
+  for (const n of diagram.nodes) {
+    if (computed[n.id]) continue
+    computed[n.id] = { x: -sizes[n.id]!.width / 2, y: yOrfao }
+    yOrfao += sizes[n.id]!.height + 20
+  }
+  const saved = honorSaved ? savedPositions(diagram, sizes) : {}
+  const base = Object.keys(saved).length ? anchorToSaved(diagram, saved, computed, sizes) : computed
+  const solto = desempilhar(ordemPorPosicao(base), base, sizes)
+  return {
+    positions: solto.positions,
+    sizes,
+    edgePoints: mindEdgePoints(diagram, solto.positions, sizes),
+    ajustados: solto.ajustados
+  }
+}
+
+/**
+ * Aresta do mind map: DOIS pontos, da lateral do pai à lateral do filho, pelo
+ * lado em que o filho está. A `MindEdge` desenha a bézier entre eles.
+ *
+ * É a ÚNICA fonte de pontos da lente Mind map — o editor chama esta função
+ * também durante e depois do arrasto. O roteador ortogonal (`routeAll`) devolve
+ * uma polilinha com quebras, e a bézier lida como "os dois primeiros pontos"
+ * virava um toco reto solto no meio do canvas.
+ */
+export function mindEdgePoints(diagram: Diagram, positions: Record<string, Pt>, sizes: LayoutResult['sizes']): LayoutResult['edgePoints'] {
+  const out: LayoutResult['edgePoints'] = {}
+  for (const e of diagram.edges) {
+    const s = positions[e.source]
+    const t = positions[e.target]
+    const ss = sizes[e.source]
+    const ts = sizes[e.target]
+    if (!s || !t || !ss || !ts) continue
+    const direita = t.x + ts.width / 2 >= s.x + ss.width / 2
+    out[e.id] = [
+      { x: direita ? s.x + ss.width : s.x, y: s.y + ss.height / 2 },
+      { x: direita ? t.x : t.x + ts.width, y: t.y + ts.height / 2 }
+    ]
+  }
+  return out
+}
+
+/**
+ * Mind map: árvore horizontal de dois lados — a raiz no centro, metade dos ramos
+ * à direita e metade à esquerda, cada subárvore ocupando a altura das suas folhas.
+ *
+ * É o arranjo clássico de mapa mental (XMind, MindNode, markmap), e a razão é
+ * geométrica: o texto é horizontal, então empilhar irmãos na vertical custa a
+ * ALTURA de cada nó (~50px), enquanto o anel custa a LARGURA (~200px) em arco.
+ * O radial de anel fixo não cabia: 26 folhas num anel de 460px de raio dá 111px
+ * de arco por nó de até 210px — metade nascia sobreposta e o `desempilhar`
+ * espalhava sem critério (visto em 18/09/2026, sessão `melhorias-flowforge`).
+ */
+export function mindLayout(diagram: Diagram, honorSaved = true): LayoutResult {
+  const sizes = sizesOf(diagram)
+  const { root, children } = arvoreDe(diagram)
+  const computed: Record<string, Pt> = {}
+  if (!root) return fechaMind(diagram, computed, sizes, honorSaved)
+
+  const HGAP = 72 // entre a lateral do pai e a do filho: espaço da curva
+  const VGAP = 14 // entre irmãos
+  const RAMO_GAP = 30 // entre ramos principais, pra cor não encostar em cor
+
+  // altura do bloco da subárvore = o maior entre o nó e a pilha dos filhos
+  const bloco: Record<string, number> = {}
+  const mede = (id: string): number => {
+    const ch = children[id] ?? []
+    const pilha = ch.reduce((s, c) => s + mede(c), 0) + Math.max(0, ch.length - 1) * VGAP
+    return (bloco[id] = Math.max(sizes[id]!.height, pilha))
+  }
+  mede(root.id)
+
+  /** Empilha `ids` centrados em `cy`, encostados na lateral `borda` do pai. */
+  const empilha = (ids: string[], borda: number, cy: number, lado: 1 | -1, gap: number): void => {
+    const total = ids.reduce((s, c) => s + bloco[c]!, 0) + Math.max(0, ids.length - 1) * gap
+    let y = cy - total / 2
+    for (const id of ids) {
+      const s = sizes[id]!
+      const meio = y + bloco[id]! / 2
+      const x = lado === 1 ? borda + HGAP : borda - HGAP - s.width
+      computed[id] = { x, y: meio - s.height / 2 }
+      empilha(children[id] ?? [], lado === 1 ? x + s.width : x, meio, lado, VGAP)
+      y += bloco[id]! + gap
+    }
+  }
+
+  const rs = sizes[root.id]!
+  computed[root.id] = { x: -rs.width / 2, y: -rs.height / 2 }
+
+  // ramos na ordem do arquivo: enche a direita até a metade da altura, o resto vai
+  // pra esquerda. Até 2 ramos fica tudo à direita — mapa pequeno lê melhor assim.
+  const ramos = children[root.id] ?? []
+  const total = ramos.reduce((s, c) => s + bloco[c]!, 0)
+  const direita: string[] = []
+  const esquerda: string[] = []
+  let acc = 0
+  for (const c of ramos) {
+    if (ramos.length <= 2 || acc < total / 2) direita.push(c)
+    else esquerda.push(c)
+    acc += bloco[c]!
+  }
+  empilha(direita, rs.width / 2, 0, 1, RAMO_GAP)
+  empilha(esquerda, -rs.width / 2, 0, -1, RAMO_GAP)
+
+  return fechaMind(diagram, computed, sizes, honorSaved)
+}
+
+/**
+ * Mind map em anéis: alternativa do menu de arranjo. O raio de cada anel cresce
+ * até caber quem mora nele — com anel fixo, mapa de mais de ~12 folhas nascia
+ * sobreposto. Fica grande em mapa cheio; o padrão da lente é o `mindLayout`.
+ */
+export function radialLayout(diagram: Diagram, honorSaved = true): LayoutResult {
+  const sizes = sizesOf(diagram)
+  const { root, children } = arvoreDe(diagram)
+  const computed: Record<string, Pt> = {}
 
   // conta folhas por subárvore → distribui setores angulares proporcionais
   const leaves: Record<string, number> = {}
@@ -1647,10 +1792,21 @@ export function radialLayout(diagram: Diagram, honorSaved = true): LayoutResult 
   }
   if (root) countLeaves(root.id)
 
+  // raio por profundidade: o menor setor do anel tem de comportar a diagonal do nó
   const RING = 230
+  const pedido: number[] = []
+  const medeAnel = (id: string, depth: number, span: number): void => {
+    const s = sizes[id]!
+    if (depth > 0) pedido[depth] = Math.max(pedido[depth] ?? 0, (Math.hypot(s.width, s.height) + 24) / Math.min(span, Math.PI))
+    for (const c of children[id] ?? []) medeAnel(c, depth + 1, (span * leaves[c]!) / (leaves[id] || 1))
+  }
+  if (root) medeAnel(root.id, 0, 2 * Math.PI)
+  const raio: number[] = [0]
+  for (let d = 1; d < pedido.length; d++) raio[d] = Math.max(raio[d - 1]! + RING, pedido[d] ?? 0)
+
   const place = (id: string, depth: number, a0: number, a1: number): void => {
     const mid = (a0 + a1) / 2
-    const r = depth * RING
+    const r = raio[depth] ?? depth * RING
     const s = sizes[id]!
     computed[id] = { x: Math.cos(mid) * r - s.width / 2, y: Math.sin(mid) * r - s.height / 2 }
     const ch = children[id] ?? []
@@ -1663,24 +1819,5 @@ export function radialLayout(diagram: Diagram, honorSaved = true): LayoutResult 
   }
   if (root) place(root.id, 0, -Math.PI, Math.PI)
 
-  // o arquivo manda também aqui (o Fabricio arruma o mapa na mão)
-  const saved = honorSaved ? savedPositions(diagram, sizes) : {}
-  const base = Object.keys(saved).length ? anchorToSaved(diagram, saved, computed, sizes) : computed
-  const solto = desempilhar(ordemPorPosicao(base), base, sizes)
-  const positions = solto.positions
-
-  // arestas mind = bezier entre centros (a aresta custom desenha a curva)
-  const edgePoints: LayoutResult['edgePoints'] = {}
-  for (const e of diagram.edges) {
-    const s = positions[e.source]
-    const t = positions[e.target]
-    if (!s || !t) continue
-    const ss = sizes[e.source]!
-    const ts = sizes[e.target]!
-    edgePoints[e.id] = [
-      { x: s.x + ss.width / 2, y: s.y + ss.height / 2 },
-      { x: t.x + ts.width / 2, y: t.y + ts.height / 2 }
-    ]
-  }
-  return { positions, sizes, edgePoints, ajustados: solto.ajustados }
+  return fechaMind(diagram, computed, sizes, honorSaved)
 }

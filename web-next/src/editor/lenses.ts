@@ -2,14 +2,14 @@
 // o tipo de NÓ e o estilo de ARESTA. Lentes de "lente" compartilham grafo
 // (flow/swimlane sobre `process`); lentes de "conteúdo" têm modelo próprio.
 
-export type LensKey = 'flow' | 'swimlane' | 'state' | 'er' | 'mind' | 'seq'
+export type LensKey = 'flow' | 'swimlane' | 'state' | 'er' | 'mind' | 'seq' | 'tasks'
 export type ModelKey = 'process' | 'state' | 'er' | 'mind' | 'seq'
 
 export interface LensDef {
   key: LensKey
   label: string
   model: ModelKey
-  layout: 'layered' | 'swimlane' | 'er' | 'radial' | 'seq'
+  layout: 'layered' | 'swimlane' | 'er' | 'mind' | 'seq' | 'tasks'
   nodeType: 'flow' | 'entity' | 'mind'
   edgeType: 'orth' | 'er' | 'mind'
   family: 'lente' | 'conteúdo'
@@ -17,7 +17,7 @@ export interface LensDef {
    * A lente é DONA das posições do modelo: honra o `x`/`y` do arquivo e grava o
    * arrasto de volta nele.
    *
-   * A Swimlane é a única de grafo que fica de fora, e é decisão do Fabricio
+   * A Swimlane é a única de grafo que fica de fora, e é decisão de projeto
    * (06/08/2026): `process` tem UM par `x`/`y` por nó servindo duas lentes, e a
    * geometria delas é incompatível — num fluxograma vertical todo nó tem
    * praticamente o mesmo `x`, o que empilharia a raia inteira numa coluna. Então
@@ -42,8 +42,12 @@ export const LENSES: LensDef[] = [
   { key: 'swimlane', label: 'Swimlane', model: 'process', layout: 'swimlane', nodeType: 'flow', edgeType: 'orth', family: 'lente', savesPos: false, guiado: true },
   { key: 'state', label: 'Máq. estados', model: 'state', layout: 'layered', nodeType: 'flow', edgeType: 'orth', family: 'lente', savesPos: true, guiado: true },
   { key: 'er', label: 'ER', model: 'er', layout: 'er', nodeType: 'entity', edgeType: 'er', family: 'conteúdo', savesPos: true, guiado: false },
-  { key: 'mind', label: 'Mind map', model: 'mind', layout: 'radial', nodeType: 'mind', edgeType: 'mind', family: 'conteúdo', savesPos: true, guiado: false },
-  { key: 'seq', label: 'Sequência', model: 'seq', layout: 'seq', nodeType: 'flow', edgeType: 'orth', family: 'conteúdo', savesPos: false, guiado: false }
+  { key: 'mind', label: 'Mind map', model: 'mind', layout: 'mind', nodeType: 'mind', edgeType: 'mind', family: 'conteúdo', savesPos: true, guiado: false },
+  { key: 'seq', label: 'Sequência', model: 'seq', layout: 'seq', nodeType: 'flow', edgeType: 'orth', family: 'conteúdo', savesPos: false, guiado: false },
+  // A lente Tarefas NÃO lê modelo nenhum do workspace: o conteúdo dela é o `tasks.json` do
+  // projeto (ver `types.ts`). O `model: 'seq'` está aqui só porque é o valor que o editor já
+  // trata como "não é grafo, não edita" — todas as ações de nó/aresta saem cedo nele.
+  { key: 'tasks', label: 'Tarefas', model: 'seq', layout: 'tasks', nodeType: 'flow', edgeType: 'orth', family: 'conteúdo', savesPos: false, guiado: false }
 ]
 
 export const LENS_BY_KEY: Record<LensKey, LensDef> = Object.fromEntries(LENSES.map((l) => [l.key, l])) as Record<

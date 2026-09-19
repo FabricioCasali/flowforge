@@ -25,7 +25,7 @@ export function App(): JSX.Element {
   const [session, setSession] = useState<string>(sessionFromUrl)
   const [sessions, setSessions] = useState<string[]>([])
   const [lens, setLens] = useState<LensKey>('flow')
-  const { workspace, carregado, thread, busy, conn, agentOnline, agentLabel, patch, analyze } = useFlowForge(session)
+  const { workspace, carregado, thread, busy, conn, agentOnline, agentLabel, tasks, activity, patch, analyze } = useFlowForge(session)
   const agentName = agentLabel || 'agente'
 
   // lista de sessões pro seletor. Recarrega quando a sessão muda porque abrir
@@ -100,7 +100,7 @@ export function App(): JSX.Element {
       {/* `key` por sessão: trocar de sessão REMONTA o editor. Sem isso o histórico de
           desfazer atravessava a troca — Ctrl+Z na sessão B gravava nela um diagrama
           da sessão A — e seleção, card aberto e enquadramento vinham de carona. */}
-      <EditorView key={session} workspace={workspace} carregado={carregado} lens={lens} onLens={setLens} busy={busy} onPatch={patch} />
+      <EditorView key={session} workspace={workspace} carregado={carregado} lens={lens} onLens={setLens} busy={busy} onPatch={patch} tasks={tasks} activity={activity} />
 
       <ChatPanel
         thread={thread}
@@ -173,10 +173,19 @@ function ConnPill({ conn }: { conn: ConnStatus }): JSX.Element {
 }
 
 /**
- * O SEGUNDO indicador, e ele existe por um motivo concreto: o pill de conexão
- * fala do browser com o servidor, e o Fabricio clicou "Analisar" vendo verde
- * para receber "agente offline". Duas conexões, uma luz só — a tela mentia por
- * omissão. Agora o Monitor tem a luz dele.
+ * A frase que o usuário diz ao agente dele pra religar a escuta. É UMA só, igual no pill, no
+ * painel e na skill do plugin — a skill ensina o agente a reconhecê-la.
+ */
+const PEDIDO_RECONEXAO = 'reconecte o FlowForge'
+
+/**
+ * O SEGUNDO indicador, e ele existe por um motivo concreto: o pill de conexão fala do browser
+ * com o servidor; o agente é outra conexão. Com uma luz só, clicar "Analisar" vendo verde
+ * devolvia "agente offline" — a tela mentia por omissão.
+ *
+ * Desconectado, o pill diz O QUE FAZER. A escuta do agente cai sozinha (no Claude Code a
+ * ferramenta que a mantém expira em 30 min), e rearmar sozinho dependeria de o modelo lembrar.
+ * Avisar e pedir ao usuário uma frase é mais simples e não falha em silêncio.
  */
 function AgentPill({ online, label }: { online: boolean; label: string | null }): JSX.Element {
   const name = label || 'agente'
@@ -185,11 +194,11 @@ function AgentPill({ online, label }: { online: boolean; label: string | null })
       className={'ff-pill agent ' + (online ? 'on' : 'off') + ' neon-mono'}
       title={
         online
-          ? `${name} conectado — o Analisar chega ao adapter na hora`
-          : 'nenhum adapter ligado no /agent: o Analisar fica guardado no inbox até um conectar'
+          ? `${name} conectado — o Analisar chega na sessão dele na hora`
+          : `Nenhum agente ouvindo este canvas. No terminal onde o seu agente está aberto, peça: "${PEDIDO_RECONEXAO}". Enquanto isso o Analisar fica guardado e é entregue quando ele voltar.`
       }
     >
-      {name} {online ? 'ouvindo' : 'offline'}
+      {online ? `${name} ouvindo` : 'agente desconectado'}
     </span>
   )
 }
@@ -241,7 +250,7 @@ function ChatPanel({
           ? '⚠ desconectado'
           : agentOnline
             ? `▶ Analisar com ${agentName}`
-            : '▶ Analisar · guarda no inbox (agente offline)',
+            : '▶ Analisar · guarda até o agente voltar',
     [busy, online, agentOnline, agentName]
   )
 
@@ -266,6 +275,14 @@ function ChatPanel({
           ))
         )}
       </div>
+
+      {online && !agentOnline && !busy && (
+        <div className="ff-aviso-agente" role="status">
+          <strong>Agente desconectado.</strong> No terminal onde ele está aberto, peça:
+          <code className="neon-mono">{PEDIDO_RECONEXAO}</code>
+          <span>Pode clicar Analisar assim mesmo — o pedido fica guardado e chega quando ele voltar.</span>
+        </div>
+      )}
 
       <div className="ff-compose">
         <textarea

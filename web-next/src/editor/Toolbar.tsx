@@ -12,7 +12,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { DNode } from '../types.js'
-import { LAYOUTS, type LayoutNome } from './layout.js'
+import type { LayoutNome } from './layout.js'
 
 export interface ToolbarProps {
   nodes: DNode[]
@@ -21,6 +21,8 @@ export interface ToolbarProps {
   podeRefazer: boolean
   onDesfazer: () => void
   onRefazer: () => void
+  /** Os arranjos que fazem sentido na lente ativa (o Mind map tem os dele). */
+  arranjos: { nome: LayoutNome; label: string }[]
   onArranjo: (nome: LayoutNome) => void
   onSaltar: (id: string) => void
   onExport: (formato: 'png' | 'svg' | 'mmd') => void
@@ -33,6 +35,7 @@ export function Toolbar({
   podeRefazer,
   onDesfazer,
   onRefazer,
+  arranjos,
   onArranjo,
   onSaltar,
   onExport
@@ -106,7 +109,7 @@ export function Toolbar({
         </button>
         {menu === 'arranjo' && (
           <div className="tb-menu">
-            {LAYOUTS.map((l) => (
+            {arranjos.map((l) => (
               <button
                 key={l.nome}
                 onClick={() => {

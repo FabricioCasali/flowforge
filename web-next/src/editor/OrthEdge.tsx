@@ -77,7 +77,7 @@ export function OrthEdge(props: EdgeProps): JSX.Element {
  *
  * O marker referenciado por `url(#id)` de outro SVG é o caminho usual, mas falha
  * em silêncio quando a referência não resolve — e "falha em silêncio" numa seta
- * significa um diagrama de fluxo sem direção nenhuma, que foi o que o Fabricio
+ * significa um diagrama de fluxo sem direção nenhuma, que foi o que o usuário
  * viu. Desenhando aqui, a ponta acompanha a cor da seleção e o tamanho não
  * depende do `strokeWidth`.
  *

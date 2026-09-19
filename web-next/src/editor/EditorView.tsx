@@ -33,7 +33,8 @@ import {
   type NodeChange,
   type ReactFlowInstance
 } from '@xyflow/react'
-import type { DEdge, Diagram, DNode, Lane, ModelKey, NodeStatus, Pt, SeqModel, Workspace } from '../types.js'
+import { emptyTasks } from '../types.js'
+import type { ActivityEvent, DEdge, Diagram, DNode, Lane, ModelKey, NodeStatus, Pt, SeqModel, TasksFile, Workspace } from '../types.js'
 import { FlowNode, sideOfHandle } from './FlowNode.js'
 import { Palette } from './Palette.js'
 import { LanesPanel } from './LanesPanel.js'
@@ -52,7 +53,10 @@ import {
   layoutDiagram,
   namedLayout,
   nodeSize,
-  radialLayout,
+  LAYOUTS,
+  LAYOUTS_MIND,
+  mindEdgePoints,
+  mindLayout,
   routeAll,
   routeMoved,
   swimlaneLayout,
@@ -68,6 +72,7 @@ import { baixarPng, baixarTexto, nomeSeguro, toMermaid, toSvg } from './export.j
 import { applyVerdict, avisosDoFluxo, diffNodes, novaEdge, novoNode, propagateFrom } from './model.js'
 import { shapeOf } from './shapes.js'
 import { LENSES, LENS_BY_KEY, type LensDef, type LensKey } from './lenses.js'
+import { contaTarefas, TasksView } from './TasksView.js'
 
 const nodeTypes = { flow: FlowNode, entity: EntityNode, mind: MindNode, lane: LaneNode }
 const edgeTypes = { orth: OrthEdge, er: ErEdge, mind: MindEdge }
@@ -84,9 +89,16 @@ export interface EditorViewProps {
   busy?: boolean
   /** Sobe um modelo alterado pro servidor: `{type:'patch', lens, diagram}`. */
   onPatch: (lens: ModelKey, model: Diagram | SeqModel) => void
+  /** Tarefas ao vivo do CLI (`tasks.json` do projeto) — a lente Tarefas e o placar da barra. */
+  tasks?: TasksFile
+  /** A linha do tempo do CLI (`activity.jsonl` do projeto) — coluna da lente Tarefas. */
+  activity?: ActivityEvent[]
 }
 
-export function EditorView({ workspace, carregado = true, lens, onLens, busy = false, onPatch }: EditorViewProps): JSX.Element {
+const SEM_TAREFAS = emptyTasks()
+const SEM_ATIVIDADE: ActivityEvent[] = []
+
+export function EditorView({ workspace, carregado = true, lens, onLens, busy = false, onPatch, tasks = SEM_TAREFAS, activity = SEM_ATIVIDADE }: EditorViewProps): JSX.Element {
   const [data, setData] = useState<Workspace>(workspace)
   const [layout, setLayout] = useState<LayoutResult | null>(null)
   const [posOverride, setPosOverride] = useState<Record<string, Pt>>({})
@@ -815,13 +827,16 @@ export function EditorView({ workspace, carregado = true, lens, onLens, busy = f
   const currentEdgePoints = useMemo(() => {
     if (!layout || !activeDiagram || movedRef.current.size === 0) return layout?.edgePoints ?? {}
     const positions = { ...layout.positions, ...posOverride }
+    // Mind map não passa pelo roteador ortogonal: a `MindEdge` é uma bézier entre
+    // DOIS pontos, e a polilinha do `routeAll` virava um toco reto solto do nó.
+    if (lensDef.edgeType === 'mind') return mindEdgePoints(activeDiagram, positions, layout.sizes)
     if (!arrastando) return routeAll(activeDiagram, positions, layout.sizes)
 
     // Durante o drag, A* em todas as arestas a cada pixel fazia a camada de
     // bandas/linhas piscar. Mantém as rotas estáveis e recalcula só as ligações
     // dos nós movidos com o L/Z barato; ao soltar, routeAll refaz o desvio final.
     return routeMoved(activeDiagram, positions, layout.sizes, movedRef.current, layout.edgePoints)
-  }, [layout, activeDiagram, posOverride, arrastando])
+  }, [layout, activeDiagram, posOverride, arrastando, lensDef.edgeType])
 
   const rfEdges: Edge[] = useMemo(() => {
     if (!layout || !activeDiagram) return []
@@ -933,10 +948,19 @@ export function EditorView({ workspace, carregado = true, lens, onLens, busy = f
 
   const shell = 'neon-editor' + (busy ? ' ro' : '') + (guiaAberto ? ' com-guia' : '') + (longe ? ' lod-longe' : '')
 
+  if (lensDef.layout === 'tasks') {
+    return (
+      <div className={shell}>
+        <LensBar lens={lens} onLens={onLens} guiado={guiado} podeGuiar={false} onGuiado={alternaGuiado} tarefas={tasks} />
+        <TasksView tasks={tasks} activity={activity} />
+      </div>
+    )
+  }
+
   if (lensDef.layout === 'seq') {
     return (
       <div className={shell}>
-        <LensBar lens={lens} onLens={onLens} guiado={guiado} podeGuiar={false} onGuiado={alternaGuiado} />
+        <LensBar lens={lens} onLens={onLens} guiado={guiado} podeGuiar={false} onGuiado={alternaGuiado} tarefas={tasks} />
         <SequenceView model={data.seq} />
       </div>
     )
@@ -951,7 +975,7 @@ export function EditorView({ workspace, carregado = true, lens, onLens, busy = f
 
   return (
     <div className={shell} onDrop={onDrop} onDragOver={onDragOver}>
-      <LensBar lens={lens} onLens={onLens} guiado={guiado} podeGuiar={lensDef.guiado} onGuiado={alternaGuiado} />
+      <LensBar lens={lens} onLens={onLens} guiado={guiado} podeGuiar={lensDef.guiado} onGuiado={alternaGuiado} tarefas={tasks} />
       {guiaAberto && activeDiagram && (
         <GuidePanel
           nodes={activeDiagram.nodes}
@@ -973,6 +997,7 @@ export function EditorView({ workspace, carregado = true, lens, onLens, busy = f
           podeRefazer={podeRefazer}
           onDesfazer={desfazer}
           onRefazer={refazer}
+          arranjos={lensDef.layout === 'mind' ? LAYOUTS_MIND : LAYOUTS}
           onArranjo={aplicarArranjo}
           onSaltar={saltarPara}
           onExport={exportar}
@@ -1098,20 +1123,33 @@ function LensBar({
   onLens,
   guiado,
   podeGuiar,
-  onGuiado
+  onGuiado,
+  tarefas
 }: {
   lens: LensKey
   onLens: (l: LensKey) => void
   guiado: boolean
   podeGuiar: boolean
   onGuiado: () => void
+  tarefas: TasksFile
 }): JSX.Element {
+  // O placar mora NO BOTÃO da lente: é o que avisa, de dentro de um diagrama, que o
+  // CLI está andando — sem abrir mais um painel em cima do desenho (FF-023).
+  const placar = contaTarefas(tarefas)
   return (
     <div className="lensbar neon-mono">
       <span className="lensbar-lbl">lente</span>
       {LENSES.map((l: LensDef) => (
         <button key={l.key} className={l.key === lens ? 'on' : ''} onClick={() => onLens(l.key)}>
           {l.label}
+          {l.key === 'tasks' && placar.total > 0 && (
+            <span
+              className={'lens-placar' + (placar.andando ? ' viva' : '') + (placar.travadas ? ' travada' : '')}
+              title={`${placar.feitas} de ${placar.total} concluídas` + (placar.travadas ? ` · ${placar.travadas} travada(s)` : '')}
+            >
+              {placar.feitas}/{placar.total}
+            </span>
+          )}
         </button>
       ))}
       {/* o guiado é um modo de LER, então mora junto das lentes — mas separado,
@@ -1139,8 +1177,8 @@ async function computeLayout(lensDef: LensDef, diagram: Diagram): Promise<Layout
       return swimlaneLayout(diagram)
     case 'er':
       return layoutDiagram(diagram, 'RIGHT', 110)
-    case 'radial':
-      return radialLayout(diagram)
+    case 'mind':
+      return mindLayout(diagram)
     default:
       return layoutDiagram(diagram, 'DOWN', 70)
   }

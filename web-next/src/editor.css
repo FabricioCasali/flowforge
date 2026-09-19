@@ -1400,7 +1400,7 @@
 
 /* ==========================================================================
    PALETA (FF-005) — flutua na borda esquerda. Mini-SVG da forma real, como o
-   Fabricio pediu na fase 3: escolhe-se pela silhueta, não pela leitura.
+   usuário pediu na fase 3: escolhe-se pela silhueta, não pela leitura.
    ========================================================================== */
 .palette {
   position: absolute;
@@ -2064,4 +2064,430 @@
 .seq-label {
   fill: var(--muted);
   font-size: 10px;
+}
+
+/* ============================================================================
+   LENTE TAREFAS (FF-034) — o que o CLI tem pra fazer e em que pé está.
+   Só leitura: quem escreve é o agente, no `tasks.json` do projeto.
+   Cor = EIXO 2 da pele (execução), não o eixo de co-decisão.
+   ============================================================================ */
+.tasksview {
+  position: absolute;
+  inset: calc(var(--lensbar-top, 12px) + var(--lensbar-h, 32px) + 14px) 0 0 0;
+  overflow: auto;
+  padding: 10px 20px 40px;
+}
+/* a barra nativa é branca e grita no tema escuro */
+.tasksview {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-2) transparent;
+}
+.tk-cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 520px));
+  gap: 18px;
+  align-items: start;
+}
+.tk-lista {
+  --sc: var(--s-idle);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md, 10px);
+  overflow: hidden;
+}
+.tk-lista.viva {
+  --sc: var(--s-act);
+  border-color: color-mix(in oklch, var(--sc) 38%, var(--border));
+}
+.tk-head {
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in oklch, var(--sc) 5%, var(--surface));
+}
+.tk-quem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.tk-quando {
+  margin-left: auto;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--faint);
+}
+.tk-pulso {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--s-act);
+  box-shadow: 0 0 0 0 color-mix(in oklch, var(--s-act) 60%, transparent);
+  animation: tk-pulso 1.8s ease-out infinite;
+}
+@keyframes tk-pulso {
+  to {
+    box-shadow: 0 0 0 7px transparent;
+  }
+}
+.tk-titulo {
+  margin: 6px 0 10px;
+  font-family: var(--display);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--fg);
+}
+.tk-barra {
+  height: 4px;
+  border-radius: 2px;
+  background: color-mix(in oklch, var(--border) 70%, transparent);
+  overflow: hidden;
+}
+.tk-barra > span {
+  display: block;
+  height: 100%;
+  background: var(--s-done);
+  transition: width 0.4s ease;
+}
+.tk-placar {
+  margin-top: 6px;
+  font-size: 10px;
+  color: var(--faint);
+}
+.tk-itens {
+  list-style: none;
+  margin: 0;
+  padding: 6px 0;
+}
+.tk-item {
+  --sc: var(--s-idle);
+  display: grid;
+  grid-template-columns: 22px 16px 1fr auto;
+  align-items: start;
+  gap: 8px;
+  padding: 8px 16px;
+  border-left: 2px solid transparent;
+}
+.tk-item.st-in_progress {
+  --sc: var(--s-act);
+  border-left-color: var(--sc);
+  background: color-mix(in oklch, var(--sc) 7%, transparent);
+}
+.tk-item.st-blocked {
+  --sc: var(--s-wait);
+  border-left-color: var(--sc);
+  background: color-mix(in oklch, var(--sc) 7%, transparent);
+}
+.tk-item.st-completed {
+  --sc: var(--s-done);
+}
+.tk-n {
+  font-size: 10px;
+  color: var(--faint);
+  text-align: right;
+  padding-top: 3px;
+}
+.tk-marca {
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  overflow: visible;
+}
+.tk-m-anel {
+  fill: none;
+  stroke: var(--sc);
+  stroke-width: 1.5;
+}
+.tk-m-cheia {
+  fill: var(--sc);
+}
+.tk-m-visto {
+  fill: none;
+  stroke: var(--surface);
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.tk-m-alerta {
+  stroke: var(--sc);
+}
+.tk-m-gira {
+  stroke-dasharray: 3 2.6;
+  transform-origin: 7px 7px;
+  animation: tk-gira 3s linear infinite;
+}
+@keyframes tk-gira {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.tk-nome {
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--fg);
+}
+.tk-item.st-completed .tk-nome {
+  color: var(--muted);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in oklch, var(--muted) 45%, transparent);
+}
+.tk-item.st-pending .tk-nome {
+  color: color-mix(in oklch, var(--fg) 80%, var(--muted));
+}
+.tk-nota {
+  margin-top: 2px;
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--sc);
+}
+.tk-item.st-completed .tk-nota {
+  color: var(--faint);
+}
+.tk-ha {
+  font-size: 10px;
+  color: var(--faint);
+  padding-top: 3px;
+  white-space: nowrap;
+}
+.tk-vazio {
+  max-width: 620px;
+  margin: 40px auto;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.tk-vazio-t {
+  font-family: var(--display);
+  font-size: 16px;
+  color: var(--fg);
+  margin-bottom: 8px;
+}
+.tk-vazio pre {
+  margin-top: 12px;
+  padding: 12px 14px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--fg);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  overflow-x: auto;
+}
+/* ---- FF-035: a linha do tempo, e o rastro dela dentro de cada tarefa ---- */
+.tasksview.com-tempo {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+  gap: 18px;
+  align-items: start;
+}
+/* com a linha do tempo ao lado, as listas ESTICAM até ela: com teto de 520px sobrava um
+   buraco no meio da tela larga e a linha do tempo ficava órfã na direita */
+.tasksview.com-tempo .tk-cols {
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+}
+@media (max-width: 1180px) {
+  .tasksview.com-tempo {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.tk-rastro {
+  margin-top: 6px;
+  font-size: 10.5px;
+  color: var(--faint);
+}
+.tk-agora {
+  list-style: none;
+  margin: 0 0 5px;
+  padding: 0 0 0 9px;
+  border-left: 1px solid color-mix(in oklch, var(--sc) 45%, transparent);
+}
+.tk-agora li {
+  padding: 1px 0;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tk-agora li:last-child {
+  color: var(--fg);
+}
+.tk-agora li.falhou {
+  color: var(--s-error);
+}
+.tk-arqs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+.tk-arqs-l {
+  color: var(--faint);
+  margin-right: 2px;
+}
+.tk-arq {
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+  color: var(--muted);
+  background: color-mix(in oklch, var(--border) 50%, transparent);
+  text-decoration: none;
+}
+.tk-arq.mais {
+  background: none;
+  color: var(--faint);
+}
+.tk-tempo {
+  position: sticky;
+  top: 0;
+  max-height: calc(100vh - var(--ff-topbar-h, 56px) - 90px);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md, 10px);
+  overflow: hidden;
+}
+.tk-tempo.viva {
+  border-color: color-mix(in oklch, var(--s-act) 38%, var(--border));
+}
+.tk-tempo-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+.tk-tempo-vazio {
+  margin: 0;
+  padding: 14px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.tk-tempo-vazio code {
+  display: block;
+  margin-top: 8px;
+  font-size: 10.5px;
+  color: var(--fg);
+  word-break: break-all;
+}
+.tk-eventos {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-2) transparent;
+}
+.tk-ev {
+  --kc: var(--s-idle);
+  display: grid;
+  grid-template-columns: 58px 8px 1fr auto;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 14px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+.tk-ev.k-edit {
+  --kc: var(--s-act);
+}
+.tk-ev.k-run {
+  --kc: var(--accent);
+}
+.tk-ev.k-note {
+  --kc: var(--s-wait);
+}
+.tk-ev.k-agent,
+.tk-ev.k-web {
+  --kc: var(--s-pause);
+}
+.tk-ev.falhou {
+  --kc: var(--s-error);
+}
+.tk-ev-h {
+  font-size: 10px;
+  color: var(--faint);
+}
+.tk-ev-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--kc);
+  transform: translateY(-1px);
+}
+.tk-ev-t {
+  color: color-mix(in oklch, var(--fg) 88%, var(--muted));
+  overflow-wrap: anywhere;
+}
+.tk-ev.k-read .tk-ev-t,
+.tk-ev.k-search .tk-ev-t {
+  color: var(--muted); /* ler e buscar é fundo; editar, rodar e anotar é o que importa */
+}
+.tk-ev.k-note .tk-ev-t {
+  color: var(--s-wait);
+}
+.tk-ev.falhou .tk-ev-t em {
+  color: var(--s-error);
+  font-style: normal;
+}
+.tk-vezes {
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 0.9em;
+}
+.tk-ev-task {
+  font-size: 9.5px;
+  color: var(--faint);
+}
+.tk-ev.marco {
+  grid-template-columns: 58px 1fr;
+  margin: 4px 0;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  border-top: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
+}
+.tk-ev-marco {
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--faint);
+}
+
+/* o placar no botão da lente: avisa de dentro de qualquer diagrama */
+.lens-placar {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+  font-size: 9.5px;
+  color: var(--muted);
+  background: color-mix(in oklch, var(--border) 55%, transparent);
+}
+.lens-placar.viva {
+  color: var(--s-act);
+  background: color-mix(in oklch, var(--s-act) 16%, transparent);
+}
+/* no botão ATIVO o fundo é o ciano cheio: o placar precisa de tinta escura, senão some */
+.lensbar button.on .lens-placar,
+.lensbar button.on .lens-placar.viva,
+.lensbar button.on .lens-placar.travada {
+  color: var(--bg);
+  background: color-mix(in oklch, var(--bg) 22%, transparent);
+  font-weight: 600;
+}
+.lens-placar.travada {
+  color: var(--s-wait);
+  background: color-mix(in oklch, var(--s-wait) 16%, transparent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .tk-pulso,
+  .tk-m-gira {
+    animation: none;
+  }
 }

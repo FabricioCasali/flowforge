@@ -109,7 +109,7 @@ export const KIND_LABEL_CURTO: Record<string, string> = {
   entity: 'entidade'
 }
 
-/** Rótulo com que o nó NASCE (`web/app.js:970`). Some assim que o Fabricio digita. */
+/** Rótulo com que o nó NASCE (`web/app.js:970`). Some assim que o usuário digita. */
 export const KIND_NEW_LABEL: Record<string, string> = {
   start: 'início',
   end: 'fim',

@@ -2,7 +2,7 @@
 // EdgeCard — o card da SETA selecionada. Porte do `#edge-card` do editor antigo
 // (`web/index.html:235`): rótulo, status próprio e, na lente ER, cardinalidade.
 //
-// O status da seta é PRÓPRIO e editável — decisão do Fabricio em 06/08/2026.
+// O status da seta é PRÓPRIO e editável — decisão de projeto de 06/08/2026.
 // Quem respeita isso é o `propagateFrom` (model.ts), que só recalcula as arestas
 // do nó que recebeu veredito. Ver o comentário lá: 34 das 143 arestas dos
 // diagramas reais têm status que a regra não derivaria das pontas, e elas
