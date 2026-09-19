@@ -122,7 +122,7 @@ export function App(): JSX.Element {
       {/* `key` por sessão: trocar de sessão REMONTA o editor. Sem isso o histórico de
           desfazer atravessava a troca — Ctrl+Z na sessão B gravava nela um diagrama
           da sessão A — e seleção, card aberto e enquadramento vinham de carona. */}
-      <EditorView key={session} workspace={workspace} carregado={carregado} lens={lens} onLens={escolheLente} busy={busy} onPatch={patch} tasks={tasks} activity={activity} />
+      <EditorView key={session} workspace={workspace} session={session} carregado={carregado} lens={lens} onLens={escolheLente} busy={busy} onPatch={patch} tasks={tasks} activity={activity} />
 
       <ChatPanel
         thread={thread}

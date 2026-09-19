@@ -134,6 +134,26 @@ export interface Thread {
 // mesmo projeto não pisam um no outro. O browser só lê.
 export type TaskStatus = 'pending' | 'in_progress' | 'completed' | 'blocked'
 
+/**
+ * O ELO da tarefa com o DESENHO (issue #8): qual nó, de qual sessão, é a etapa
+ * que o agente está executando.
+ *
+ * Leva o `session` porque os dois lados têm alcances diferentes: `tasks.json` é
+ * do PROJETO e o desenho é de uma SESSÃO. Sem o slug, um id de nó não diria em
+ * qual prancheta procurar.
+ *
+ * O MODELO (`process`/`state`/`er`/`mind`) não entra, de propósito: o id é
+ * procurado na lente que estiver aberta, e id que não existe ali simplesmente
+ * não acende nada. Guardar a lente obrigaria o agente a saber em qual delas o
+ * usuário desenhou — e a reescrever o elo quando ele movesse a etapa de lente.
+ */
+export interface TaskNodeRef {
+  /** Slug da sessão de desenho (a pasta dentro do data-dir). */
+  session: string
+  /** Id do nó dentro daquela sessão. */
+  id: string
+}
+
 export interface TaskItem {
   id: string
   title: string
@@ -141,6 +161,8 @@ export interface TaskItem {
   /** Detalhe curto: o que está fazendo agora, ou por que travou. */
   note?: string
   updatedAt?: number
+  /** Opcional: a etapa do desenho que esta tarefa executa. Ver `TaskNodeRef`. */
+  node?: TaskNodeRef
 }
 
 export interface TaskList {
@@ -160,6 +182,19 @@ export interface TasksFile {
 }
 
 const TASK_STATUSES: TaskStatus[] = ['pending', 'in_progress', 'completed', 'blocked']
+
+/**
+ * O elo, ou nada. Meio elo (só a sessão, só o id) é lixo e vira `undefined`: um
+ * nó sem sessão não pode ser procurado, e uma sessão sem nó não aponta etapa
+ * nenhuma. Nunca derruba a leitura — o resto da tarefa continua valendo.
+ */
+function normalizeTaskNode(raw: unknown): TaskNodeRef | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const r = raw as Record<string, unknown>
+  const session = typeof r.session === 'string' ? r.session.trim() : ''
+  const id = typeof r.id === 'string' ? r.id.trim() : ''
+  return session && id ? { session, id } : undefined
+}
 
 export function emptyTasks(): TasksFile {
   return { rev: 0, lists: [] }
@@ -186,7 +221,8 @@ export function normalizeTasks(raw: unknown): TasksFile {
             title: String(t.title ?? ''),
             status: TASK_STATUSES.includes(t.status as TaskStatus) ? (t.status as TaskStatus) : 'pending',
             note: typeof t.note === 'string' && t.note.trim() ? t.note : undefined,
-            updatedAt: Number.isFinite(t.updatedAt) ? Number(t.updatedAt) : undefined
+            updatedAt: Number.isFinite(t.updatedAt) ? Number(t.updatedAt) : undefined,
+            node: normalizeTaskNode(t.node)
           }))
       }))
   }

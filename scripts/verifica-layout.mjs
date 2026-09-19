@@ -771,6 +771,71 @@ function testaMindRotuloLongo(L) {
   return casos;
 }
 
+/**
+ * ETAPA VIVA NO DIAGRAMA (issue #8). "Quais nos desta sessao estao vivos" e uma
+ * funcao PURA (`nosVivos`, em model.ts) justamente pra caber aqui, sem browser.
+ *
+ * O que ela tem de garantir: so acende o que e DESTA sessao, so o que esta em
+ * execucao (nem pendente nem concluida), nao inventa nada quando a tarefa nao
+ * tem elo, e resolve o empate quando duas tarefas apontam o mesmo no.
+ */
+function testaNosVivos(M) {
+  const casos = [];
+  const tarefa = (id, status, extra = {}) => ({ id, title: 'tarefa ' + id, status, ...extra });
+  const lista = (id, label, tasks) => ({ id, label, updatedAt: 0, tasks });
+  const arquivo = (...lists) => ({ rev: 1, lists });
+
+  const t = arquivo(lista('claude-code', 'Claude Code', [
+    tarefa('t1', 'completed', { node: { session: 'login', id: 'n1' } }),
+    tarefa('t2', 'in_progress', { node: { session: 'login', id: 'n2' }, note: 'indo' }),
+    tarefa('t3', 'blocked', { node: { session: 'login', id: 'n3' } }),
+    tarefa('t4', 'pending', { node: { session: 'login', id: 'n4' } }),
+    tarefa('t5', 'in_progress', { node: { session: 'OUTRA', id: 'n5' } }),
+    tarefa('t6', 'in_progress'),
+  ]));
+  const v = M.nosVivos(t, 'login');
+
+  casos.push(['tarefa in_progress acende o no dela', v.n2 && v.n2.estado === 'andando']);
+  casos.push(['tarefa blocked marca o no como travado', v.n3 && v.n3.estado === 'travada']);
+  casos.push(['tarefa concluida nao acende nada', !v.n1]);
+  casos.push(['tarefa pendente nao acende nada', !v.n4]);
+  casos.push(['elo de OUTRA sessao nao acende nesta', !v.n5]);
+  casos.push(['tarefa SEM elo nao muda em nada o desenho', Object.keys(v).length === 2]);
+  casos.push(['o no vivo diz de quem e a tarefa e que numero ela tem',
+    v.n2.quem === 'Claude Code' && v.n2.n === 2 && v.n2.titulo === 'tarefa t2' && v.n2.nota === 'indo']);
+
+  // lixo no campo `node` nao pode derrubar a regra (o arquivo pode ser escrito a mao)
+  const lixo = arquivo(lista('x', 'X', [
+    tarefa('t1', 'in_progress', { node: null }),
+    tarefa('t2', 'in_progress', { node: { id: 'n9' } }),
+    tarefa('t3', 'in_progress', { node: { session: 'login' } }),
+    tarefa('t4', 'in_progress', { node: 'login/n8' }),
+  ]));
+  let quebrou = false;
+  let vazio = {};
+  try { vazio = M.nosVivos(lixo, 'login'); } catch (e) { quebrou = true; }
+  casos.push(['elo torto nao derruba a regra nem acende nada', !quebrou && Object.keys(vazio).length === 0]);
+  casos.push(['sem tarefas, ou sem sessao, o resultado e vazio',
+    Object.keys(M.nosVivos(null, 'login')).length === 0 && Object.keys(M.nosVivos(t, '')).length === 0]);
+
+  // dois publicadores no MESMO no: quem esta andando ganha de quem travou
+  const disputa = arquivo(
+    lista('a', 'A', [tarefa('t1', 'blocked', { node: { session: 'login', id: 'n1' }, updatedAt: 99 })]),
+    lista('b', 'B', [tarefa('t1', 'in_progress', { node: { session: 'login', id: 'n1' }, updatedAt: 1 })]),
+  );
+  casos.push(['dois publicadores no mesmo no: o que esta andando ganha',
+    M.nosVivos(disputa, 'login').n1.quem === 'B']);
+
+  const empate = arquivo(
+    lista('a', 'A', [tarefa('t1', 'in_progress', { node: { session: 'login', id: 'n1' }, updatedAt: 10 })]),
+    lista('b', 'B', [tarefa('t1', 'in_progress', { node: { session: 'login', id: 'n1' }, updatedAt: 20 })]),
+  );
+  casos.push(['entre dois andando no mesmo no, vale a mexida mais recente',
+    M.nosVivos(empate, 'login').n1.quem === 'B']);
+
+  return casos;
+}
+
 async function autoteste(L, M, X, LE) {
   const casos = [];
   const base = () => ({
@@ -949,6 +1014,8 @@ async function autoteste(L, M, X, LE) {
   casos.push(...testaLenteInicial(LE));
   // issue #14: rotulo longo no mapa mental
   casos.push(...testaMindRotuloLongo(L));
+  // issue #8: quais nos da sessao aberta estao vivos (ou travados)
+  casos.push(...testaNosVivos(M));
 
   let falhas = 0;
   for (const [nome, ok] of casos) {

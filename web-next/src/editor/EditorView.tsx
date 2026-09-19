@@ -69,7 +69,7 @@ import { CardAbertoCtx, useCardAberto } from './useCardAberto.js'
 import { useHistorico } from './useHistorico.js'
 import { SC } from './status.js'
 import { baixarPng, baixarTexto, nomeSeguro, toMermaid, toSvg } from './export.js'
-import { applyVerdict, avisosDoFluxo, diffNodes, novaEdge, novoNode, propagateFrom } from './model.js'
+import { applyVerdict, avisosDoFluxo, diffNodes, nosVivos, novaEdge, novoNode, propagateFrom } from './model.js'
 import { shapeOf } from './shapes.js'
 import { LENSES, LENS_BY_KEY, type LensDef, type LensKey } from './lenses.js'
 import { contaTarefas, TasksView } from './TasksView.js'
@@ -80,6 +80,12 @@ const edgeTypes = { orth: OrthEdge, er: ErEdge, mind: MindEdge }
 export interface EditorViewProps {
   /** O arquivo-verdade (`workspace.json`) já normalizado, vindo do WS. */
   workspace: Workspace
+  /**
+   * O slug da sessão ABERTA. Não é o título: é o nome da pasta, e é por ele que
+   * a tarefa aponta um nó (`TaskNodeRef.session`, issue #8). O `tasks.json` é do
+   * projeto inteiro, então sem isto o canvas não saberia quais elos são dele.
+   */
+  session: string
   /** O `workspace` já é o do servidor (e não o marcador vazio da troca de sessão). */
   carregado?: boolean
   /** Lente ativa — o estado mora no App (a topbar também fala dela). */
@@ -98,7 +104,7 @@ export interface EditorViewProps {
 const SEM_TAREFAS = emptyTasks()
 const SEM_ATIVIDADE: ActivityEvent[] = []
 
-export function EditorView({ workspace, carregado = true, lens, onLens, busy = false, onPatch, tasks = SEM_TAREFAS, activity = SEM_ATIVIDADE }: EditorViewProps): JSX.Element {
+export function EditorView({ workspace, session, carregado = true, lens, onLens, busy = false, onPatch, tasks = SEM_TAREFAS, activity = SEM_ATIVIDADE }: EditorViewProps): JSX.Element {
   const [data, setData] = useState<Workspace>(workspace)
   const [layout, setLayout] = useState<LayoutResult | null>(null)
   const [posOverride, setPosOverride] = useState<Record<string, Pt>>({})
@@ -141,6 +147,37 @@ export function EditorView({ workspace, carregado = true, lens, onLens, busy = f
   const activeDiagram: Diagram | null = lensDef.model === 'seq' ? null : (data[lensDef.model] as Diagram)
   /** O que o agente mexeu NA LENTE ATUAL (o realce e o toast leem daqui). */
   const mudadosAqui = mudados[lensDef.model] ?? null
+
+  /**
+   * ETAPA VIVA (issue #8): os nós desta sessão apontados por uma tarefa que o
+   * agente está executando (ou que travou). É DERIVADO — sai do `tasks.json`,
+   * não encosta no `workspace.json`: nada aqui vira patch nem sobe `rev`.
+   */
+  const vivos = useMemo(() => nosVivos(tasks, session), [tasks, session])
+
+  /**
+   * Onde mora cada nó da sessão: id → (rótulo, lente que o desenha). É o que
+   * deixa a lente Tarefas dizer o NOME da etapa ligada, em vez do id cru, e
+   * saber para qual lente saltar — o elo não guarda o modelo de propósito.
+   *
+   * `process` responde pelo Fluxograma: a Swimlane desenha os mesmos nós, e
+   * mandar para a lente derivada quem talvez nem tenha raia seria pior.
+   * Id repetido entre modelos (é possível, são arquivos diferentes) fica com o
+   * primeiro na ordem da barra de lentes.
+   */
+  const nosDaSessao = useMemo(() => {
+    const m = new Map<string, { rotulo: string; lens: LensKey }>()
+    const pares: [Exclude<ModelKey, 'seq'>, LensKey][] = [
+      ['process', 'flow'],
+      ['state', 'state'],
+      ['er', 'er'],
+      ['mind', 'mind']
+    ]
+    for (const [model, key] of pares) {
+      for (const n of data[model].nodes) if (!m.has(n.id)) m.set(n.id, { rotulo: n.label, lens: key })
+    }
+    return m
+  }, [data])
 
   /**
    * MODO GUIADO (FF-015) — lembrado entre sessões: é preferência de leitura, não
@@ -797,11 +834,18 @@ export function EditorView({ workspace, carregado = true, lens, onLens, busy = f
     }
     for (const n of activeDiagram.nodes) {
       const s = layout.sizes[n.id]
+      const viva = vivos[n.id]
+      // O realce de execução é CLASSE NO INVÓLUCRO, como o `ff-changed`: o anel
+      // fica fora da caixa e não encosta na borda nem no badge, que são do eixo
+      // de co-decisão. Os dois podem estar ligados ao mesmo tempo sem brigar.
+      const classes = [mudadosAqui?.has(n.id) ? 'ff-changed' : '', viva ? (viva.estado === 'andando' ? 'ff-viva' : 'ff-travada') : '']
+        .filter(Boolean)
+        .join(' ')
       out.push({
         id: n.id,
         type: lensDef.nodeType,
         position: posOf(n.id),
-        className: mudadosAqui?.has(n.id) ? 'ff-changed' : undefined,
+        className: classes || undefined,
         selected: sel.nodes.has(n.id),
         width: s?.width,
         height: s?.height,
@@ -813,6 +857,7 @@ export function EditorView({ workspace, carregado = true, lens, onLens, busy = f
             ? {
                 node: n,
                 busy,
+                viva,
                 onVerdict,
                 onEdit: onEditNode,
                 branch: branch[n.id] ?? 0,
@@ -822,6 +867,7 @@ export function EditorView({ workspace, carregado = true, lens, onLens, busy = f
             : {
                 node: n,
                 busy,
+                viva,
                 lanes: activeDiagram.lanes ?? [],
                 onVerdict,
                 onEdit: onEditNode,
@@ -830,7 +876,7 @@ export function EditorView({ workspace, carregado = true, lens, onLens, busy = f
       })
     }
     return out
-  }, [layout, activeDiagram, lens, lensDef.nodeType, onVerdict, onEditNode, branch, posOf, busy, mudadosAqui, sel.nodes, persistirCard])
+  }, [layout, activeDiagram, lens, lensDef.nodeType, onVerdict, onEditNode, branch, posOf, busy, mudadosAqui, vivos, sel.nodes, persistirCard])
 
   const currentEdgePoints = useMemo(() => {
     if (!layout || !activeDiagram || movedRef.current.size === 0) return layout?.edgePoints ?? {}
@@ -956,13 +1002,47 @@ export function EditorView({ workspace, carregado = true, lens, onLens, busy = f
     [persistirCard, saltarPara]
   )
 
+  /**
+   * DA TAREFA PARA O DESENHO (issue #8). O elo não diz a lente, então quem
+   * resolve isso é o `nosDaSessao`; e trocar de lente NÃO centraliza nada na
+   * hora — o layout é assíncrono e o nó ainda não tem posição. O salto fica
+   * pendurado e é pago no efeito abaixo, quando o layout daquela lente chega.
+   */
+  const saltoPendente = useRef<string | null>(null)
+  const irParaNoDaTarefa = useCallback(
+    (id: string) => {
+      const alvo = nosDaSessao.get(id)
+      if (!alvo) return // o elo aponta um nó que esta sessão não tem: não há aonde ir
+      // a lente aberta já desenha este nó? então não troca de lente — a Swimlane
+      // mostra os mesmos nós do Fluxograma, e jogar quem está nela para lá seria
+      // trocar o desenho da pessoa por outro sem ela ter pedido
+      if (activeDiagram?.nodes.some((n) => n.id === id)) return irParaNo(id)
+      saltoPendente.current = id
+      onLens(alvo.lens)
+    },
+    [nosDaSessao, activeDiagram, irParaNo, onLens]
+  )
+  useEffect(() => {
+    const id = saltoPendente.current
+    if (!id || !layout?.positions[id]) return
+    // quem pediu o salto escolheu onde olhar: o enquadramento automático perde a vez
+    enquadrarPendente.current = false
+    // a pendência só é baixada quando o timer DISPARA — se o efeito for
+    // desmontado antes (outro layout chegando atrás), o próximo tenta de novo
+    const espera = setTimeout(() => {
+      saltoPendente.current = null
+      irParaNo(id)
+    }, 60)
+    return () => clearTimeout(espera)
+  }, [layout, irParaNo])
+
   const shell = 'neon-editor' + (busy ? ' ro' : '') + (guiaAberto ? ' com-guia' : '') + (longe ? ' lod-longe' : '')
 
   if (lensDef.layout === 'tasks') {
     return (
       <div className={shell}>
         <LensBar lens={lens} onLens={onLens} guiado={guiado} podeGuiar={false} onGuiado={alternaGuiado} tarefas={tasks} />
-        <TasksView tasks={tasks} activity={activity} />
+        <TasksView tasks={tasks} activity={activity} session={session} nosDaSessao={nosDaSessao} onIrParaNo={irParaNoDaTarefa} />
       </div>
     )
   }

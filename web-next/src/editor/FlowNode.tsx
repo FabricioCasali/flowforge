@@ -22,6 +22,8 @@ import { Handle, Position, type NodeProps } from '@xyflow/react'
 import type { DNode, Lane, NodeStatus, Side } from '../types.js'
 import { BADGED, LIVE, SC, STLBL } from './status.js'
 import { NodeCard } from './NodeCard.js'
+import { MarcaViva } from './EtapaViva.js'
+import type { EtapaViva } from './model.js'
 import { useCardAbertoDe } from './useCardAberto.js'
 import { BOXY, DIAMONDISH, LABEL_OUTSIDE, shapeOf } from './shapes.js'
 
@@ -69,6 +71,8 @@ export interface FlowNodeData {
   node: DNode
   busy?: boolean
   lanes?: Lane[]
+  /** Tarefa do agente apontando este nó (issue #8) — só quando há uma. */
+  viva?: EtapaViva
   onCardPersist: (id: string) => void
   onVerdict: (id: string, status: NodeStatus, reason?: string) => void
   onEdit: (id: string, patch: Partial<DNode>) => void
@@ -76,7 +80,7 @@ export interface FlowNodeData {
 }
 
 export function FlowNode({ data, selected }: NodeProps): JSX.Element {
-  const { node, onVerdict, onEdit, onCardPersist, busy, lanes } = data as FlowNodeData
+  const { node, onVerdict, onEdit, onCardPersist, busy, lanes, viva } = data as FlowNodeData
   const cardOpen = useCardAbertoDe(node.id)
   const sc = `var(${SC[node.status]})`
   const live = LIVE.has(node.status)
@@ -101,6 +105,8 @@ export function FlowNode({ data, selected }: NodeProps): JSX.Element {
           <Handle type="source" position={pos} id={`s-${side}`} className="fh fh-s" />
         </Fragment>
       ))}
+
+      {viva && <MarcaViva viva={viva} />}
 
       {DIAMONDISH.has(shape) && <span className="fnode-di" aria-hidden />}
       {shape === 'gate' && <GateMark kind={node.kind} />}

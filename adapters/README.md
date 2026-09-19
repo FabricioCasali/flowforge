@@ -137,10 +137,17 @@ node adapters/tasks.js plan "<objetivo>" "<tarefa>" "<tarefa>" ...   começa (ou
 node adapters/tasks.js start <n> ["nota"]        done <n>        block <n> "<motivo>"
 node adapters/tasks.js add "<tarefa>"            reset <n>       note <n> "<texto>"
 node adapters/tasks.js show                      clear
+node adapters/tasks.js link <n> <sessão>/<nó>    unlink <n>
 ```
 
 `<n>` é a posição ou o id da tarefa. O comando acha o `.flowforge/` subindo a partir do diretório
 atual; `--list <id> --label <nome>` separa dois terminais do mesmo harness.
+
+**Etapa viva.** `--node <sessão>/<nó>` (em `add` e `start`) liga a tarefa a um nó do desenho: o nó
+apontado por uma tarefa `in_progress` aparece vivo no canvas daquela sessão, e travado se ela estiver
+`blocked`. É estado derivado — não escreve nada no `workspace.json`. O `plan` não tem sintaxe de elo
+de propósito (marcar o nó dentro do título comeria texto de verdade); ali se usa `link` depois.
+A sessão e o nó não precisam existir ainda: sessão que falta vira aviso, não erro.
 
 Para o agente manter a lista sem você pedir, cole isto no `AGENTS.md` / `CLAUDE.md` do projeto
 (troque o caminho):
@@ -152,6 +159,8 @@ Em trabalho de mais de um passo, publique o seu plano no canvas e mantenha-o em 
 
 - ao começar: `node <flowforge>/adapters/tasks.js plan "<objetivo>" "<tarefa 1>" "<tarefa 2>" ...`
 - ao pegar uma tarefa: `... start <n> "<o que está fazendo, em uma linha>"`
+- se ela for uma etapa de um desenho aberto: `... start <n> --node <sessão>/<id do nó>` — o nó acende
+  no canvas enquanto você estiver nele
 - ao terminar: `... done <n>` — na hora, não em lote no fim
 - se travar esperando decisão ou acesso: `... block <n> "<o que falta>"`
 - descobriu trabalho novo: `... add "<tarefa>"`
