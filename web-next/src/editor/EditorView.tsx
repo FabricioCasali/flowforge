@@ -339,21 +339,29 @@ export function EditorView({ workspace, carregado = true, lens, onLens, busy = f
    * das raias atrás da paleta. A folga por lado desconta esses painéis.
    * `maxZoom: 1` porque diagrama pequeno não precisa ser AMPLIADO pra caber —
    * o `er-demo`, de 3 entidades, abria a 1,8× com caixas gigantes.
+   *
+   * A borda DIREITA entrou depois, pelo mesmo motivo: ali moram o "Aprovar tudo"
+   * (topo) e o minimapa (rodapé), e com 28px de folga um mapa cheio punha nó
+   * embaixo dos dois. Os dois aparecem só às vezes — o botão quando há proposta
+   * na lente, o minimapa fora da Swimlane —, então a folga é a do maior que
+   * estiver na tela e o resto do canvas não é desperdiçado.
    */
   const enquadre = useMemo(() => {
     // em janela estreita a toolbar desce pra segunda linha (media query no
     // editor.css, mesmos cortes) e o topo coberto cresce junto
     const estreita = window.innerWidth <= (guiaAberto ? 1640 : 1330)
+    // literais de propósito: o tipo do React Flow é `${number}px`, não string solta
+    const direita = proposedCount > 0 ? '184px' : lens === 'swimlane' ? '28px' : '172px'
     return {
       padding: {
         top: estreita ? '112px' : '72px',
-        right: '28px',
+        right: direita,
         bottom: '64px',
         left: paletaMini ? '84px' : '158px'
       } as const,
       maxZoom: 1
     }
-  }, [paletaMini, guiaAberto])
+  }, [paletaMini, guiaAberto, lens, proposedCount])
 
   /**
    * LONGE = zoom em que descrição (10,5px) e badge (9px) já são mancha. Abaixo do

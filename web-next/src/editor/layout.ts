@@ -123,6 +123,50 @@ function sizesOf(diagram: Diagram): LayoutResult['sizes'] {
 }
 
 // ---------------------------------------------------------------------------
+// Tamanho no MAPA MENTAL
+//
+// O nó do mind map não é o desenho do fluxograma: é a pílula do `MindNode` —
+// ponto, rótulo, e mais nada (sem cabeçalho, sem badge, sem descrição). Medi-lo
+// pelo `nodeSize` genérico dava caixa estreita demais — a forma `idea` tem teto
+// de 210px de largura — e rótulo como "Arquivos tocados ligados ao nó" perdia o
+// fim. Aqui o rótulo pode QUEBRAR EM ATÉ 3 LINHAS, e a altura calculada conta
+// essas linhas: o `mindLayout` empilha irmãos pela ALTURA do nó, então caixa que
+// cresce só no desenho volta a sobrepor o vizinho de baixo.
+//
+// Os números são os mesmos do `.mind` no `editor.css` — se um lado mudar, o
+// outro tem de mudar junto (é o espírito da lei 8: uma medida só, em um lugar).
+// ---------------------------------------------------------------------------
+
+/** Largura máxima do TEXTO antes de quebrar linha. */
+const MIND_TEXTO_MAX = 214
+/** O que no `.mind` não é texto: padding 2×13, o ponto (7) + gap (7), bordas 2×1,5. */
+const MIND_CHROME = 43
+/** `line-height` do `.mind-label`. */
+const MIND_LINHA = 16
+/** Altura da pílula de uma linha (o resto é o respiro de cima e de baixo). */
+const MIND_ALTURA_1 = 40
+/** Teto de linhas — o mesmo `-webkit-line-clamp` do CSS. */
+const MIND_MAX_LINHAS = 3
+
+/**
+ * Tamanho do nó na lente Mind map. `raiz` só muda a fonte (13px contra 12px).
+ */
+export function mindNodeSize(n: DNode, raiz = false): Size {
+  // largura média do caractere na Space Grotesk semibold do `.mind`
+  const texto = (n.label || '').length * (raiz ? 7.6 : 7)
+  const linhas = Math.min(MIND_MAX_LINHAS, Math.max(1, Math.ceil(texto / MIND_TEXTO_MAX)))
+  const util = Math.max(60, Math.min(MIND_TEXTO_MAX, texto))
+  return { width: Math.round(util + MIND_CHROME), height: MIND_ALTURA_1 + (linhas - 1) * MIND_LINHA }
+}
+
+/** As medidas dos dois arranjos do mind map (`mindLayout` e `radialLayout`). */
+function sizesMind(diagram: Diagram, rootId?: string): LayoutResult['sizes'] {
+  const sizes: LayoutResult['sizes'] = {}
+  for (const n of diagram.nodes) sizes[n.id] = mindNodeSize(n, n.id === rootId)
+  return sizes
+}
+
+// ---------------------------------------------------------------------------
 // Posições do arquivo
 // ---------------------------------------------------------------------------
 
@@ -1720,8 +1764,8 @@ export function mindEdgePoints(diagram: Diagram, positions: Record<string, Pt>, 
  * espalhava sem critério (visto em 18/09/2026, sessão `melhorias-flowforge`).
  */
 export function mindLayout(diagram: Diagram, honorSaved = true): LayoutResult {
-  const sizes = sizesOf(diagram)
   const { root, children } = arvoreDe(diagram)
+  const sizes = sizesMind(diagram, root?.id)
   const computed: Record<string, Pt> = {}
   if (!root) return fechaMind(diagram, computed, sizes, honorSaved)
 
@@ -1779,8 +1823,8 @@ export function mindLayout(diagram: Diagram, honorSaved = true): LayoutResult {
  * sobreposto. Fica grande em mapa cheio; o padrão da lente é o `mindLayout`.
  */
 export function radialLayout(diagram: Diagram, honorSaved = true): LayoutResult {
-  const sizes = sizesOf(diagram)
   const { root, children } = arvoreDe(diagram)
+  const sizes = sizesMind(diagram, root?.id)
   const computed: Record<string, Pt> = {}
 
   // conta folhas por subárvore → distribui setores angulares proporcionais

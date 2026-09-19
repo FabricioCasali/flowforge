@@ -102,6 +102,18 @@
 .react-flow__minimap:hover {
   opacity: 1;
 }
+
+/* A barra de rolagem NATIVA é clara e grita no tema escuro — foi visto na paleta
+   de formas, mas vale pra todo painel do editor que rola. Mesmo tratamento que a
+   lente Tarefas já usava (`.tasksview`, `.tk-ev`), agora num lugar só. */
+.palette,
+.guia-lista,
+.seqview,
+.fpanel,
+.fpanel-thread {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-2) transparent;
+}
 /* Os botões de zoom moravam no mesmo canto do HUD e ficavam atrás dele.
    Sobem o bastante pra limpar a faixa do HUD (8+14+~30px). */
 .neon-editor .react-flow__controls {
@@ -1989,8 +2001,19 @@
   box-shadow: 0 0 7px var(--bc);
   flex: none;
 }
+/* O rótulo QUEBRA em vez de sair pela borda ("Arquivos tocados ligados ao nó"
+   perdia o fim com `nowrap`). As medidas aqui são as mesmas do `mindNodeSize`
+   (layout.ts): line-height 16px e até 3 linhas. Se mudar de um lado, mude do
+   outro — senão o layout empilha irmãos por uma altura que o desenho não tem. */
 .mind-label {
-  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+  line-height: 16px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
 }
 .react-flow__handle.mind-h {
   opacity: 0;

@@ -660,7 +660,118 @@ function testaGuia(M) {
   return casos;
 }
 
-async function autoteste(L, M, X) {
+/**
+ * A LENTE DE ABERTURA (issue #13). Abrir sempre no Fluxograma deixava o canvas em
+ * branco em toda sessao cujo desenho mora noutra lente. A regra e pura
+ * (`lenteInicial`, em lenses.ts) justamente pra caber aqui, sem browser.
+ */
+function testaLenteInicial(LE) {
+  const casos = [];
+  const dia = (extra) => ({ type: 'flowchart', title: 'T', rev: 0, updatedBy: 'user', lanes: [], nodes: [], edges: [], ...extra });
+  const no = (id) => ({ id, label: id, kind: 'task', status: 'proposed', comments: [] });
+  const ws = (extra) => ({
+    process: dia(), state: dia(), er: dia({ type: 'er' }), mind: dia({ type: 'mindmap' }),
+    seq: { participants: [], messages: [] }, rev: 0, updatedBy: 'user', ...extra,
+  });
+
+  const vazio = ws();
+  casos.push(['workspace vazio abre no Fluxograma', LE.lenteInicial(vazio) === 'flow']);
+
+  casos.push(['sessao que so tem mapa mental abre no Mind map',
+    LE.lenteInicial(ws({ mind: dia({ type: 'mindmap', nodes: [no('a')] }) })) === 'mind']);
+  casos.push(['sessao que so tem maquina de estados abre nela',
+    LE.lenteInicial(ws({ state: dia({ nodes: [no('a')] }) })) === 'state']);
+  casos.push(['sessao que so tem entidades abre no ER',
+    LE.lenteInicial(ws({ er: dia({ type: 'er', nodes: [no('a')] }) })) === 'er']);
+  casos.push(['sessao que so tem sequencia abre na Sequencia',
+    LE.lenteInicial(ws({ seq: { participants: [{ id: 'p', label: 'P' }], messages: [] } })) === 'seq']);
+
+  // `process` serve DUAS lentes: quem se declara swimlane E tem raias abre na Swimlane
+  casos.push(['process comum abre no Fluxograma',
+    LE.lenteInicial(ws({ process: dia({ nodes: [no('a')] }) })) === 'flow']);
+  casos.push(['process swimlane COM raias abre na Swimlane',
+    LE.lenteInicial(ws({ process: dia({ type: 'swimlane', lanes: [{ id: 'l', label: 'Ator', order: 0 }], nodes: [no('a')] }) })) === 'swimlane']);
+  casos.push(['process swimlane SEM raias cai no Fluxograma (nao finge raia)',
+    LE.lenteInicial(ws({ process: dia({ type: 'swimlane', nodes: [no('a')] }) })) === 'flow']);
+
+  // a ordem e a da barra de lentes: o primeiro que tem conteudo ganha
+  casos.push(['com process E mind desenhados, ganha o Fluxograma (ordem da barra)',
+    LE.lenteInicial(ws({ process: dia({ nodes: [no('a')] }), mind: dia({ type: 'mindmap', nodes: [no('b')] }) })) === 'flow']);
+  casos.push(['com state E mind desenhados, ganha a Maq. estados',
+    LE.lenteInicial(ws({ state: dia({ nodes: [no('a')] }), mind: dia({ type: 'mindmap', nodes: [no('b')] }) })) === 'state']);
+
+  // a lente Tarefas nao le o workspace — ela nunca pode ser a escolhida sozinha
+  const todas = [
+    vazio,
+    ws({ mind: dia({ type: 'mindmap', nodes: [no('a')] }) }),
+    ws({ seq: { participants: [{ id: 'p', label: 'P' }], messages: [] } }),
+    ws({ process: dia({ type: 'swimlane', lanes: [{ id: 'l', label: 'A', order: 0 }], nodes: [no('a')] }) }),
+  ];
+  casos.push(['a lente Tarefas NUNCA e escolhida automaticamente',
+    todas.every((w) => LE.lenteInicial(w) !== 'tasks')]);
+  // e toda escolha tem de ser uma lente que existe de verdade
+  const chaves = new Set(LE.LENSES.map((l) => l.key));
+  casos.push(['a escolha e sempre uma lente do registro', todas.every((w) => chaves.has(LE.lenteInicial(w)))]);
+
+  return casos;
+}
+
+/**
+ * ROTULO LONGO NO MAPA MENTAL (issue #14). O no do mind map e a pilula do
+ * `MindNode`: ponto + rotulo, e mais nada. A caixa tem de COMPORTAR o texto, e a
+ * altura tem de contar as linhas — o `mindLayout` empilha irmaos pela altura, e
+ * caixa que cresce so no desenho volta a sobrepor o vizinho de baixo.
+ *
+ * A conta de largura aqui e ESCRITA DE NOVO e por baixo (6,6px por caractere, que
+ * e o piso da Space Grotesk de 12px): se ela usasse a do layout, um erro la faria
+ * o teste concordar com o erro.
+ */
+function testaMindRotuloLongo(L) {
+  const casos = [];
+  const CHROME = 43;   // padding + ponto + gap + bordas do `.mind`
+  const LINHA = 16;    // line-height do `.mind-label`
+  const no = (id, label) => ({ id, label, kind: 'idea', status: 'proposed', comments: [] });
+  const longo = 'Arquivos tocados ligados ao no';
+  const gigante = 'Arquivos tocados ligados ao no, com o resumo do que o agente fez na etapa';
+  const d = {
+    type: 'mindmap', title: 'T', rev: 0, updatedBy: 'user', lanes: [],
+    nodes: [no('raiz', 'Mapa'), no('a', longo), no('b', longo), no('c', gigante), no('d', 'ok')],
+    edges: ['a', 'b', 'c', 'd'].map((t) => ({ id: 'e' + t, source: 'raiz', target: t, label: '', status: 'proposed' })),
+  };
+  const r = L.mindLayout(d);
+
+  // 1. o texto CABE: (linhas x largura util) tem de dar conta do rotulo
+  const ruins = [];
+  for (const n of d.nodes) {
+    const s = r.sizes[n.id];
+    const linhas = Math.round((s.height - 40) / LINHA) + 1;
+    if (linhas * (s.width - CHROME) < n.label.length * 6.6) ruins.push(`${n.id} (${s.width}x${s.height} pra ${n.label.length} letras)`);
+  }
+  casos.push([`a caixa do mapa mental comporta o rotulo${ruins.length ? ' — falhou: ' + ruins.join(', ') : ''}`, ruins.length === 0]);
+
+  // 2. a ALTURA reflete a quebra: o rotulo gigante e mais alto que o curto
+  casos.push(['rotulo que quebra linha da um no mais ALTO', r.sizes.c.height > r.sizes.d.height]);
+  casos.push(['rotulo curto continua numa linha so', r.sizes.d.height === 40]);
+
+  // 3. o arranjo nao sobrepoe irmao nenhum — e nem precisou do desempilhamento
+  let colisoes = 0;
+  const ids = d.nodes.map((n) => n.id);
+  for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) {
+    const A = r.positions[ids[i]], B = r.positions[ids[j]], sa = r.sizes[ids[i]], sb = r.sizes[ids[j]];
+    if (A.x < B.x + sb.width && A.x + sa.width > B.x && A.y < B.y + sb.height && A.y + sa.height > B.y) colisoes++;
+  }
+  casos.push(['com rotulos longos, nenhum no do mapa se sobrepoe', colisoes === 0]);
+  casos.push(['o mindLayout ja nasce sem sobreposicao (nada pra desempilhar)', (r.ajustados || []).length === 0]);
+
+  // 4. a caixa do mapa mental e a do `MindNode`, nao a do fluxograma: a forma
+  //    `idea` tem teto de 210px e era ela que cortava o fim do rotulo
+  casos.push(['o no do mapa e medido pela pilula, nao pela forma do fluxograma',
+    r.sizes.a.width !== L.nodeSize(no('a', longo)).width]);
+
+  return casos;
+}
+
+async function autoteste(L, M, X, LE) {
   const casos = [];
   const base = () => ({
     type: 'flowchart', title: 'T', rev: 0, updatedBy: 'user', lanes: [],
@@ -834,6 +945,10 @@ async function autoteste(L, M, X) {
   casos.push(...(await testaRoteamento(L)));
   // FF-015: a ordem do modo guiado
   casos.push(...testaGuia(M));
+  // issue #13: a lente com que a sessao abre
+  casos.push(...testaLenteInicial(LE));
+  // issue #14: rotulo longo no mapa mental
+  casos.push(...testaMindRotuloLongo(L));
 
   let falhas = 0;
   for (const [nome, ok] of casos) {
@@ -856,8 +971,9 @@ async function main() {
   const SH = await transpilar(tmp, 'shapes.ts');
   const M = await transpilar(tmp, 'model.ts');
   const X = await transpilar(tmp, 'export.ts');
+  const LE = await transpilar(tmp, 'lenses.ts');
 
-  if (process.argv.includes("--autoteste")) return autoteste(L, M, X);
+  if (process.argv.includes("--autoteste")) return autoteste(L, M, X, LE);
 
   // ---- lei 8: as formas por kind ----
   const probFormas = verificaFormas(SH, L);
