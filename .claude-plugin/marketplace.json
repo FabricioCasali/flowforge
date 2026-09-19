@@ -1,0 +1,14 @@
+{
+  "name": "flowforge",
+  "description": "FlowForge: canvas colaborativo e vivo para desenhar e acompanhar trabalho com um agente de código.",
+  "owner": {
+    "name": "Fabricio Casali"
+  },
+  "plugins": [
+    {
+      "name": "flowforge",
+      "source": "./",
+      "description": "Canvas colaborativo e vivo para desenhar com um agente de código: skill /flowforge + hook da linha do tempo."
+    }
+  ]
+}
