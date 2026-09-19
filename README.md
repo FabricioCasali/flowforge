@@ -134,6 +134,24 @@ Para experimentar sem instalar: `claude --plugin-dir <pasta do clone>`. Depois �
 "abre o flowforge e me mostra o andamento desta task". O hook da linha do tempo é global, mas não
 faz nada em projeto que não tenha uma pasta `.flowforge/`; quem não quiser, desabilita o plugin.
 
+### Usar no OpenCode
+
+O OpenCode não instala plugin do Claude Code, mas lê a mesma skill. Com o repositório clonado em
+`<clone>`, acrescente ao `opencode.json` (ou `~/.config/opencode/opencode.jsonc`):
+
+```jsonc
+{
+  "skills": { "paths": ["<clone>/skills"] },
+  "permission": { "external_directory": { "<clone>/*": "allow" } }
+}
+```
+
+A permissão importa: a skill manda o agente ler e executar arquivos de `<clone>`, que fica **fora**
+do projeto em que você está trabalhando. Sem ela o OpenCode pergunta a cada acesso — e no modo não
+interativo (`opencode run`) rejeita. Validado com um agente de verdade: skill carregada, servidor
+no ar, mapa criado e tarefas publicadas como "OpenCode". O que ainda não existe ali é a sessão
+aberta responder ao Analisar ([#10](https://github.com/FabricioCasali/flowforge/issues/10)).
+
 ### Quem responde
 
 O melhor respondedor é a sessão de CLI que você **já tem aberta** no projeto: ela sabe o que está

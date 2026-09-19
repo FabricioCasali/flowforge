@@ -21,7 +21,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import WebSocket from 'ws';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -126,6 +126,20 @@ async function main() {
     const t6 = await a.until((t) => t.lists.filter((l) => l.id.startsWith('par-')).reduce((s, l) => s + l.tasks.length, 0) === N, N + ' escritas simultaneas', 8000);
     ok(N + ' escritas simultaneas: nenhuma se perde (trava do arquivo)', t6.lists.length === 4);
     ok('nenhuma trava ou temporario sobra na raiz', !fs.readdirSync(dataDir).some((f) => /\.(lock|tmp)$/.test(f)));
+
+    // ---- 3b. quem publica, quando um harness e aberto de dentro do terminal de outro ----
+    {
+      const { whoAmI } = await import(pathToFileURL(path.join(ROOT, 'adapters', 'project.js')).href).then((m) => m.default ?? m);
+      const quem = (env, chain) => whoAmI(env, () => chain).id;
+      const dois = { CLAUDECODE: '1', OPENCODE: '1', OPENCODE_PID: '50' };
+      ok('publicador: um harness so e reconhecido pelo ambiente', quem({ CLAUDECODE: '1' }, []) === 'claude-code'
+        && quem({ OPENCODE: '1', OPENCODE_PID: '50' }, []) === 'opencode' && quem({}, []) === 'cli');
+      ok('publicador: OpenCode aberto DENTRO do Claude Code publica como OpenCode',
+        quem(dois, [{ pid: 70, name: 'bash.exe' }, { pid: 50, name: 'node.exe' }, { pid: 30, name: 'claude.exe' }]) === 'opencode');
+      ok('publicador: Claude Code aberto DENTRO do OpenCode publica como Claude Code',
+        quem(dois, [{ pid: 70, name: 'bash.exe' }, { pid: 60, name: 'claude.exe' }, { pid: 50, name: 'node.exe' }]) === 'claude-code');
+      ok('publicador: FLOWFORGE_TASKS_LIST manda em tudo', quem({ ...dois, FLOWFORGE_TASKS_LIST: 'meu' }, []) === 'meu');
+    }
 
     // ---- 4. nao toca no desenho ----
     const ws = JSON.parse(fs.readFileSync(path.join(dataDir, 'desenho-a', 'workspace.json'), 'utf8'));
