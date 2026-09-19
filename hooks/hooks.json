@@ -1,5 +1,5 @@
 {
-  "description": "Linha do tempo do FlowForge: narra cada ação do agente em <projeto>/.flowforge/activity.jsonl. Em projeto sem .flowforge/ não faz nada.",
+  "description": "Linha do tempo do FlowForge: narra cada ação do agente em <projeto>/.flowforge/activity.jsonl. E, no fim de cada turno, rearma a escuta do Analisar (adapters/live.js wait). Em projeto sem .flowforge/ os dois saem calados.",
   "hooks": {
     "PostToolUse": [
       { "matcher": "", "hooks": [ { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/adapters/activity.js", "hook", "claude-code"], "async": true, "timeout": 10 } ] }
@@ -8,7 +8,8 @@
       { "hooks": [ { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/adapters/activity.js", "hook", "claude-code"], "async": true, "timeout": 10 } ] }
     ],
     "Stop": [
-      { "hooks": [ { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/adapters/activity.js", "hook", "claude-code"], "async": true, "timeout": 10 } ] }
+      { "hooks": [ { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/adapters/activity.js", "hook", "claude-code"], "async": true, "timeout": 10 } ] },
+      { "hooks": [ { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/adapters/live.js", "wait"], "async": true, "asyncRewake": true } ] }
     ]
   }
 }

@@ -54,7 +54,15 @@ O pedido pode vir como:
 5. **Armar o loop vivo — quem responde é ESTA sessão.** Não delegue para outro agente se não foi
    solicitado. Esta sessão já tem o contexto do que está sendo tratado.
 
-   No Claude Code, arme a escuta com a ferramenta **Monitor**:
+   **No Claude Code com o plugin instalado não há nada a armar:** um hook `Stop` roda
+   `adapters/live.js wait` no fim de **cada turno**, e a escuta se rearma sozinha — sem teto de
+   tempo e sem depender de você lembrar. Ela sobe uma ponte própria; espere a luz do agente
+   acender no canvas antes de dizer que o loop está vivo. Quando o usuário clicar **Analisar**,
+   você acorda com um aviso rotulado como *"Stop hook blocking error"* que começa com
+   `FLOWFORGE: NAO e um erro` — **não é erro nenhum**, é o clique dele. O que fazer está em
+   "O loop", abaixo.
+
+   **Sem o plugin** (FlowForge rodando de um clone), arme a escuta com a ferramenta **Monitor**:
 
    ```
    Monitor  command: node "${CLAUDE_PLUGIN_ROOT}/adapters/live.js" 2>&1
@@ -66,9 +74,11 @@ O pedido pode vir como:
 
    - `FLOWFORGE erro: Ja existe um adapter ativo` → outra sessão está com a escuta. Avise o
      usuário; não derrube a outra por conta própria.
+   - `FLOWFORGE ja existe uma ponte viva …` → a escuta automática do plugin já está no ar. Não
+     arme o Monitor; não há o que fazer.
    - `FLOWFORGE servidor fora do ar …` → a escuta reconecta sozinha, e os pedidos pendentes são
      reenviados.
-   - **A escuta expira** (no Claude Code, em 30 minutos). Quando isso acontece o canvas mostra
+   - **O Monitor expira** (em 30 minutos). Quando isso acontece o canvas mostra
      "agente desconectado" e pede ao usuário que diga **"reconecte o FlowForge"**. Ao ouvir essa
      frase — ou ao receber o aviso de que o Monitor expirou, com o canvas ainda em uso — arme o
      Monitor de novo. Nada se perde: pedido feito com o agente fora fica guardado e chega na
@@ -115,14 +125,16 @@ O pedido pode vir como:
 
 ### Desligar
 
-1. Pare o Monitor da escuta. Se houver um pedido aberto, feche-o antes com
+1. Pare a escuta: `node "${CLAUDE_PLUGIN_ROOT}/adapters/live.js" stop` (ou pare o Monitor, se foi
+   assim que ela foi armada). Se houver um pedido aberto, feche-o antes com
    `live.js done <requestId> --failed "sessão encerrada"`.
 2. Mate o servidor **pela porta** (a linha de comando do `node` não contém "flowforge").
 3. Os diagramas ficam salvos em `<cwd>/.flowforge/`.
 
 ## O loop (o que fazer quando chega um evento `FLOWFORGE analisar`)
 
-O Monitor entrega uma linha (no OpenCode, o mesmo pedido chega por extenso no prompt):
+O hook `Stop` acorda você com um aviso que começa com `FLOWFORGE: NAO e um erro` e traz a linha
+abaixo; pelo Monitor chega só a linha (no OpenCode, o mesmo pedido chega por extenso no prompt):
 
 ```
 FLOWFORGE analisar <requestId> sessao=<slug> dir=<pasta da sessão> nota="<o que ele digitou>"
