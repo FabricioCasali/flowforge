@@ -2,14 +2,33 @@
 // achar o .flowforge/ do projeto e saber quem esta publicando.
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
-/** Sobe a partir de `start` ate achar um `.flowforge/`. Devolve null se nao houver. */
+/**
+ * Sobe a partir de `start` ate achar um `.flowforge/`. Devolve null se nao houver.
+ *
+ * O `~/.flowforge` NAO conta: e a pasta de ESTADO dos adapters (arquivos de controle da ponte,
+ * id das conversas), nao o data-dir de um projeto. Sem essa excecao, todo projeto debaixo do
+ * HOME que nao usa FlowForge "achava" um — e o hook da linha do tempo gravava a atividade dele
+ * na pasta pessoal do usuario (visto em 19/09/2026: 38 linhas la, vindas de pastas temporarias).
+ */
 function findExistingDataDir(start) {
+  const estado = path.join(os.homedir(), '.flowforge');
+  const same = (a, b) => path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
+  // Cinto e suspensorio: alem de ser a do HOME, a pasta de estado se reconhece pelo que tem dentro.
+  // Cobre o HOME redefinido (teste, conta de servico, container) em que a pasta REAL fica no caminho.
+  const pareceEstado = (d) => {
+    try {
+      return fs.readdirSync(d).some((n) => n === 'adapter-state.json' || n === 'codex-threads.json' || n === 'opencode' || /^live-\d+\.json$/.test(n));
+    } catch (e) { return false; }
+  };
   for (let dir = path.resolve(start); ; dir = path.dirname(dir)) {
     const candidate = path.join(dir, '.flowforge');
-    try { if (fs.statSync(candidate).isDirectory()) return candidate; } catch (e) { /* segue subindo */ }
+    if (!same(candidate, estado) && !pareceEstado(candidate)) {
+      try { if (fs.statSync(candidate).isDirectory()) return candidate; } catch (e) { /* segue subindo */ }
+    }
     if (path.dirname(dir) === dir) return null;
   }
 }

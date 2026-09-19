@@ -110,6 +110,18 @@ async function main() {
     const vazio = hook(null, '');
     ok('fora de projeto, payload torto e stdin vazio: exit 0, stdout/stderr vazios', [fora, torto, vazio].every((r) => r.status === 0 && !r.stdout && !r.stderr));
     ok('e nao cria .flowforge/ em projeto que nao usa', !fs.existsSync(path.join(semProjeto, '.flowforge')));
+
+    // o ~/.flowforge e a pasta de ESTADO dos adapters, nao um projeto: um hook rodando em qualquer
+    // pasta debaixo do HOME nao pode "achar" ele subindo a arvore e gravar la
+    const casa = path.join(tempRoot, 'casa');
+    const soltoNaCasa = path.join(casa, 'trabalho', 'sem-flowforge');
+    fs.mkdirSync(path.join(casa, '.flowforge'), { recursive: true });
+    fs.mkdirSync(soltoNaCasa, { recursive: true });
+    const envCasa = { ...envLimpo, USERPROFILE: casa, HOME: casa };
+    const naCasa = spawnSync(process.execPath, [CLI, 'hook', 'claude-code'],
+      { input: JSON.stringify(post('Read', { file_path: 'x' }, { cwd: soltoNaCasa })), env: envCasa, encoding: 'utf8' });
+    ok('a pasta de estado ~/.flowforge nao e confundida com o data-dir de um projeto',
+      naCasa.status === 0 && !fs.existsSync(path.join(casa, '.flowforge', 'activity.jsonl')));
     hook(post('Bash', { command: 'node ' + TASKS + ' done 2' }));
     hook(post('Bash', { command: 'node C:/x/adapters/live.js done abc' }));
     hook(post('ToolSearch', { query: 'x' }));
