@@ -73,10 +73,22 @@ O pedido pode vir como:
      frase — ou ao receber o aviso de que o Monitor expirou, com o canvas ainda em uso — arme o
      Monitor de novo. Nada se perde: pedido feito com o agente fora fica guardado e chega na
      reconexão.
-   - Harness sem uma ferramenta que transforme o stdout de um processo em evento na conversa:
-     diga que a sessão viva ainda não existe ali. Só use
-     `node "${CLAUDE_PLUGIN_ROOT}/adapters/index.js" <harness>` (execução à parte: outra conversa,
-     que relê o projeto e custa mais) se ele pedir.
+   **No OpenCode** não há Monitor, mas há o servidor HTTP da própria TUI: instale o plugin uma
+   vez no projeto e deixe a ponte rodando em segundo plano, que o pedido chega no prompt desta
+   sessão.
+
+   ```
+   node "${CLAUDE_PLUGIN_ROOT}/adapters/activity.js" install opencode   # uma vez; reabra a sessão depois
+   node "${CLAUDE_PLUGIN_ROOT}/adapters/live.js" --deliver opencode     # em segundo plano
+   ```
+
+   O plugin é quem diz à ponte onde está o servidor desta sessão — sem ele, passe
+   `FLOWFORGE_OPENCODE_URL=http://127.0.0.1:<porta>` (a porta com que a TUI foi aberta). O evento
+   chega como um pedido por extenso no prompt, e o loop abaixo é o mesmo.
+
+   - Harness sem Monitor e sem um jeito de entregar na sessão aberta: diga que a sessão viva
+     ainda não existe ali. Só use `node "${CLAUDE_PLUGIN_ROOT}/adapters/index.js" <harness>`
+     (execução à parte: outra conversa, que relê o projeto e custa mais) se ele pedir.
 
 6. **Publicar o que você está fazendo.** O usuário abre o FlowForge para ver status, andamento e
    dúvidas da task em curso — e a lente **Tarefas** só mostra o que você publicar:
@@ -110,7 +122,7 @@ O pedido pode vir como:
 
 ## O loop (o que fazer quando chega um evento `FLOWFORGE analisar`)
 
-O Monitor entrega uma linha:
+O Monitor entrega uma linha (no OpenCode, o mesmo pedido chega por extenso no prompt):
 
 ```
 FLOWFORGE analisar <requestId> sessao=<slug> dir=<pasta da sessão> nota="<o que ele digitou>"

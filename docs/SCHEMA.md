@@ -196,9 +196,13 @@ Quem escreve é o comando, chamado por um hook do harness ou pelo próprio agent
 ```
 node <flowforge>/adapters/activity.js install claude-code      # liga o hook NESTE projeto
 node <flowforge>/adapters/activity.js install claude-code --global
+node <flowforge>/adapters/activity.js install opencode         # no OpenCode o gancho é um plugin
 node <flowforge>/adapters/activity.js note "decidi trocar a lib só depois do teste"
 node <flowforge>/adapters/activity.js show
 ```
+
+Cada harness liga o gancho do jeito dele — entrada de settings no Claude Code, arquivo de plugin em
+`.opencode/plugin/` no OpenCode — e quem sabe disso é `adapters/hooks/<harness>.js`, não o núcleo.
 
 O hook nunca atrapalha o harness: projeto sem `.flowforge/` sai calado, qualquer erro sai `0`, e roda
 assíncrono. O arquivo é podado sozinho (fica o fim) — é linha do tempo, não auditoria.

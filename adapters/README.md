@@ -25,7 +25,9 @@ sessão viva.
 
 ## Sessão viva
 
-No Claude Code, peça à sessão para armar a ponte com a ferramenta **Monitor**:
+### No Claude Code
+
+Peça à sessão para armar a ponte com a ferramenta **Monitor**:
 
 ```
 Monitor:  node <flowforge>/adapters/live.js        (timeout no máximo; rearmar quando expirar)
@@ -55,9 +57,39 @@ feito no intervalo fica no `inbox.jsonl` e é reenviado, com o mesmo `requestId`
 trava não expirar. A linha é curta de propósito — o harness corta evento comprido —, então a nota
 inteira está sempre no `thread.json`.
 
+### No OpenCode
+
+O OpenCode não tem uma ferramenta que transforme o stdout de um processo em evento na conversa —
+mas tem um servidor HTTP dentro da própria TUI. Então lá a ponte **escreve no prompt da sessão
+aberta** ([`deliver/opencode.js`](deliver/opencode.js)), em vez de imprimir uma linha:
+
+```
+node adapters/activity.js install opencode      # uma vez por projeto (ou --global)
+node adapters/live.js --deliver opencode        # rode em segundo plano, de dentro da sessão
+```
+
+O `install` escreve `.opencode/plugin/flowforge.js`, e é esse plugin que faz os dois trabalhos:
+narra a [linha do tempo](#linha-do-tempo) e deixa em `~/.flowforge/opencode/` a URL do servidor
+daquela instância (o `serverUrl` chega pronto no plugin). **É assim que a ponte acha a TUI**: ela
+sorteia a porta e não publica a URL em variável de ambiente. Como o plugin só carrega na abertura,
+**reabra a sessão do OpenCode depois de instalar**.
+
+A cada Analisar a ponte faz `POST /tui/append-prompt` com o pedido e `POST /tui/submit-prompt` —
+o texto cai no prompt da conversa que estiver aberta e é enviado. Diferente da linha do Claude
+Code, aqui vai o pedido **por extenso** (onde ler, o formato do `reply.json`, o comando que fecha),
+porque do outro lado pode não haver skill carregada. O `done` é o mesmo.
+
+| como mandar sem o plugin | quando |
+| --- | --- |
+| `FLOWFORGE_OPENCODE_URL=http://127.0.0.1:<porta>` ou `--opencode-url <url>` | você abriu a TUI com `--port` fixo |
+| `FLOWFORGE_OPENCODE_SESSION=<id>` ou `--opencode-session <id>` | servidor sem TUI (`opencode serve`): a entrega vira `POST /session/<id>/prompt_async` |
+
+Se o OpenCode estiver fechado, a ponte avisa no stdout e segue viva; o pedido continua pendente e
+pode ser fechado à mão com `live.js done <requestId> --failed "…"`.
+
 Outros harnesses: a ponte serve a qualquer um que consiga transformar o stdout de um processo em
-evento na conversa. O OpenCode expõe um servidor HTTP na própria TUI (`/tui/append-prompt`,
-`/session/:id/prompt_async`) que permitiria entregar o pedido na sessão aberta — ainda não feito.
+evento na conversa, ou que aceite um módulo de entrega — o contrato está em
+[`deliver/README.md`](deliver/README.md).
 
 ## Execução à parte
 
@@ -172,9 +204,18 @@ Cada ação sai carimbada com a tarefa `in_progress` de quem publica — então 
 `tasks.js start` é o que organiza a linha do tempo**. O agente também pode narrar o que ferramenta
 nenhuma mostra: `node adapters/activity.js note "decidi X porque Y"`.
 
-Harness novo: um módulo em [`hooks/`](hooks/) com `SOURCE`, `EVENTS`, `map(payload, projectDir)` e
-`settingsEntries(command)`. O `map` devolve `{ kind, summary, files? }` ou `null` — e é onde mora a
-regra de **não vazar**: nada de pedido do usuário, conteúdo, saída ou comando cru.
+**No OpenCode o gancho é um plugin**, não uma entrada de settings: `node adapters/activity.js
+install opencode` escreve `.opencode/plugin/flowforge.js` (ou o do config global, com `--global`).
+Ele escuta `tool.execute.after`, `chat.message` e o evento `session.idle`, e de quebra anuncia o
+servidor da sessão para a [ponte viva](#no-opencode). Reinstalar dá o mesmo arquivo; `uninstall`
+apaga só ele. O OpenCode carrega plugin na abertura: **reabra a sessão**. Uma diferença de rigor
+vale nota: o `bash` do OpenCode não tem campo `description`, então comando ali **sempre** vira
+programa + subcomando.
+
+Harness novo: um módulo em [`hooks/`](hooks/) com `SOURCE`, `map(payload, projectDir)` e
+`install({ global, remove, projectDir, scriptPath })`; o `activity.js` descobre pelo nome do
+arquivo. O `map` devolve `{ kind, summary, files?, failed? }` ou `null` — e é onde mora a regra de
+**não vazar**: nada de pedido do usuário, conteúdo, saída ou comando cru.
 
 ## Escrever um driver
 
@@ -205,8 +246,11 @@ node scripts/prova-adapter.mjs meu-harness  # o loop inteiro com o CLI de verdad
 
 ## Limites conhecidos
 
-- **A sessão viva só existe, por enquanto, no Claude Code** (pela ferramenta Monitor, que expira
-  em no máximo 30 min; o canvas avisa e o usuário pede a reconexão). Para OpenCode e Codex só há a execução à parte.
+- **A sessão viva existe no Claude Code** (pela ferramenta Monitor, que expira em no máximo
+  30 min; o canvas avisa e o usuário pede a reconexão) **e no OpenCode** (pelo servidor HTTP da
+  TUI). No OpenCode a ponte não sabe se a TUI está de fato aberta: `append-prompt` responde 200
+  mesmo num `opencode serve` sem TUI nenhuma, e o pedido se perde em silêncio. Para os demais
+  harnesses só há a execução à parte.
 - **O adapter só trata `analyze`.** O caminho inverso existe para **tarefas** (acima), e é o
   agente quem publica, por comando. Ações do CLI narradas sozinhas no canvas (o que ele leu,
   editou, rodou) ainda não existem.

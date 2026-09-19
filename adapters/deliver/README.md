@@ -18,3 +18,11 @@ module.exports = {
 
 O resto não muda: a ponte registra no `/agent`, manda `progress`, e a sessão fecha o pedido com
 `live.js done <requestId>`.
+
+Pronto aqui: [`opencode.js`](opencode.js) — escreve no prompt da TUI aberta pelo servidor HTTP do
+próprio OpenCode. Serve de modelo para os dois problemas que todo módulo tem: **achar** o harness
+(lá, por um bilhete que o plugin deixa com a URL do servidor) e **dizer o que fazer** (o pedido
+por extenso, porque do outro lado pode não haver skill carregada).
+
+Opção que o `live.js` não conhece sobra em `opts.args` — é por ali que `--opencode-url` e
+`--opencode-session` chegam, sem que o núcleo precise saber que existem.
